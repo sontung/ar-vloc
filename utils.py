@@ -22,12 +22,23 @@ def visualize():
     ar_obj.compute_vertex_normals()
     texture = cv2.cvtColor(cv2.imread("sfm_models/texture.jpg"), cv2.COLOR_BGR2RGB)
     ar_obj.textures = [o3d.geometry.Image(texture)]
-    ar_obj.scale(0.1, ar_obj.get_center())
+    ar_obj.scale(0.3, ar_obj.get_center())
 
-    pcd = o3d.io.read_point_cloud("sfm_models/points3D_o3d.txt", format="xyzrgb")
-    bb = pcd.get_axis_aligned_bounding_box()
+    pcd = o3d.io.read_point_cloud("sfm_models/points3D_o3d_cleaned.pcd", format="pcd")
+    bb = pcd.get_oriented_bounding_box()
+    aabb = pcd.get_axis_aligned_bounding_box()
+
+    bb_points = np.asarray(bb.get_box_points())
+    lines = [[0, 1], [1, 2]]
+    colors = [[1, 0, 0] for _ in range(len(lines))]
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(bb_points),
+        lines=o3d.utility.Vector2iVector(lines),
+    )
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+
     ar_obj.translate(bb.get_center())
-    o3d.visualization.draw_geometries([ar_obj, pcd])
+    o3d.visualization.draw_geometries([ar_obj, pcd, bb, aabb])
 
 
 def simple_square(out_file="sfm_models/square.obj"):
@@ -38,10 +49,10 @@ def simple_square(out_file="sfm_models/square.obj"):
     #     [0.5, -0.5, -0.5]
     # ])
     default_vertices = np.array([
-        [-1.3, -28, -0.29],
-        [31, -28, -0.29],
-        [31, 11, -0.29],
-        [-1.3, 11, -0.29],
+        [-1.3, -3.8, 3.018],
+        [8.1, -3.8, 3.018],
+        [8.1, 4.88, 3.018],
+        [-1.3, 4.88, 3.018],
     ])
     default_faces = np.array([
         [2, 1, 0],
