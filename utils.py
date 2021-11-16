@@ -4,6 +4,16 @@ import numpy as np
 import trimesh
 import cv2
 from PIL import Image
+from scipy.spatial.transform import Rotation as rot_mat_compute
+
+
+def clean_pc():
+    sys.stdin = open("sfm_models/points3D_o3d_cleaned2.pcd", "r")
+    lines = sys.stdin.readlines()
+    out_buf = open("sfm_models/pc.txt", "w")
+    for line in lines:
+        x, y, z, _ = map(float, line.split(" ")[:7])
+        print(x, y, z, file=out_buf)
 
 
 def colmap2open3d(pc_file="sfm_models/points3D.txt", out_file="sfm_models/points3D_o3d.txt"):
@@ -19,26 +29,29 @@ def colmap2open3d(pc_file="sfm_models/points3D.txt", out_file="sfm_models/points
 
 def visualize():
     ar_obj = o3d.io.read_triangle_mesh('sfm_models/square.obj')
-    ar_obj.compute_vertex_normals()
-    texture = cv2.cvtColor(cv2.imread("sfm_models/texture.jpg"), cv2.COLOR_BGR2RGB)
+
+    # ar_obj.compute_vertex_normals()
+    texture = cv2.cvtColor(cv2.imread("sfm_models/texture_flip.png"), cv2.COLOR_BGR2RGB)
     ar_obj.textures = [o3d.geometry.Image(texture)]
-    ar_obj.scale(0.3, ar_obj.get_center())
+    # ar_obj.scale(0.3, ar_obj.get_center())
 
     pcd = o3d.io.read_point_cloud("sfm_models/points3D_o3d_cleaned.pcd", format="pcd")
+    o3d.io.write_point_cloud("sfm_models/points3D_o3d_cleaned2.pcd", pcd, write_ascii=True, compressed=True)
     bb = pcd.get_oriented_bounding_box()
-    aabb = pcd.get_axis_aligned_bounding_box()
 
     bb_points = np.asarray(bb.get_box_points())
-    lines = [[0, 1], [1, 2]]
+    lines = [[0, 3]]
     colors = [[1, 0, 0] for _ in range(len(lines))]
     line_set = o3d.geometry.LineSet(
         points=o3d.utility.Vector3dVector(bb_points),
         lines=o3d.utility.Vector2iVector(lines),
     )
     line_set.colors = o3d.utility.Vector3dVector(colors)
+    # ar_obj.translate(bb.get_center(), relative=False)
+    # ar_obj.translate([-3, 0, 1.5], relative=True)
 
-    ar_obj.translate(bb.get_center())
-    o3d.visualization.draw_geometries([ar_obj, pcd, bb, aabb])
+    # ar_obj.translate([-1.5, 0, -3.15], relative=True)
+    o3d.visualization.draw_geometries([ar_obj, pcd])
 
 
 def simple_square(out_file="sfm_models/square.obj"):
@@ -48,12 +61,18 @@ def simple_square(out_file="sfm_models/square.obj"):
     #     [0.5, -0.5, 0.5],
     #     [0.5, -0.5, -0.5]
     # ])
-    default_vertices = np.array([
-        [-1.3, -3.8, 3.018],
-        [8.1, -3.8, 3.018],
-        [8.1, 4.88, 3.018],
-        [-1.3, 4.88, 3.018],
-    ])
+    # default_vertices = np.array([
+    #     [-1.3, -3.8, 3.018],
+    #     [8.1, -3.8, 3.018],
+    #     [8.1, 4.88, 3.018],
+    #     [-1.3, 4.88, 3.018],
+    # ])
+    default_vertices = np.array(
+        [[12.02863956,  0.78380664,  6.93394077],
+         [ 5.39920638, -7.93330614,  7.82817919],
+         [-2.9667141,  -1.18391504, 11.60110199],
+         [ 3.66271909,  7.53319774, 10.70686357]]
+    )
     default_faces = np.array([
         [2, 1, 0],
         [0, 3, 2]
@@ -72,5 +91,6 @@ def simple_square(out_file="sfm_models/square.obj"):
 
 
 if __name__ == '__main__':
+    # clean_pc()
     # simple_square()
     visualize()
