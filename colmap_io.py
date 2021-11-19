@@ -1,13 +1,15 @@
+import random
 import sys
 import time
 
 import cv2
-import gc
 import numpy as np
 import kornia
 import torch
 import sqlite3
 from PIL import Image
+
+WARNING = False
 
 
 def read_points3D(in_dir="sfm_models/points3D.txt"):
@@ -47,7 +49,7 @@ def read_images(in_dir="sfm_models/images.txt"):
                 points2d_meaningful.append(point)
 
             data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
-            print(f"loading {len(points2d_meaningful)} keypoints of image {image_id}")
+            print(f"Loading {len(points2d_meaningful)} keypoints of image {image_id}")
 
             idx += 2
     return data
@@ -60,7 +62,7 @@ def decode_descriptors(db_dir="sfm_models/database.db"):
     conn.close()
     decoded_data = {}
     for im in data:
-        print(f"loading {im[1]} descriptors of image {im[0]}")
+        print(f"Loading {im[1]} descriptors of image {im[0]}")
         res = []
         for u in im:
             if type(u) == bytes:
@@ -111,13 +113,14 @@ def build_descriptors():
     images = read_images()
     point3did2descs = {}
     start_time = time.time()
+    imageid2point3did2feature = {image_id: {} for image_id in images}
     for image_id in images:
         patches2d = []
         point3d_id_list = []
         image_name = images[image_id][0]
 
         an_img_gray = cv2.imread(f"sfm_models/images/{image_name}", cv2.IMREAD_GRAYSCALE)
-        an_img_gray = np.array(an_img_gray, np.float64)/255.0
+        an_img_gray = np.array(an_img_gray, np.float64)
         an_img_gray = np.pad(an_img_gray, pad_width=patch_size)
         for y, x, point3d_id in images[image_id][1]:
             if point3d_id > 0:
@@ -149,17 +152,42 @@ def build_descriptors():
                 point3did2descs[point3d_id] = [[image_id, sift_descs[i], hardnet_descs[i]]]
             else:
                 point3did2descs[point3d_id].append([image_id, sift_descs[i], hardnet_descs[i]])
-    print(f"built descriptor database for 3D points in {time.time()-start_time}")
+
+            if point3d_id in imageid2point3did2feature[image_id] and WARNING:
+                print(f"Point {point3d_id} not unique in image {image_id}")
+            imageid2point3did2feature[image_id][point3d_id] = [sift_descs[i], hardnet_descs[i]]
+    print(f"Built descriptor database for 3D points in {time.time()-start_time}")
 
     # testing
+    sift_feature = 1
+    hardnet_feature = 2
+    feature_to_use = 1
+    accuracy = []
+    nb_outliers = 20
     for point3d_id in point3did2descs:
         data = point3did2descs[point3d_id]
-        mean_vec = []
-        for _, sift, hardnet in data:
-            mean_vec.append(sift.numpy())
-        for _, sift, hardnet in data:
-            mean_vec.append(sift.numpy())
-            print(np.sum(np.abs(sift.numpy()-mean_vec)))
+        image_id_list = [du[0] for du in data[1:]]
+        f1 = data[0][feature_to_use]
+        for i in image_id_list:
+            f2 = imageid2point3did2feature[i][point3d_id][feature_to_use-1]
+            diff1 = torch.sum(torch.square(f1-f2))
+            count = 0.0
+            samples = 0.0
+            for _ in range(nb_outliers):
+                other_point3d_id = random.choice(list(imageid2point3did2feature[i].keys()))
+                if other_point3d_id != point3d_id:
+                    other_feature_vec = imageid2point3did2feature[i][other_point3d_id][feature_to_use-1]
+                    diff2 = torch.sum(torch.square(f1-other_feature_vec))
+                    samples += 1
+                    if diff2 > diff1:
+                        count += 1
+            accuracy.append(count/samples)
+    print(f"Database descriptors accuracy is {np.mean(accuracy)} for {nb_outliers} outliers.")
+
+    # return
+    # imageid2point3did2feature: [image id] : [point3d id] : [all descriptors]
+    # point3did2descs: [point3d id] : [all descriptors for all images] = (image_id, sift_descs, hardnet_descs)
+    return imageid2point3did2feature, point3did2descs
 
 
 def visualize_matching_pairs():
