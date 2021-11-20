@@ -479,10 +479,11 @@ def rotmat2qvec(R):
 
 def main():
     parser = argparse.ArgumentParser(description="Read and write COLMAP binary and text models")
-    parser.add_argument("--input_model", help="path to input model folder", default="/home/sontung/work/ar-vloc/sfm_ws/sparse/0")
+    parser.add_argument("--input_model", help="path to input model folder",
+                        default="/home/sontung/work/hblab_office_reconstruction/sparse/0")
     parser.add_argument("--input_format", choices=[".bin", ".txt"],
                         help="input model format", default="")
-    parser.add_argument("--output_model", default="sfm_models/",
+    parser.add_argument("--output_model", default="/home/sontung/work/hblab_office_reconstruction",
                         help="path to output model folder")
     parser.add_argument("--output_format", choices=[".bin", ".txt"],
                         help="outut model format", default=".txt")

@@ -191,44 +191,37 @@ def build_descriptors():
 
 
 def visualize_matching_pairs():
-    point3d = read_points3D()
-    images = read_images()
-    images_mat = [cv2.imread(f"sfm_models/images/{images[u][0]}") for u in images]
+    point3d = read_points3D("/home/sontung/work/hblab_office_reconstruction/points3D.txt")
+    images = read_images("/home/sontung/work/hblab_office_reconstruction/images.txt")
+    images_mat = {u: cv2.imread(f"/home/sontung/work/hblab_office_reconstruction/images/{images[u][0]}")
+                  for u in images}
     track_lengths = []
-    descriptors = decode_descriptors()
     for point3d_id in point3d:
         tracks = point3d[point3d_id][0]
         images_to_visualized = []
-        # if len(tracks) <= 10:
+        track_lengths.append(len(tracks))
+        # if len(tracks) > 5:
         #     continue
-        all_desc = []
         for i in range(0, len(tracks), 2):
             image_id = tracks[i]
             point2d_id = tracks[i+1]
-            desc_mat = descriptors[image_id][-1]
-            desc = desc_mat[point2d_id, :]
-            all_desc.append(desc)
-            image = images_mat[image_id-1].copy()
-            # image = cv2.imread(f"sfm_models/images/{images[image_id][0]}")
+            image = images_mat[image_id].copy()
             px, py, point3d_id2 = images[image_id][1][point2d_id]
             cv2.circle(image, (int(px), int(py)), 20, (255, 0, 0), -1)
-
+            # image = cv2.resize(image, (1000, 500))
             images_to_visualized.append(image)
-        desc_mean = np.mean(all_desc, axis=0)
-        for desc in all_desc:
-            print(desc)
-            print(np.sum(np.abs(desc-desc_mean)))
 
-        # final_image = np.hstack(images_to_visualized)
-        # final_image = cv2.resize(final_image, (final_image.shape[1]//4,
-        #                                        final_image.shape[0]//4))
+        final_image = np.hstack(images_to_visualized)
+        final_image = cv2.resize(final_image, (final_image.shape[1]//4,
+                                               final_image.shape[0]//4))
         # cv2.imshow("t", final_image)
         # cv2.waitKey()
         # cv2.destroyAllWindows()
         # sys.exit()
+    print(np.max(track_lengths), np.min(track_lengths))
 
 
 if __name__ == '__main__':
-    build_descriptors()
+    # build_descriptors()
     # build_sfm_database()
-    # visualize_matching_pairs()
+    visualize_matching_pairs()
