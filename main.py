@@ -13,17 +13,19 @@ from matplotlib import pyplot as plt
 def load_2d_queries(folder="test_images"):
     im_names_dir = "test_images/im_names.pkl"
     desc_dir = 'test_images/keypoint_descriptors.pt'
-
+    coord_dir = 'test_images/keypoint_coordinates.pt'
     my_file = Path(im_names_dir)
     if my_file.is_file():
         print("Loading 2D descriptors for test images at test_images/")
         descs = torch.load(desc_dir)
+        coordinates = torch.load(coord_dir)
         with open("test_images/im_names.pkl", "rb") as fp:
             im_names = pickle.load(fp)
     else:
         im_names = os.listdir(folder)
         sift_model = kornia.feature.SIFTFeature(num_features=1000, device=torch.device("cpu"))
         descs = []
+        coordinates = []
         for name in im_names:
             im_list = []
             im_name = os.path.join(folder, name)
@@ -38,21 +40,16 @@ def load_2d_queries(folder="test_images"):
                 laf, response, desc = sift_model.forward(an_im)
                 descs.append(desc.cpu())
                 points = kornia.feature.laf.get_laf_center(laf)
-                px, py = kornia.feature.laf.get_laf_pts_to_draw(laf)
-                plt.figure()
-                plt.imshow(kornia.utils.tensor_to_image(an_im))
-                plt.plot(px, py, 'r')
-                plt.plot(points[0, :, 0], points[0, :, 1], 'bo')
-                plt.show()
-            break
+                coordinates.append(points)
         descs = torch.stack(descs)
+        coordinates = torch.stack(coordinates)
+        torch.save(coordinates, coord_dir)
+        torch.save(descs, desc_dir)
+        with open(im_names_dir, "wb") as fp:
+            pickle.dump(im_names, fp)
+        print("Saved 2D descriptors at test_images/")
 
-        # torch.save(descs, desc_dir)
-        # with open(im_names_dir, "wb") as fp:
-        #     pickle.dump(im_names, fp)
-        # print("Saved 2D descriptors at test_images/")
-
-    return descs, im_names
+    return descs, coordinates, im_names
 
 
 def load_3d_database():
@@ -94,7 +91,8 @@ def matching_2d_to_3d(point3d_id_list, point3d_desc_list):
 
 
 def main():
-    desc_list, im_name_list = load_2d_queries()
+    desc_list, coord_list, im_name_list = load_2d_queries()
+    print(desc_list.size(), coord_list.size())
     point3d_id_list, point3d_desc_list = load_3d_database()
     matching_2d_to_3d(point3d_id_list, point3d_desc_list)
 
