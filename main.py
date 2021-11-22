@@ -4,10 +4,14 @@ import os
 import torch
 import cv2
 import kornia
-from colmap_io import build_descriptors
+import open3d as o3d
+from colmap_io import build_descriptors, read_points3D_coordinates, read_images
+from colmap_read import qvec2rotmat
 from pathlib import Path
 from scipy.spatial import KDTree
 from matplotlib import pyplot as plt
+from scipy.spatial.transform import Rotation as rot_mat_compute
+
 
 
 def load_2d_queries(folder="test_images"):
@@ -90,11 +94,66 @@ def matching_2d_to_3d(point3d_id_list, point3d_desc_list):
         # break
 
 
+def produce_cam_mesh(color=None, res=4):
+    camera_mesh2 = o3d.geometry.TriangleMesh.create_cone(resolution=res)
+    camera_mesh2.compute_vertex_normals()
+    camera_mesh2.scale(0.25, camera_mesh2.get_center())
+    camera_mesh2.translate([0, 0, 0], relative=False)
+
+    if color:
+        camera_mesh2.paint_uniform_color(color)
+    return camera_mesh2
+
+
 def main():
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1920, height=1025)
+    ctr = vis.get_view_control()
+    parameters = o3d.io.read_pinhole_camera_parameters("ScreenCamera_2021-11-22-16-30-08.json")
+
+    image2pose = read_images()
+    point3did2xyzrgb = read_points3D_coordinates()
+    points_3d_list = []
+    for point3d_id in point3did2xyzrgb:
+        x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+        points_3d_list.append([x, y, z, r/255, g/255, b/255])
+    points_3d_list = np.vstack(points_3d_list)
+    point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
+    point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     desc_list, coord_list, im_name_list = load_2d_queries()
-    print(desc_list.size(), coord_list.size())
     point3d_id_list, point3d_desc_list = load_3d_database()
     matching_2d_to_3d(point3d_id_list, point3d_desc_list)
+
+    cm1 = produce_cam_mesh([0.5, 1, 0.5], 20)
+    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    cameras = [point_cloud, coord_mesh]
+    for image_id in image2pose:
+        pose1 = np.array(image2pose[image_id][2])
+        trans1 = np.array(pose1[4:])
+        rot_mat1 = qvec2rotmat(pose1[:4])
+
+        t = -rot_mat1.transpose()@trans1
+        t = t.reshape((3, 1))
+        mat = np.hstack([-rot_mat1.transpose(), t])
+        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+
+        cm = produce_cam_mesh()
+
+        vertices = np.asarray(cm.vertices)
+        for i in range(vertices.shape[0]):
+            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+            arr = mat@arr
+            vertices[i] = arr[:3]
+        cm.vertices = o3d.utility.Vector3dVector(vertices)
+        cameras.append(cm)
+        # break
+
+    for c in cameras:
+        vis.add_geometry(c)
+    ctr.convert_from_pinhole_camera_parameters(parameters)
+    vis.run()
+    vis.destroy_window()
 
 
 if __name__ == '__main__':

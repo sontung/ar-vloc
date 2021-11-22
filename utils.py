@@ -6,6 +6,9 @@ import cv2
 from PIL import Image
 from scipy.spatial.transform import Rotation as rot_mat_compute
 
+def clean_point_cloud(pcd):
+    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    return cl
 
 def clean_pc():
     sys.stdin = open("sfm_models/points3D_o3d_cleaned2.pcd", "r")

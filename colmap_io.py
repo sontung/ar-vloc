@@ -1,7 +1,7 @@
 import random
 import sys
 import time
-
+import json
 import cv2
 import numpy as np
 import kornia
@@ -25,6 +25,21 @@ def read_points3D(in_dir="sfm_models/points3D.txt"):
         tracks = list(map(int, numbers[8:]))
         point3d_id = int(point3d_id)
         data[point3d_id] = [tracks]
+    return data
+
+
+def read_points3D_coordinates(in_dir="sfm_models/points3D.txt"):
+    sys.stdin = open(in_dir, "r")
+    lines = sys.stdin.readlines()
+    data = {}
+    for line in lines:
+        if line[0] == "#":
+            continue
+        numbers = line[:-1].split(" ")
+        numbers = list(map(float, numbers))
+        point3d_id, x, y, z, r, g, b = numbers[:7]
+        point3d_id = int(point3d_id)
+        data[point3d_id] = [x, y, z, r, g, b]
     return data
 
 
@@ -221,7 +236,33 @@ def visualize_matching_pairs():
     print(np.max(track_lengths), np.min(track_lengths))
 
 
+def dump_image2pose_json():
+    """
+    this is for visualization by another independent application
+    """
+    image2pose = read_images()
+    data = {}
+    for image in image2pose:
+        qw, qx, qy, qz, tx, ty, tz = image2pose[image][2]
+        data[image] = {}
+        data[image]["rotation"] = [qw, qx, qy, qz]
+        data[image]["translation"] = [tx, ty, tz]
+    data2 = {}
+    point3did2xyzrgb = read_points3D_coordinates()
+    for point3d_id in point3did2xyzrgb:
+        x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+        data2[point3d_id] = {}
+        data2[point3d_id]["position"] = [x, y, z]
+        data2[point3d_id]["color"] = [r, g, b]
+
+    with open('data/points.json', 'w') as f:
+        json.dump(data2, f)
+    with open('data/image2pose.json', 'w') as f:
+        json.dump(data, f)
+
+
 if __name__ == '__main__':
+    dump_image2pose_json()
     # build_descriptors()
     # build_sfm_database()
-    visualize_matching_pairs()
+    # visualize_matching_pairs()
