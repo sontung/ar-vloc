@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pickle
 import os
@@ -85,14 +87,16 @@ def load_3d_database():
     return point3d_id_list, point3d_desc_list
 
 
-def matching_2d_to_3d(point3d_id_list, point3d_desc_list):
+def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
     kd_tree = KDTree(point3d_desc_list)
-    for i in range(point3d_desc_list.shape[0]):
-        desc = point3d_desc_list[i]
-        res = kd_tree.query(desc, 2)
-        # print(res[0][0], res[1][0])
-        # break
-
+    for i in range(point2d_desc_list.shape[0]):
+        desc_list = point2d_desc_list[i, 0]
+        for j in range(desc_list.shape[0]):
+            desc = desc_list[j]
+            res = kd_tree.query(desc, 2)
+            if res[0][0]/res[0][1] < 0.7:  # ratio test
+                print(i, j, res[1][0])
+        
 
 def produce_cam_mesh(color=None, res=4):
     camera_mesh2 = o3d.geometry.TriangleMesh.create_cone(resolution=res)
@@ -122,12 +126,12 @@ def main():
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     desc_list, coord_list, im_name_list = load_2d_queries()
     point3d_id_list, point3d_desc_list = load_3d_database()
-    matching_2d_to_3d(point3d_id_list, point3d_desc_list)
+    matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
 
     cm1 = produce_cam_mesh([0.5, 1, 0.5], 20)
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
     coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
-    cameras = [point_cloud, coord_mesh]
+    cameras = [point_cloud, coord_mesh, cm1]
     for image_id in image2pose:
         pose1 = np.array(image2pose[image_id][2])
         trans1 = np.array(pose1[4:])
