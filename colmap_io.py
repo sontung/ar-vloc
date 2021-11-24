@@ -135,7 +135,7 @@ def build_descriptors():
         image_name = images[image_id][0]
 
         an_img_gray = cv2.imread(f"sfm_models/images/{image_name}", cv2.IMREAD_GRAYSCALE)
-        an_img_gray = np.array(an_img_gray, np.float64)
+        an_img_gray = np.array(an_img_gray, np.float64)/255.0
         an_img_gray = np.pad(an_img_gray, pad_width=patch_size)
         for y, x, point3d_id in images[image_id][1]:
             if point3d_id > 0:

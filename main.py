@@ -10,6 +10,7 @@ import random
 import psutil
 
 import open3d as o3d
+from feature_matching import compute_kp_descriptors
 from colmap_io import build_descriptors, read_points3D_coordinates, read_images
 from colmap_read import qvec2rotmat
 from pathlib import Path
@@ -34,24 +35,27 @@ def load_2d_queries(folder="test_images"):
             im_names = pickle.load(fp)
     else:
         im_names = os.listdir(folder)
-        sift_model = kornia.feature.SIFTFeature(num_features=1000, device=torch.device("cpu"))
         descs = []
         coordinates = []
         for name in im_names:
-            im_list = []
             im_name = os.path.join(folder, name)
-            im = cv2.imread(im_name, cv2.IMREAD_GRAYSCALE)
+
+            im = cv2.imread(im_name)
+            im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
             im = cv2.resize(im, (im.shape[1]//2, im.shape[0]//2))
-            im_list.append(np.expand_dims(im, -1).astype(float))
-            # cv2.imshow("t", im)
-            # cv2.waitKey()
-            # cv2.destroyAllWindows()
-            an_im = kornia.utils.image_list_to_tensor(im_list)
-            with torch.no_grad():
-                laf, response, desc = sift_model.forward(an_im)
-                descs.append(desc.cpu())
-                points = kornia.feature.laf.get_laf_center(laf)
-                coordinates.append(points)
+            coord, desc = compute_kp_descriptors(im)
+
+            # im = cv2.imread(im_name, cv2.IMREAD_GRAYSCALE)/255.0
+            # im = cv2.resize(im, (im.shape[1]//2, im.shape[0]//2))
+            # im_list.append(np.expand_dims(im, -1).astype(float))
+            # an_im = kornia.utils.image_list_to_tensor(im_list)
+            # with torch.no_grad():
+            #     laf, response, desc = sift_model.forward(an_im)
+            #     descs.append(desc.cpu())
+            #     points = kornia.feature.laf.get_laf_center(laf)
+
+            descs.append(desc)
+            coordinates.append(coord)
         descs = torch.stack(descs)
         coordinates = torch.stack(coordinates)
         torch.save(coordinates, coord_dir)
@@ -124,6 +128,8 @@ def visualize_2d_3d_matching(p2d2p3d, coord_2d_list, im_name_list, point3did2xyz
         vis.add_geometry(original_point_cloud)
 
         img = cv2.imread(f"test_images/{im_name_list[image_idx]}")
+        img = cv2.resize(img, (img.shape[1]//2, img.shape[0]//2))
+
         point_cloud = []
         colors = []
         meshes = []
@@ -134,15 +140,14 @@ def visualize_2d_3d_matching(p2d2p3d, coord_2d_list, im_name_list, point3did2xyz
             point_cloud.append(p3d_coord)
             colors.append([random.random() for _ in range(3)])
             mesh = produce_sphere(p3d_coord, colors[-1])
-            cv2.circle(img, (u, v), 30, np.array(colors[-1])*255, -1)
-            cv2.circle(img, (v, u), 30, np.array(colors[-1])*255, -1)
+            # cv2.circle(img, (u, v), 30, np.array(colors[-1])*255, -1)
+            cv2.circle(img, (v, u), 5, np.array(colors[-1])*255, -1)
 
             meshes.append(mesh)
 
         for m in meshes:
             vis.add_geometry(m)
         ctr.convert_from_pinhole_camera_parameters(parameters)
-        img = cv2.resize(img, (img.shape[1]//3, img.shape[0]//3))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         # cv2.imshow("t", img)
         # cv2.waitKey()
