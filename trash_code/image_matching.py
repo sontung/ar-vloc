@@ -108,5 +108,6 @@ def main():
     draw_matches(np.array(img1), np.array(img2), mask, src_pts, dst_pts)
     print(len(inliers), 'inliers')
 
+
 for _ in range(10):
     main()
