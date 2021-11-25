@@ -10,7 +10,7 @@ import random
 import psutil
 
 import open3d as o3d
-from feature_matching import compute_kp_descriptors
+from feature_matching import compute_kp_descriptors, build_descriptors_2d, load_2d_queries_opencv
 from colmap_io import build_descriptors, read_points3D_coordinates, read_images
 from colmap_read import qvec2rotmat
 from pathlib import Path
@@ -98,14 +98,15 @@ def load_3d_database():
 
 def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
     kd_tree = KDTree(point3d_desc_list)
-    result = {i: [] for i in range(point2d_desc_list.shape[0])}
-    for i in range(point2d_desc_list.shape[0]):
-        desc_list = point2d_desc_list[i, 0]
+    result = {i: [] for i in range(len(point2d_desc_list))}
+    for i in range(len(point2d_desc_list)):
+        desc_list = point2d_desc_list[i]
         for j in range(desc_list.shape[0]):
             desc = desc_list[j]
             res = kd_tree.query(desc, 2)
-            if res[0][0]/res[0][1] < 0.7:  # ratio test
-                result[i].append([j, point3d_id_list[res[1][0]]])
+            if res[0][1] > 0.0:
+                if res[0][0]/res[0][1] < 0.7:  # ratio test
+                    result[i].append([j, point3d_id_list[res[1][0]]])
     return result
 
 
@@ -128,19 +129,17 @@ def visualize_2d_3d_matching(p2d2p3d, coord_2d_list, im_name_list, point3did2xyz
         vis.add_geometry(original_point_cloud)
 
         img = cv2.imread(f"test_images/{im_name_list[image_idx]}")
-        img = cv2.resize(img, (img.shape[1]//2, img.shape[0]//2))
 
         point_cloud = []
         colors = []
         meshes = []
         print(f"visualizing {len(p2d2p3d[image_idx])} pairs")
         for p2d_id, p3d_id in p2d2p3d[image_idx]:
-            p2d_coord, p3d_coord = coord_2d_list[image_idx, 0, p2d_id].numpy(), point3did2xyzrgb[p3d_id][:3]
+            p2d_coord, p3d_coord = coord_2d_list[image_idx][p2d_id], point3did2xyzrgb[p3d_id][:3]
             v, u = map(int, p2d_coord)
             point_cloud.append(p3d_coord)
             colors.append([random.random() for _ in range(3)])
             mesh = produce_sphere(p3d_coord, colors[-1])
-            # cv2.circle(img, (u, v), 30, np.array(colors[-1])*255, -1)
             cv2.circle(img, (v, u), 5, np.array(colors[-1])*255, -1)
 
             meshes.append(mesh)
@@ -149,10 +148,8 @@ def visualize_2d_3d_matching(p2d2p3d, coord_2d_list, im_name_list, point3did2xyz
             vis.add_geometry(m)
         ctr.convert_from_pinhole_camera_parameters(parameters)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # cv2.imshow("t", img)
-        # cv2.waitKey()
-        # cv2.destroyAllWindows()
-        # sys.exit()
+        img = cv2.resize(img, (img.shape[1]//2, img.shape[0]//2))
+        vis.capture_screen_image("trash_code/test.png", do_render=True)
         Image.fromarray(img).show()
         while True:
             vis.poll_events()
@@ -163,7 +160,51 @@ def visualize_2d_3d_matching(p2d2p3d, coord_2d_list, im_name_list, point3did2xyz
                     if proc.name() == "display":
                         proc.kill()
                 break
-        break
+    vis.destroy_window()
+
+
+def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list, point3did2xyzrgb, original_point_cloud):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1920, height=1025, visible=False)
+    ctr = vis.get_view_control()
+    parameters = o3d.io.read_pinhole_camera_parameters("ScreenCamera_2021-11-24-10-37-09.json")
+
+    for image_idx in p2d2p3d:
+        vis.add_geometry(original_point_cloud)
+
+        img = cv2.imread(f"test_images/{im_name_list[image_idx]}")
+
+        point_cloud = []
+        colors = []
+        meshes = []
+        print(f"visualizing {len(p2d2p3d[image_idx])} pairs")
+        for p2d_id, p3d_id in p2d2p3d[image_idx]:
+            meshes = []
+
+            img = cv2.imread(f"test_images/{im_name_list[image_idx]}")
+
+            p2d_coord, p3d_coord = coord_2d_list[image_idx][p2d_id], point3did2xyzrgb[p3d_id][:3]
+            v, u = map(int, p2d_coord)
+            point_cloud.append(p3d_coord)
+            color = [random.random() for _ in range(3)]
+            mesh = produce_sphere(p3d_coord, color)
+            print(color, np.array(color)*255)
+            cv2.circle(img, (v, u), 20, np.array(color)*255, -1)
+
+            meshes.append(mesh)
+
+            for m in meshes:
+                vis.add_geometry(m, reset_bounding_box=False)
+            ctr.convert_from_pinhole_camera_parameters(parameters)
+            ctr.set_zoom(0.5)
+            vis.capture_screen_image("trash_code/test.png", do_render=True)
+
+            img_vis = cv2.resize(img, (img.shape[1]//2, img.shape[0]//2))
+            for m in meshes:
+                vis.remove_geometry(m, reset_bounding_box=False)
+            cv2.imshow("t", img_vis)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
     vis.destroy_window()
 
 
@@ -189,11 +230,6 @@ def produce_sphere(pos, color=None):
 
 
 def main():
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(width=1920, height=1025)
-    ctr = vis.get_view_control()
-    parameters = o3d.io.read_pinhole_camera_parameters("ScreenCamera_2021-11-22-16-30-08.json")
-
     image2pose = read_images()
     point3did2xyzrgb = read_points3D_coordinates()
     points_3d_list = []
@@ -204,11 +240,23 @@ def main():
     point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
-    desc_list, coord_list, im_name_list = load_2d_queries()
-    point3d_id_list, point3d_desc_list = load_3d_database()
+
+    # desc_list, coord_list, im_name_list = load_2d_queries()
+    # point3d_id_list, point3d_desc_list = load_3d_database()
+
+    desc_list, coord_list, im_name_list = load_2d_queries_opencv()
+    point3d_id_list, point3d_desc_list = build_descriptors_2d()
+
     p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
-    visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
+    # visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
+    visualize_2d_3d_matching_single(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
+
     sys.exit()
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1920, height=1025)
+    ctr = vis.get_view_control()
+    parameters = o3d.io.read_pinhole_camera_parameters("ScreenCamera_2021-11-22-16-30-08.json")
+
 
     cm1 = produce_cam_mesh([0.5, 1, 0.5], 20)
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
