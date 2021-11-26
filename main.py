@@ -110,6 +110,12 @@ def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
     return result
 
 
+def matching_2d_to_3d_single(point3d_desc_list, desc):
+    kd_tree = KDTree(point3d_desc_list)
+    distances, indices = kd_tree.query(desc, 5)
+    return distances, indices
+
+
 def key_sw(u):
     global NEXT
     NEXT = not NEXT
@@ -163,7 +169,9 @@ def visualize_2d_3d_matching(p2d2p3d, coord_2d_list, im_name_list, point3did2xyz
     vis.destroy_window()
 
 
-def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list, point3did2xyzrgb, original_point_cloud):
+def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
+                                    point3did2xyzrgb, original_point_cloud,
+                                    query_folder, point3d_id_list, point3d_desc_list, desc_list):
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025, visible=False)
     ctr = vis.get_view_control()
@@ -171,27 +179,33 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list, point3
 
     for image_idx in p2d2p3d:
         vis.add_geometry(original_point_cloud)
-
-        img = cv2.imread(f"test_images/{im_name_list[image_idx]}")
-
         point_cloud = []
-        colors = []
-        meshes = []
         print(f"visualizing {len(p2d2p3d[image_idx])} pairs")
-        for p2d_id, p3d_id in p2d2p3d[image_idx]:
-            meshes = []
+        while True:
+            p2d_id, p3d_id = random.choice(p2d2p3d[image_idx])
+            # if p2d_id not in [5395]:
+            #     continue
 
-            img = cv2.imread(f"test_images/{im_name_list[image_idx]}")
+            distances, indices = matching_2d_to_3d_single(point3d_desc_list, desc_list[image_idx][p2d_id])
+            print(f"point 2d id={p2d_id}, distances={distances}")
+            if distances[0] > 0.5:
+                continue
+            meshes = []
+            img = cv2.imread(f"{query_folder}/{im_name_list[image_idx]}")
 
             p2d_coord, p3d_coord = coord_2d_list[image_idx][p2d_id], point3did2xyzrgb[p3d_id][:3]
             v, u = map(int, p2d_coord)
             point_cloud.append(p3d_coord)
-            color = [random.random() for _ in range(3)]
+            color = [0, 0, 0]
             mesh = produce_sphere(p3d_coord, color)
-            print(color, np.array(color)*255)
-            cv2.circle(img, (v, u), 20, np.array(color)*255, -1)
-
             meshes.append(mesh)
+            cv2.circle(img, (v, u), 20, [0, 0, 0], -1)
+
+            for index in indices[1:]:
+                p3d_id = point3d_id_list[index]
+                color = [random.random() for _ in range(3)]
+                mesh = produce_sphere(point3did2xyzrgb[p3d_id][:3], color)
+                meshes.append(mesh)
 
             for m in meshes:
                 vis.add_geometry(m, reset_bounding_box=False)
@@ -230,6 +244,7 @@ def produce_sphere(pos, color=None):
 
 
 def main():
+    query_images_folder = "test_images2"
     image2pose = read_images()
     point3did2xyzrgb = read_points3D_coordinates()
     points_3d_list = []
@@ -244,12 +259,14 @@ def main():
     # desc_list, coord_list, im_name_list = load_2d_queries()
     # point3d_id_list, point3d_desc_list = load_3d_database()
 
-    desc_list, coord_list, im_name_list = load_2d_queries_opencv()
+    desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
     point3d_id_list, point3d_desc_list = build_descriptors_2d()
 
     p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
     # visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
-    visualize_2d_3d_matching_single(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
+    visualize_2d_3d_matching_single(p2d2p3d, coord_list, im_name_list,
+                                    point3did2xyzrgb, point_cloud, query_images_folder,
+                                    point3d_id_list, point3d_desc_list, desc_list)
 
     sys.exit()
     vis = o3d.visualization.Visualizer()
