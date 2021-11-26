@@ -20,6 +20,8 @@ from matplotlib import pyplot as plt
 from scipy.spatial.transform import Rotation as rot_mat_compute
 
 NEXT = False
+DEBUG_2D_3D_MATCHING = False
+DEBUG_PNP = True
 
 
 def load_2d_queries(folder="test_images"):
@@ -97,6 +99,9 @@ def load_3d_database():
 
 
 def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
+    """
+    returns [image id] => point 2d id => point 3d id
+    """
     kd_tree = KDTree(point3d_desc_list)
     result = {i: [] for i in range(len(point2d_desc_list))}
     for i in range(len(point2d_desc_list)):
@@ -112,7 +117,7 @@ def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
 
 def matching_2d_to_3d_single(point3d_desc_list, desc):
     kd_tree = KDTree(point3d_desc_list)
-    distances, indices = kd_tree.query(desc, 5)
+    distances, indices = kd_tree.query(desc, 10)
     return distances, indices
 
 
@@ -180,16 +185,21 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
     for image_idx in p2d2p3d:
         vis.add_geometry(original_point_cloud)
         point_cloud = []
+        good_matches = 0
+        all_matches = []
         print(f"visualizing {len(p2d2p3d[image_idx])} pairs")
-        while True:
-            p2d_id, p3d_id = random.choice(p2d2p3d[image_idx])
+        # while True:
+        for p2d_id, p3d_id in p2d2p3d[image_idx]:
+            # p2d_id, p3d_id = random.choice(p2d2p3d[image_idx])
             # if p2d_id not in [5395]:
             #     continue
 
             distances, indices = matching_2d_to_3d_single(point3d_desc_list, desc_list[image_idx][p2d_id])
+            all_matches.append([distances[0], p2d_id])
             print(f"point 2d id={p2d_id}, distances={distances}")
-            if distances[0] > 0.5:
-                continue
+            # if distances[0] < 200:
+            #     continue
+            good_matches += 1
             meshes = []
             img = cv2.imread(f"{query_folder}/{im_name_list[image_idx]}")
 
@@ -209,6 +219,7 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
 
             for m in meshes:
                 vis.add_geometry(m, reset_bounding_box=False)
+
             ctr.convert_from_pinhole_camera_parameters(parameters)
             ctr.set_zoom(0.5)
             vis.capture_screen_image("trash_code/test.png", do_render=True)
@@ -219,6 +230,10 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
             cv2.imshow("t", img_vis)
             cv2.waitKey()
             cv2.destroyAllWindows()
+
+        print(good_matches)
+        print(sorted(all_matches, key=lambda du: du[0]))
+        break
     vis.destroy_window()
 
 
@@ -244,10 +259,19 @@ def produce_sphere(pos, color=None):
 
 
 def main():
-    query_images_folder = "test_images2"
+    query_images_folder = "test_images"
     image2pose = read_images()
     point3did2xyzrgb = read_points3D_coordinates()
     points_3d_list = []
+    point3d_id_list, point3d_desc_list = build_descriptors_2d()
+
+    for point3d_id in point3did2xyzrgb:
+        x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+        if point3d_id in point3d_id_list:
+            point3did2xyzrgb[point3d_id] = [x, y, z, 255, 0, 0]
+        else:
+            point3did2xyzrgb[point3d_id] = [x, y, z, 0, 0, 0]
+
     for point3d_id in point3did2xyzrgb:
         x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
         points_3d_list.append([x, y, z, r/255, g/255, b/255])
@@ -260,20 +284,37 @@ def main():
     # point3d_id_list, point3d_desc_list = load_3d_database()
 
     desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
-    point3d_id_list, point3d_desc_list = build_descriptors_2d()
-
     p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
-    # visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
-    visualize_2d_3d_matching_single(p2d2p3d, coord_list, im_name_list,
-                                    point3did2xyzrgb, point_cloud, query_images_folder,
-                                    point3d_id_list, point3d_desc_list, desc_list)
 
-    sys.exit()
+    if DEBUG_2D_3D_MATCHING:
+        # visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
+        visualize_2d_3d_matching_single(p2d2p3d, coord_list, im_name_list,
+                                        point3did2xyzrgb, point_cloud, query_images_folder,
+                                        point3d_id_list, point3d_desc_list, desc_list)
+
+    if DEBUG_PNP:
+        f, cx, cy, k = 1596.1472395458961, 575.0, 1024.0, 2.8106522618619115e-05
+        camera_matrix = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
+        for im_idx in p2d2p3d:
+            pairs = p2d2p3d[im_idx]
+            object_points = []
+            image_points = []
+            for point2d_id, point3d_id in pairs:
+                coord_2d = coord_list[im_idx][point2d_id]
+                coord_3d = point3did2xyzrgb[point3d_id][:3]
+                image_points.append(coord_2d)
+                object_points.append(coord_3d)
+            object_points = np.array(object_points)
+            image_points = np.array(image_points).reshape((-1, 1, 2))
+            print(object_points.shape, image_points.shape)
+
+            cv2.solvePnPRansac(object_points, image_points, camera_matrix, np.array([k, k]))
+        sys.exit()
+
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
     ctr = vis.get_view_control()
     parameters = o3d.io.read_pinhole_camera_parameters("ScreenCamera_2021-11-22-16-30-08.json")
-
 
     cm1 = produce_cam_mesh([0.5, 1, 0.5], 20)
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
