@@ -1,17 +1,12 @@
 import os
 import sys
-
-import matplotlib
-matplotlib.use('TkAgg')
 import random
 import torch
 from PIL import Image
-from colmap_io import read_images
 import numpy as np
 import kornia
 import cv2
 import pydegensac
-from matplotlib import pyplot as plt
 from scipy.spatial import KDTree
 
 
@@ -29,20 +24,14 @@ def load_2d_queries_opencv(folder="test_images"):
     return descriptors, coordinates, im_names
 
 
-def build_descriptors_2d():
-    images = read_images()
+def build_descriptors_2d(images, images_folder="sfm_models/images"):
     point3did2descs = {}
-    imageid2point3did2feature = {image_id: {} for image_id in images}
     matching_ratio = []
     for image_id in images:
         image_name = images[image_id][0]
-        image_name = f"sfm_models/images/{image_name}"
+        image_name = f"{images_folder}/{image_name}"
         im = cv2.imread(image_name)
         coord, desc = compute_kp_descriptors_opencv(im)
-
-        # im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-        # coord, desc = compute_kp_descriptors(im, n_features=8000)
-        # coord = coord.squeeze().numpy()
 
         tree = KDTree(coord)
         total_dis = 0
@@ -63,7 +52,7 @@ def build_descriptors_2d():
                         point3did2descs[p3d_id].append([image_id, desc[idx]])
 
         matching_ratio.append(nb_points/nb_3d_points)
-    print(f"{np.mean(matching_ratio)*100}% of 3D points found descriptors")
+    print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors")
     p3d_id_list = []
     p3d_desc_list = []
     for p3d_id in point3did2descs:
@@ -76,7 +65,7 @@ def build_descriptors_2d():
 
 def compute_kp_descriptors_opencv(img):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02, sigma=1.6*(2**(1/3)))
+    sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02)
     kp_list, des = sift.detectAndCompute(img, None)
     coords = []
     for kp in kp_list:
