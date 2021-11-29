@@ -1,4 +1,5 @@
 import os
+import sys
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -53,7 +54,7 @@ def build_descriptors_2d():
             if p3d_id > 0:
                 dis, idx = tree.query([x, y], 1)
                 nb_3d_points += 1
-                if dis < 8:
+                if dis < 2:
                     total_dis += dis
                     nb_points += 1
                     if p3d_id not in point3did2descs:
@@ -75,7 +76,7 @@ def build_descriptors_2d():
 
 def compute_kp_descriptors_opencv(img):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    sift = cv2.SIFT_create()
+    sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02, sigma=1.6*(2**(1/3)))
     kp_list, des = sift.detectAndCompute(img, None)
     coords = []
     for kp in kp_list:

@@ -258,9 +258,15 @@ def produce_sphere(pos, color=None):
     return mesh
 
 
+def produce_name2pose(image2pose):
+    res = {image2pose[k][0]: image2pose[k][2] for k in image2pose}
+    return res
+
+
 def main():
     query_images_folder = "test_images"
     image2pose = read_images()
+    name2pose = produce_name2pose(image2pose)
     point3did2xyzrgb = read_points3D_coordinates()
     points_3d_list = []
     point3d_id_list, point3d_desc_list = build_descriptors_2d()
@@ -296,6 +302,8 @@ def main():
         f, cx, cy, k = 1596.1472395458961, 575.0, 1024.0, 2.8106522618619115e-05
         camera_matrix = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
         for im_idx in p2d2p3d:
+            im_name = im_name_list[im_idx]
+            ref_cam_pose = name2pose[im_name]
             pairs = p2d2p3d[im_idx]
             object_points = []
             image_points = []
@@ -306,10 +314,20 @@ def main():
                 object_points.append(coord_3d)
             object_points = np.array(object_points)
             image_points = np.array(image_points).reshape((-1, 1, 2))
-            print(object_points.shape, image_points.shape)
 
-            cv2.solvePnPRansac(object_points, image_points, camera_matrix, np.array([k, k]))
-        sys.exit()
+            val, rot, trans, inliers = cv2.solvePnPRansac(object_points, image_points, camera_matrix,
+                                                          np.array([k, 0, 0, 0]))
+            if not val:
+                print(f"{object_points.shape[0]} 2D-3D pairs computed but localization failed.")
+                continue
+            rot_mat, _ = cv2.Rodrigues(rot)
+            qw, qx, qy, qz, tx, ty, tz = ref_cam_pose
+            ref_rot_mat = qvec2rotmat([qw, qx, qy, qz])
+            rot_error = np.sum(np.abs(ref_rot_mat-rot_mat))
+            trans_error = np.sum(np.abs(trans-np.array([[tx], [ty], [tz]])))
+            print(f"{inliers.shape[0]}/{image_points.shape[0]} are inliers, "
+                  f"rotation error={rot_error}, translation error={trans_error}")
+        # sys.exit()
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
