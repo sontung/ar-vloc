@@ -43,6 +43,26 @@ def read_points3D_coordinates(in_dir="sfm_models/points3D.txt"):
     return data
 
 
+def read_cameras(cam_dir="sfm_ws_hblab/cameras.txt"):
+    sys.stdin = open(cam_dir, "r")
+    lines = sys.stdin.readlines()
+    data = {}
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        if line[0] == "#":
+            idx += 1
+            continue
+        else:
+            line = line[:-1].split(" ")
+            cam_id, model, width, height = line[:4]
+            cam_id, width, height = map(int, [cam_id, width, height])
+            params = list(map(float, line[4:]))
+            data[cam_id] = [model, width, height, params]
+            idx += 1
+    return data
+
+
 def read_images(in_dir="sfm_models/images.txt"):
     sys.stdin = open(in_dir, "r")
     lines = sys.stdin.readlines()
@@ -335,7 +355,8 @@ def dump_image2pose_json():
 
 
 if __name__ == '__main__':
-    dump_image2pose_json()
+    read_cameras()
+    # dump_image2pose_json()
     # build_descriptors()
     # build_sfm_database()
     # visualize_matching_pairs()

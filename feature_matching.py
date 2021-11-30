@@ -6,6 +6,7 @@ from PIL import Image
 import numpy as np
 import kornia
 import cv2
+import time
 import pydegensac
 from scipy.spatial import KDTree
 
@@ -73,52 +74,36 @@ def compute_kp_descriptors_opencv(img):
     return coords, des
 
 
-def compute_kp_descriptors(img1, n_features=4000):
-    # img1 = Image.open(f'/home/sontung/work/ar-vloc/test_images/252824182_4725834497437928_3707047345468087757_n.jpg')
-    # img1 = img1.resize((img1.size[0] // 4, img1.size[1] // 4))
+def matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, point2d_desc_list, cluster_model, vocab):
+    """
+    returns [image id] => point 2d id => point 3d id
+    """
+    start_time = time.time()
+    result = {i: [] for i in range(len(point2d_desc_list))}
+    for i in range(len(point2d_desc_list)):
+        desc_list = point2d_desc_list[i]
 
-    timg = kornia.utils.image_to_tensor(img1, False).float() / 255.
-    timg_gray = kornia.color.rgb_to_grayscale(timg)
+        # assign each desc to a word
+        desc_list = np.array(desc_list)
+        words = cluster_model.predict(desc_list)
 
-    # Now lets define  affine local deature detector and descriptor
+        # sort feature by search cost
+        features_to_match = [(du, desc_list[du], len(vocab[words[du]]), vocab[words[du]])
+                             for du in range(desc_list.shape[0])]
+        features_to_match = sorted(features_to_match, key=lambda du: du[2])
+        for j, desc, _, point_3d_list in features_to_match:
+            point_3d_desc_list = [du2[1] for du2 in point_3d_list]
+            point_3d_id_list = [du2[0] for du2 in point_3d_list]
 
-    device = torch.device('cpu')
-
-    PS = 41
-
-    sift = kornia.feature.SIFTDescriptor(PS, rootsift=True).to(device)
-    descriptor = sift
-
-    resp = kornia.feature.BlobHessian()
-    scale_pyr = kornia.geometry.ScalePyramid(3, 1.6, PS, double_image=True)
-
-    nms = kornia.geometry.ConvQuadInterp3d(10)
-
-    detector = kornia.feature.ScaleSpaceDetector(n_features,
-                                                 resp_module=resp,
-                                                 nms_module=nms,
-                                                 scale_pyr_module=scale_pyr,
-                                                 ori_module=kornia.feature.LAFOrienter(32),
-                                                 aff_module=kornia.feature.LAFAffineShapeEstimator(32),
-                                                 mr_size=6.0).to(device)
-
-    with torch.no_grad():
-        lafs, resps = detector(timg_gray)
-        patches = kornia.feature.extract_patches_from_pyramid(timg_gray, lafs, PS)
-        B, N, CH, H, W = patches.size()
-        # Descriptor accepts standard tensor [B, CH, H, W], while patches are [B, N, CH, H, W] shape
-        # So we need to reshape a bit :)
-        descs = descriptor(patches.view(B * N, CH, H, W))
-        # scores, matches = kornia.feature.match_snn(descs[0], descs[1], 0.9)
-
-    # Now RANSAC
-    src_pts = lafs[0, :, :, 2].data.cpu()
-
-    # img1 = np.array(img1)
-    # for i in range(src_pts.shape[0]):
-    #     u, v = map(int, src_pts[i])
-    #     cv2.circle(img1, (u, v), 1, (255, 128, 128), -1)
-    return src_pts.unsqueeze(0), descs.unsqueeze(0)
+            kd_tree = KDTree(point_3d_desc_list)
+            res = kd_tree.query(desc, 2)
+            if res[0][1] > 0.0:
+                if res[0][0]/res[0][1] < 0.7:  # ratio test
+                    result[i].append([j, point_3d_id_list[res[1][0]]])
+    time_spent = time.time()-start_time
+    print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
+          f"avg. {round(time_spent/len(point2d_desc_list), 3)} seconds/image")
+    return result
 
 
 if __name__ == '__main__':

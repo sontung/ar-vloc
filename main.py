@@ -3,17 +3,18 @@ import numpy as np
 import cv2
 import random
 import psutil
-
+import time
 import open3d as o3d
-from feature_matching import compute_kp_descriptors, build_descriptors_2d, load_2d_queries_opencv
-from colmap_io import build_descriptors, read_points3D_coordinates, read_images
+from feature_matching import build_descriptors_2d, load_2d_queries_opencv, matching_2d_to_3d_vocab_based
+from colmap_io import build_descriptors, read_points3D_coordinates, read_images, read_cameras
 from colmap_read import qvec2rotmat
+from localization import localize_single_image, build_vocabulary_of_descriptors
 from scipy.spatial import KDTree
 from PIL import Image
 
 NEXT = False
 DEBUG_2D_3D_MATCHING = False
-DEBUG_PNP = False
+DEBUG_PNP = True
 VISUALIZING_SFM_POSES = True
 
 
@@ -21,7 +22,9 @@ def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
     """
     returns [image id] => point 2d id => point 3d id
     """
+    start_time = time.time()
     kd_tree = KDTree(point3d_desc_list)
+    print("Done constructing K-D tree")
     result = {i: [] for i in range(len(point2d_desc_list))}
     for i in range(len(point2d_desc_list)):
         desc_list = point2d_desc_list[i]
@@ -31,6 +34,9 @@ def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
             if res[0][1] > 0.0:
                 if res[0][0]/res[0][1] < 0.7:  # ratio test
                     result[i].append([j, point3d_id_list[res[1][0]]])
+    time_spent = time.time()-start_time
+    print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
+          f"avg. {round(time_spent/len(point2d_desc_list), 3)} seconds/image")
     return result
 
 
@@ -177,49 +183,30 @@ def produce_sphere(pos, color=None):
 
 
 def produce_name2pose(image2pose):
-    res = {image2pose[k][0]: image2pose[k][2] for k in image2pose}
+    res = {image2pose[k][0]: [image2pose[k][2], image2pose[k][3]] for k in image2pose}
     return res
 
 
-def localize(p2d2p3d, coord_list, point3did2xyzrgb, camera_matrix, distortion_coefficients):
-    """
-    using pnp algorithm to compute camera pose
-    """
-    results = []
-    for im_idx in p2d2p3d:
-        pairs = p2d2p3d[im_idx]
-        object_points = []
-        image_points = []
-        for point2d_id, point3d_id in pairs:
-            coord_2d = coord_list[im_idx][point2d_id]
-            coord_3d = point3did2xyzrgb[point3d_id][:3]
-            image_points.append(coord_2d)
-            object_points.append(coord_3d)
-        object_points = np.array(object_points)
-        image_points = np.array(image_points).reshape((-1, 1, 2))
-
-        val, rot, trans, inliers = cv2.solvePnPRansac(object_points, image_points,
-                                                      camera_matrix, distortion_coefficients)
-        if not val:
-            print(f"{object_points.shape[0]} 2D-3D pairs computed but localization failed.")
-            results.append(None)
-            continue
-        rot_mat, _ = cv2.Rodrigues(rot)
-        results.append([rot_mat, trans])
-        print(f"{inliers.shape[0]}/{image_points.shape[0]} are inliers")
-    return results
-
-
 def main():
-    query_images_folder = "test_images"
-    sfm_images_dir = "sfm_models/images.txt"
-    sfm_point_cloud_dir = "sfm_models/points3D.txt"
-    sfm_images_folder = "sfm_models/images"
+    query_images_folder = "sfm_ws_hblab/images"
+    cam_info_dir = "sfm_ws_hblab/cameras.txt"
+    sfm_images_dir = "sfm_ws_hblab/images.txt"
+    sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
+    sfm_images_folder = "sfm_ws_hblab/images"
+
+    # query_images_folder = "test_images"
+    # cam_info_dir = "sfm_models/cameras.txt"
+    # sfm_images_dir = "sfm_models/images.txt"
+    # sfm_point_cloud_dir = "sfm_models/points3D.txt"
+    # sfm_images_folder = "sfm_models/images"
+
+    camid2params = read_cameras(cam_info_dir)
     image2pose = read_images(sfm_images_dir)
     name2pose = produce_name2pose(image2pose)
     point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
     points_3d_list = []
     point3d_id_list, point3d_desc_list = build_descriptors_2d(image2pose, sfm_images_folder)
+    desc_vocab, clustering_model = build_vocabulary_of_descriptors(point3d_id_list, point3d_desc_list)
 
     for point3d_id in point3did2xyzrgb:
         x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
@@ -237,7 +224,9 @@ def main():
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
     desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
-    p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
+    # p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
+    p2d2p3d = matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, desc_list, clustering_model, desc_vocab)
+    localization_results = []
 
     if DEBUG_2D_3D_MATCHING:
         # visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
@@ -245,29 +234,42 @@ def main():
                                         point3did2xyzrgb, point_cloud, query_images_folder,
                                         point3d_id_list, point3d_desc_list, desc_list)
 
-    f, cx, cy, k = 1596.1472395458961, 575.0, 1024.0, 2.8106522618619115e-05
-    camera_matrix = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
-    localization_results = localize(p2d2p3d, coord_list, point3did2xyzrgb, camera_matrix, np.array([k, 0, 0, 0]))
-
     if DEBUG_PNP:
         index = -1
+        total_rot_error = 0
+        total_trans_error = 0
+
         for im_idx in p2d2p3d:
             index += 1
             im_name = im_name_list[im_idx]
-            ref_cam_pose = name2pose[im_name]
-            if localization_results[index] is None:
+            ref_cam_pose, cam_id = name2pose[im_name]
+            cam_model, _, _, cam_params = camid2params[cam_id]
+
+            if cam_model != "SIMPLE_RADIAL":
+                print("camera model is not known, skipping")
                 continue
-            rot_mat, trans = localization_results[index]
+
+            f, cx, cy, k = cam_params
+            camera_matrix = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
+            distortion_coefficients = np.array([k, 0, 0, 0])
+            res = localize_single_image(p2d2p3d[im_idx], coord_list[im_idx], point3did2xyzrgb,
+                                        camera_matrix, distortion_coefficients)
+
+            if res is None:
+                continue
+            rot_mat, trans = res
+            localization_results.append(res)
             qw, qx, qy, qz, tx, ty, tz = ref_cam_pose
             ref_rot_mat = qvec2rotmat([qw, qx, qy, qz])
             rot_error = np.sum(np.abs(ref_rot_mat-rot_mat))
             trans_error = np.sum(np.abs(trans-np.array([[tx], [ty], [tz]])))
-            print(f"rotation error={rot_error}, translation error={trans_error}")
+            total_rot_error += rot_error
+            total_trans_error += trans_error
+            # print(f"rotation error={rot_error}, translation error={trans_error}")
+        print(f"total rotation error={round(total_rot_error, 4)}, total translation error={round(total_trans_error, 4)}")
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
-    ctr = vis.get_view_control()
-    parameters = o3d.io.read_pinhole_camera_parameters("ScreenCamera_2021-11-22-16-30-08.json")
 
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
     coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
@@ -317,7 +319,6 @@ def main():
 
     for c in cameras:
         vis.add_geometry(c)
-    ctr.convert_from_pinhole_camera_parameters(parameters)
     vis.run()
     vis.destroy_window()
 
