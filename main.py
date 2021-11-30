@@ -16,6 +16,7 @@ NEXT = False
 DEBUG_2D_3D_MATCHING = False
 DEBUG_PNP = True
 VISUALIZING_SFM_POSES = True
+VISUALIZING_POSES = False
 
 
 def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
@@ -275,52 +276,53 @@ def main():
     coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
     cameras = [point_cloud, coord_mesh]
 
-    # ground-truth poses from sfm
-    if VISUALIZING_SFM_POSES:
-        for image_id in image2pose:
-            pose1 = np.array(image2pose[image_id][2])
-            trans1 = np.array(pose1[4:])
-            rot_mat1 = qvec2rotmat(pose1[:4])
+    if VISUALIZING_POSES:
+        # ground-truth poses from sfm
+        if VISUALIZING_SFM_POSES:
+            for image_id in image2pose:
+                pose1 = np.array(image2pose[image_id][2])
+                trans1 = np.array(pose1[4:])
+                rot_mat1 = qvec2rotmat(pose1[:4])
 
-            t = -rot_mat1.transpose()@trans1
+                t = -rot_mat1.transpose()@trans1
+                t = t.reshape((3, 1))
+                mat = np.hstack([-rot_mat1.transpose(), t])
+                mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+
+                cm = produce_cam_mesh()
+
+                vertices = np.asarray(cm.vertices)
+                for i in range(vertices.shape[0]):
+                    arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+                    arr = mat@arr
+                    vertices[i] = arr[:3]
+                cm.vertices = o3d.utility.Vector3dVector(vertices)
+                cameras.append(cm)
+
+        # queried poses
+        for result in localization_results:
+            if result is None:
+                continue
+            rot_mat, trans = result
+            t = -rot_mat.transpose() @ trans
             t = t.reshape((3, 1))
-            mat = np.hstack([-rot_mat1.transpose(), t])
+            mat = np.hstack([-rot_mat.transpose(), t])
             mat = np.vstack([mat, np.array([0, 0, 0, 1])])
 
-            cm = produce_cam_mesh()
+            cm = produce_cam_mesh(color=[0, 1, 0])
 
             vertices = np.asarray(cm.vertices)
             for i in range(vertices.shape[0]):
                 arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
-                arr = mat@arr
+                arr = mat @ arr
                 vertices[i] = arr[:3]
             cm.vertices = o3d.utility.Vector3dVector(vertices)
             cameras.append(cm)
 
-    # queried poses
-    for result in localization_results:
-        if result is None:
-            continue
-        rot_mat, trans = result
-        t = -rot_mat.transpose() @ trans
-        t = t.reshape((3, 1))
-        mat = np.hstack([-rot_mat.transpose(), t])
-        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
-
-        cm = produce_cam_mesh(color=[0, 1, 0])
-
-        vertices = np.asarray(cm.vertices)
-        for i in range(vertices.shape[0]):
-            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
-            arr = mat @ arr
-            vertices[i] = arr[:3]
-        cm.vertices = o3d.utility.Vector3dVector(vertices)
-        cameras.append(cm)
-
-    for c in cameras:
-        vis.add_geometry(c)
-    vis.run()
-    vis.destroy_window()
+        for c in cameras:
+            vis.add_geometry(c)
+        vis.run()
+        vis.destroy_window()
 
 
 if __name__ == '__main__':

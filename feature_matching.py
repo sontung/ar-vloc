@@ -100,6 +100,8 @@ def matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, point2d_de
             if res[0][1] > 0.0:
                 if res[0][0]/res[0][1] < 0.7:  # ratio test
                     result[i].append([j, point_3d_id_list[res[1][0]]])
+            if len(result[i]) >= 100:
+                break
     time_spent = time.time()-start_time
     print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
           f"avg. {round(time_spent/len(point2d_desc_list), 3)} seconds/image")
