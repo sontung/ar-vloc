@@ -11,6 +11,7 @@ from colmap_read import qvec2rotmat
 from localization import localize_single_image, build_vocabulary_of_descriptors
 from scipy.spatial import KDTree
 from PIL import Image
+from active_search import matching_active_search
 
 NEXT = False
 DEBUG_2D_3D_MATCHING = False
@@ -189,17 +190,17 @@ def produce_name2pose(image2pose):
 
 
 def main():
-    query_images_folder = "sfm_ws_hblab/images"
-    cam_info_dir = "sfm_ws_hblab/cameras.txt"
-    sfm_images_dir = "sfm_ws_hblab/images.txt"
-    sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
-    sfm_images_folder = "sfm_ws_hblab/images"
+    # query_images_folder = "sfm_ws_hblab/images"
+    # cam_info_dir = "sfm_ws_hblab/cameras.txt"
+    # sfm_images_dir = "sfm_ws_hblab/images.txt"
+    # sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
+    # sfm_images_folder = "sfm_ws_hblab/images"
 
-    # query_images_folder = "test_images"
-    # cam_info_dir = "sfm_models/cameras.txt"
-    # sfm_images_dir = "sfm_models/images.txt"
-    # sfm_point_cloud_dir = "sfm_models/points3D.txt"
-    # sfm_images_folder = "sfm_models/images"
+    query_images_folder = "test_images"
+    cam_info_dir = "sfm_models/cameras.txt"
+    sfm_images_dir = "sfm_models/images.txt"
+    sfm_point_cloud_dir = "sfm_models/points3D.txt"
+    sfm_images_folder = "sfm_models/images"
 
     camid2params = read_cameras(cam_info_dir)
     image2pose = read_images(sfm_images_dir)
@@ -226,7 +227,9 @@ def main():
 
     desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
     # p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
-    p2d2p3d = matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, desc_list, clustering_model, desc_vocab)
+    # p2d2p3d = matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, desc_list, clustering_model, desc_vocab)
+    point3did2desc = {point3d_id_list[du1]: point3d_desc_list[du1] for du1 in range(len(point3d_id_list))}
+    p2d2p3d = matching_active_search(point3did2desc, point3did2xyzrgb, desc_list, clustering_model, desc_vocab)
     localization_results = []
 
     if DEBUG_2D_3D_MATCHING:
