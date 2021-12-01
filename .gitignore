@@ -2,6 +2,8 @@
 sfm_ws/*
 data/*
 test_images/*
+sfm_ws_hblab/*
+test_images2/*
 ScreenCamera_*
 
 # Byte-compiled / optimized / DLL files
