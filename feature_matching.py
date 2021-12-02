@@ -21,7 +21,7 @@ def load_2d_queries_opencv(folder="test_images"):
     for name in im_names:
         im_name = os.path.join(folder, name)
         im = cv2.imread(im_name)
-        coord, desc = compute_kp_descriptors_opencv(im)
+        coord, desc = compute_kp_descriptors_opencv(im, nb_keypoints=3000)
         coord = np.array(coord)
         coordinates.append(coord)
         descriptors.append(desc)
@@ -79,9 +79,12 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
     return vocab, cluster_model
 
 
-def compute_kp_descriptors_opencv(img):
+def compute_kp_descriptors_opencv(img, nb_keypoints=None):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02)
+    if nb_keypoints is not None:
+        sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02, nfeatures=nb_keypoints)
+    else:
+        sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02)
     kp_list, des = sift.detectAndCompute(img, None)
     coords = []
     for kp in kp_list:

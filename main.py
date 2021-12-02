@@ -21,6 +21,7 @@ DEBUG_2D_3D_MATCHING = False
 DEBUG_PNP = True
 VISUALIZING_SFM_POSES = True
 VISUALIZING_POSES = False
+MATCHING_BENCHMARK = True
 
 
 def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
@@ -105,17 +106,17 @@ def produce_name2pose(image2pose):
 
 
 def main():
-    # query_images_folder = "sfm_ws_hblab/images"
-    # cam_info_dir = "sfm_ws_hblab/cameras.txt"
-    # sfm_images_dir = "sfm_ws_hblab/images.txt"
-    # sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
-    # sfm_images_folder = "sfm_ws_hblab/images"
+    query_images_folder = "sfm_ws_hblab/images"
+    cam_info_dir = "sfm_ws_hblab/cameras.txt"
+    sfm_images_dir = "sfm_ws_hblab/images.txt"
+    sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
+    sfm_images_folder = "sfm_ws_hblab/images"
 
-    query_images_folder = "test_images"
-    cam_info_dir = "sfm_models/cameras.txt"
-    sfm_images_dir = "sfm_models/images.txt"
-    sfm_point_cloud_dir = "sfm_models/points3D.txt"
-    sfm_images_folder = "sfm_models/images"
+    # query_images_folder = "test_images"
+    # cam_info_dir = "sfm_models/cameras.txt"
+    # sfm_images_dir = "sfm_models/images.txt"
+    # sfm_point_cloud_dir = "sfm_models/points3D.txt"
+    # sfm_images_folder = "sfm_models/images"
 
     camid2params = read_cameras(cam_info_dir)
     image2pose = read_images(sfm_images_dir)
@@ -151,26 +152,36 @@ def main():
     desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
     p2d2p3d = {}
     start_time = time.time()
+    count_all = 0
+    samples_all = 0
     for i in range(len(desc_list)):
         point2d_cloud = FeatureCloud()
         for j in range(coord_list[i].shape[0]):
             point2d_cloud.add_point(desc_list[i][j], coord_list[i][j])
         point2d_cloud.commit()
-        res = point3d_cloud.matching_2d_to_3d_vocab_based(point2d_cloud)
+        start = time.time()
+        res, count, samples = point3d_cloud.matching_2d_to_3d_vocab_based(point2d_cloud,
+                                                                          debug=MATCHING_BENCHMARK)
+        print(f" vocab-based done in {round(time.time()-start, 3)},"
+              f" accuracy={round(count/samples*100, 3)}%")
+        start = time.time()
+        res, count, samples = point3d_cloud.matching_2d_to_3d_active_search(point2d_cloud,
+                                                                            debug=MATCHING_BENCHMARK)
+        print(f" active search done in {round(time.time()-start, 3)},"
+              f" accuracy={round(count/samples*100, 3)}%")
+
+        count_all += count
+        samples_all += samples
         p2d2p3d[i] = []
         for point2d, point3d in res:
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
     time_spent = time.time()-start_time
     print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
           f"avg. {round(time_spent/len(desc_list), 3)} seconds/image")
+    if MATCHING_BENCHMARK:
+        print(f"Matching accuracy={round(count_all/samples_all*100, 3)}%")
 
     localization_results = []
-
-    if DEBUG_2D_3D_MATCHING:
-        # visualize_2d_3d_matching(p2d2p3d, coord_list, im_name_list, point3did2xyzrgb, point_cloud)
-        visualize_2d_3d_matching_single(p2d2p3d, coord_list, im_name_list,
-                                        point3did2xyzrgb, point_cloud, query_images_folder,
-                                        point3d_id_list, point3d_desc_list, desc_list)
 
     if DEBUG_PNP:
         index = -1

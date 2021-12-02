@@ -10,6 +10,7 @@ class FeatureCloud:
         self.point_desc_list = []
         self.point_xy_list = []
         self.desc_tree = None
+        self.vocab, self.cluster_model = None, None
 
     def desc_nearest(self, desc, nb_neighbors=2):
         pass
@@ -21,7 +22,28 @@ class FeatureCloud:
         self.point_desc_list.append(desc)
 
     def commit(self):
-        self.desc_tree = KDTree(self.point_desc_list)
+        self.vocab, self.cluster_model = build_vocabulary_of_descriptors(list(range(len(self.points))),
+                                                                         self.point_desc_list,
+                                                                         nb_clusters=len(self.points) // 5)
+        print("Feature cloud committed")
+
+    def assign_search_cost(self, query_desc):
+        query_desc = query_desc.reshape((1, -1))
+        word = self.cluster_model.predict(query_desc)[0]
+        return self.vocab[word]
+
+    def matching_3d_to_2d_vocab_based(self, query_desc):
+        word = self.cluster_model.predict(query_desc.reshape((1, -1)))[0]
+        candidates = self.vocab[word]
+        desc_list = [candidate[1] for candidate in candidates]
+        id_list = [candidate[0] for candidate in candidates]
+        tree = KDTree(desc_list)
+        res = tree.query(query_desc, 2)
+        if res[0][1] > 0.0:
+            if res[0][0] / res[0][1] < 0.7:  # ratio test
+                index = id_list[res[1][0]]
+                return self.points[index]
+        return None
 
     def matching_3d_to_2d_brute_force(self, query_desc):
         """
