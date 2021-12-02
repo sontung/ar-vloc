@@ -4,10 +4,9 @@ import time
 import numpy as np
 
 
-class FeatureList:
+class FeatureCloud:
     def __init__(self):
         self.points = []
-        self.point_id_list = []
         self.point_desc_list = []
         self.point_xy_list = []
         self.desc_tree = None
@@ -15,10 +14,9 @@ class FeatureList:
     def desc_nearest(self, desc, nb_neighbors=2):
         pass
 
-    def add_point(self, index, desc, xy, rgb):
-        a_point = Feature(index, desc, xy, rgb)
+    def add_point(self, desc, xy):
+        a_point = Feature(desc, xy)
         self.points.append(a_point)
-        self.point_id_list.append(index)
         self.point_xy_list.append(xy)
         self.point_desc_list.append(desc)
 
@@ -41,11 +39,9 @@ class FeatureList:
 
 
 class Feature:
-    def __init__(self, index, descriptor, xy, rgb):
-        self.index = index
+    def __init__(self, descriptor, xy):
         self.desc = descriptor
         self.xy = xy
-        self.rgb = rgb
         self.visual_word = None
 
     def match(self, desc):

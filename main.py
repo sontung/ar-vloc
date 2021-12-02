@@ -14,6 +14,7 @@ from vis_utils import produce_sphere, produce_cam_mesh, visualize_2d_3d_matching
 from PIL import Image
 from active_search import matching_active_search
 from point3d import PointCloud, Point3D
+from point2d import FeatureCloud
 
 NEXT = False
 DEBUG_2D_3D_MATCHING = False
@@ -131,26 +132,38 @@ def main():
         point3d_cloud.add_point(point3d_id, point3d_desc, xyzrgb[:3], xyzrgb[3:])
     point3d_cloud.commit()
 
-    for point3d_id in point3did2xyzrgb:
-        x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
-        if point3d_id in point3d_id_list:
-            point3did2xyzrgb[point3d_id] = [x, y, z, 255, 0, 0]
-        else:
-            point3did2xyzrgb[point3d_id] = [x, y, z, 0, 0, 0]
+    if VISUALIZING_POSES:
+        for point3d_id in point3did2xyzrgb:
+            x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+            if point3d_id in point3d_id_list:
+                point3did2xyzrgb[point3d_id] = [x, y, z, 255, 0, 0]
+            else:
+                point3did2xyzrgb[point3d_id] = [x, y, z, 0, 0, 0]
 
-    for point3d_id in point3did2xyzrgb:
-        x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
-        points_3d_list.append([x, y, z, r/255, g/255, b/255])
-    points_3d_list = np.vstack(points_3d_list)
-    point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
-    point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
-    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+        for point3d_id in point3did2xyzrgb:
+            x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+            points_3d_list.append([x, y, z, r/255, g/255, b/255])
+        points_3d_list = np.vstack(points_3d_list)
+        point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
+        point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
+        point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
     desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
-    # p2d2p3d = matching_2d_to_3d(point3d_id_list, point3d_desc_list, desc_list)
-    # p2d2p3d = matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, desc_list, clustering_model, desc_vocab)
-    point3did2desc = {point3d_id_list[du1]: point3d_desc_list[du1] for du1 in range(len(point3d_id_list))}
-    p2d2p3d = matching_active_search(point3did2desc, point3did2xyzrgb, desc_list, clustering_model, desc_vocab)
+    p2d2p3d = {}
+    start_time = time.time()
+    for i in range(len(desc_list)):
+        point2d_cloud = FeatureCloud()
+        for j in range(coord_list[i].shape[0]):
+            point2d_cloud.add_point(desc_list[i][j], coord_list[i][j])
+        point2d_cloud.commit()
+        res = point3d_cloud.matching_2d_to_3d_vocab_based(point2d_cloud)
+        p2d2p3d[i] = []
+        for point2d, point3d in res:
+            p2d2p3d[i].append((point2d.xy, point3d.xyz))
+    time_spent = time.time()-start_time
+    print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
+          f"avg. {round(time_spent/len(desc_list), 3)} seconds/image")
+
     localization_results = []
 
     if DEBUG_2D_3D_MATCHING:
@@ -177,8 +190,7 @@ def main():
             f, cx, cy, k = cam_params
             camera_matrix = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
             distortion_coefficients = np.array([k, 0, 0, 0])
-            res = localize_single_image(p2d2p3d[im_idx], coord_list[im_idx], point3did2xyzrgb,
-                                        camera_matrix, distortion_coefficients)
+            res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
 
             if res is None:
                 continue
@@ -190,17 +202,16 @@ def main():
             trans_error = np.sum(np.abs(trans-np.array([[tx], [ty], [tz]])))
             total_rot_error += rot_error
             total_trans_error += trans_error
-            # print(f"rotation error={rot_error}, translation error={trans_error}")
         print(f"total rotation error={round(total_rot_error, 4)}, total translation error={round(total_trans_error, 4)}")
 
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(width=1920, height=1025)
-
-    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-    coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
-    cameras = [point_cloud, coord_mesh]
-
     if VISUALIZING_POSES:
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(width=1920, height=1025)
+
+        point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+        cameras = [point_cloud, coord_mesh]
+
         # ground-truth poses from sfm
         if VISUALIZING_SFM_POSES:
             for image_id in image2pose:

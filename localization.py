@@ -34,18 +34,16 @@ def localize_shared_intrinsics(p2d2p3d, coord_list, point3did2xyzrgb, camera_mat
     return results
 
 
-def localize_single_image(pairs, coord_list, point3did2xyzrgb, camera_matrix, distortion_coefficients):
+def localize_single_image(pairs, camera_matrix, distortion_coefficients):
     """
     using pnp algorithm to compute camera pose
     """
     start_time = time.time()
     object_points = []
     image_points = []
-    for point2d_id, point3d_id in pairs:
-        coord_2d = coord_list[point2d_id]
-        coord_3d = point3did2xyzrgb[point3d_id][:3]
-        image_points.append(coord_2d)
-        object_points.append(coord_3d)
+    for xy, xyz in pairs:
+        image_points.append(xy)
+        object_points.append(xyz)
     object_points = np.array(object_points)
     image_points = np.array(image_points).reshape((-1, 1, 2))
 

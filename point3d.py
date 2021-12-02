@@ -49,11 +49,11 @@ class PointCloud:
                 return self.points[index]
         return None
 
-    def matching_2d_to_3d_vocab_based(self, query_desc_list):
-        start_time = time.time()
+    def matching_2d_to_3d_vocab_based(self, feature_cloud):
         result = []
 
         # assign each desc to a word
+        query_desc_list = feature_cloud.point_desc_list
         desc_list = np.array(query_desc_list)
         words = self.cluster_model.predict(desc_list)
 
@@ -70,16 +70,16 @@ class PointCloud:
 
         for j, desc, _, point_3d_list in features_to_match:
             qu_point_3d_desc_list = [du2[1] for du2 in point_3d_list]
-            qu_point_3d_id_list = [du2[0] for du2 in point_3d_list]
+            qu_point_3d_id_list = [du2[2] for du2 in point_3d_list]
 
             kd_tree = KDTree(qu_point_3d_desc_list)
             res = kd_tree.query(desc, 2)
             if res[0][1] > 0.0:
                 if res[0][0] / res[0][1] < 0.7:  # ratio test
-                    result.append([j, qu_point_3d_id_list[res[1][0]]])
+                    result.append([feature_cloud.points[j],
+                                   self.points[qu_point_3d_id_list[res[1][0]]]])
             if len(result) >= 100:
                 break
-        time_spent = time.time() - start_time
         return result
 
 

@@ -75,7 +75,7 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
     cluster_model = sklearn.cluster.KMeans(nb_clusters)
     labels = cluster_model.fit_predict(p3d_desc_list)
     for i in range(len(p3d_id_list)):
-        vocab[labels[i]].append((p3d_id_list[i], p3d_desc_list[i]))
+        vocab[labels[i]].append((p3d_id_list[i], p3d_desc_list[i], i))
     return vocab, cluster_model
 
 
