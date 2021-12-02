@@ -8,6 +8,7 @@ import kornia
 import cv2
 import time
 import pydegensac
+import sklearn.cluster
 from scipy.spatial import KDTree
 
 MATCHING_BENCHMARK = True
@@ -66,6 +67,18 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
     return p3d_id_list, p3d_desc_list
 
 
+def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None):
+    if nb_clusters is None:
+        nb_clusters = len(p3d_desc_list) // 50
+    vocab = {u: [] for u in range(nb_clusters)}
+    p3d_desc_list = np.array(p3d_desc_list)
+    cluster_model = sklearn.cluster.KMeans(nb_clusters)
+    labels = cluster_model.fit_predict(p3d_desc_list)
+    for i in range(len(p3d_id_list)):
+        vocab[labels[i]].append((p3d_id_list[i], p3d_desc_list[i]))
+    return vocab, cluster_model
+
+
 def compute_kp_descriptors_opencv(img):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02)
@@ -87,7 +100,8 @@ def matching_2d_to_3d_brute_force(kd_tree, point3d_id_list, point3d_desc_list, q
     return None
 
 
-def matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list, point2d_desc_list, cluster_model, vocab):
+def matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list,
+                                  point2d_desc_list, cluster_model, vocab):
     """
     returns [image id] => point 2d id => point 3d id
     """

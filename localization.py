@@ -59,13 +59,3 @@ def localize_single_image(pairs, coord_list, point3did2xyzrgb, camera_matrix, di
           f"time spent={round(time.time()-start_time, 4)} seconds")
     return rot_mat, trans
 
-
-def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list):
-    nb_clusters = len(p3d_desc_list) // 50
-    vocab = {u: [] for u in range(nb_clusters)}
-    p3d_desc_list = np.array(p3d_desc_list)
-    cluster_model = sklearn.cluster.KMeans(nb_clusters)
-    labels = cluster_model.fit_predict(p3d_desc_list)
-    for i in range(len(p3d_id_list)):
-        vocab[labels[i]].append((p3d_id_list[i], p3d_desc_list[i]))
-    return vocab, cluster_model
