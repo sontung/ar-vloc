@@ -5,6 +5,7 @@ test_images/*
 sfm_ws_hblab/*
 test_images2/*
 ScreenCamera_*
+*.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
