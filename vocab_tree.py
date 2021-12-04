@@ -7,7 +7,6 @@ class VocabNode:
         self.nb_clusters = nb_clusters
         self.vocab = None
         self.cluster_model = None
-        return
 
     def build(self, p3d_id_list, p3d_desc_list):
         if self.nb_clusters > len(p3d_id_list):
@@ -30,14 +29,14 @@ class Word:
 
 
 class VocabNodeForWords:
-    def __init__(self, level, branching_factor):
+    def __init__(self, name, level, branching_factor):
         self.vocab = None
         self.cluster_model = None
         self.branching_factor = branching_factor
         self.nb_clusters = branching_factor
         self.children = []
+        self.name = name
         self.level = level
-        return
 
     def build(self, word_indices, word_descriptors):
         next_level = self.level + 1
@@ -52,10 +51,10 @@ class VocabNodeForWords:
 
         data = []
         for child_id in range(self.nb_clusters):
-            child = VocabNodeForWords(next_level, self.branching_factor)
+            child = VocabNodeForWords(f"{self.name}-{child_id}", next_level, self.branching_factor)
             sub_word_indices = [word[0] for word in self.vocab[child_id]]
             sub_word_descriptors = [word[1] for word in self.vocab[child_id]]
-            data.extend([(word_ind, self.level, child_id) for word_ind in sub_word_indices])
+            data.extend([(word_ind, self.level, child.name) for word_ind in sub_word_indices])
             sub_data = child.build(sub_word_indices, sub_word_descriptors)
             data.extend(sub_data)
             self.children.append(child)
@@ -69,10 +68,21 @@ class VocabTree:
         word_indices = [word.index for word in words]
         word_descriptors = [word.descriptor for word in words]
 
-        self.v2 = VocabNodeForWords(1, branching_factor)
+        self.v2 = VocabNodeForWords("0", 1, branching_factor)
         data = self.v2.build(word_indices, word_descriptors)
-        print(len(data), len(words))
-        return
+
+        self.word2level = {word_ind: {} for word_ind in word_indices}
+        self.level2words = {}
+        for word_ind, level, level_name in data:
+            assert level not in self.word2level[word_ind]
+            self.word2level[word_ind][level] = level_name
+            if level_name not in self.level2words:
+                self.level2words[level_name] = [word_ind]
+            else:
+                self.level2words[level_name].append(word_ind)
+
+    def search(self, query_desc):
+        return 
 
 
 if __name__ == '__main__':
