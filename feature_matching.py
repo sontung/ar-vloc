@@ -4,12 +4,12 @@ import random
 import torch
 from PIL import Image
 import numpy as np
-import kornia
 import cv2
 import time
 import pydegensac
 import sklearn.cluster
 from scipy.spatial import KDTree
+from sklearn.cluster import MiniBatchKMeans
 
 MATCHING_BENCHMARK = True
 
@@ -21,7 +21,7 @@ def load_2d_queries_opencv(folder="test_images"):
     for name in im_names:
         im_name = os.path.join(folder, name)
         im = cv2.imread(im_name)
-        coord, desc = compute_kp_descriptors_opencv(im, nb_keypoints=3000)
+        coord, desc = compute_kp_descriptors_opencv(im)
         coord = np.array(coord)
         coordinates.append(coord)
         descriptors.append(desc)
@@ -72,7 +72,7 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
         nb_clusters = len(p3d_desc_list) // 50
     vocab = {u: [] for u in range(nb_clusters)}
     p3d_desc_list = np.array(p3d_desc_list)
-    cluster_model = sklearn.cluster.KMeans(nb_clusters)
+    cluster_model = MiniBatchKMeans(nb_clusters)
     labels = cluster_model.fit_predict(p3d_desc_list)
     for i in range(len(p3d_id_list)):
         vocab[labels[i]].append((p3d_id_list[i], p3d_desc_list[i], i))

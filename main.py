@@ -15,10 +15,12 @@ from PIL import Image
 from active_search import matching_active_search
 from point3d import PointCloud, Point3D
 from point2d import FeatureCloud
+from vocab_tree import VocabTree
+
 
 NEXT = False
 DEBUG_2D_3D_MATCHING = False
-DEBUG_PNP = True
+DEBUG_PNP = False
 VISUALIZING_SFM_POSES = True
 VISUALIZING_POSES = False
 MATCHING_BENCHMARK = True
@@ -125,13 +127,14 @@ def main():
     points_3d_list = []
     point3d_id_list, point3d_desc_list = build_descriptors_2d(image2pose, sfm_images_folder)
 
-    point3d_cloud = PointCloud()
+    point3d_cloud = PointCloud(debug=MATCHING_BENCHMARK)
     for i in range(len(point3d_id_list)):
         point3d_id = point3d_id_list[i]
         point3d_desc = point3d_desc_list[i]
         xyzrgb = point3did2xyzrgb[point3d_id]
         point3d_cloud.add_point(point3d_id, point3d_desc, xyzrgb[:3], xyzrgb[3:])
     point3d_cloud.commit()
+    vocab_tree = VocabTree(point3d_cloud)
 
     if VISUALIZING_POSES:
         for point3d_id in point3did2xyzrgb:
@@ -154,24 +157,31 @@ def main():
     start_time = time.time()
     count_all = 0
     samples_all = 0
+    vocab_based = [0, 0, 0]
+    active_search_based = [0, 0, 0]
     for i in range(len(desc_list)):
         point2d_cloud = FeatureCloud()
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(desc_list[i][j], coord_list[i][j])
-        point2d_cloud.commit()
+            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
+        point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
+
         start = time.time()
         res, count, samples = point3d_cloud.matching_2d_to_3d_vocab_based(point2d_cloud,
                                                                           debug=MATCHING_BENCHMARK)
-        print(f" vocab-based done in {round(time.time()-start, 3)},"
-              f" accuracy={round(count/samples*100, 3)}%")
+
+        vocab_based[0] += time.time()-start
+        vocab_based[1] += count
+        vocab_based[2] += samples
+
         start = time.time()
-        res, count, samples = point3d_cloud.matching_2d_to_3d_active_search(point2d_cloud,
-                                                                            debug=MATCHING_BENCHMARK)
-        print(f" active search done in {round(time.time()-start, 3)},"
-              f" accuracy={round(count/samples*100, 3)}%")
+        res, count, samples = vocab_tree.search(point2d_cloud, debug=MATCHING_BENCHMARK)
+        active_search_based[0] += time.time()-start
+        active_search_based[1] += count
+        active_search_based[2] += samples
 
         count_all += count
         samples_all += samples
+
         p2d2p3d[i] = []
         for point2d, point3d in res:
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
@@ -179,6 +189,9 @@ def main():
     print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
           f"avg. {round(time_spent/len(desc_list), 3)} seconds/image")
     if MATCHING_BENCHMARK:
+        print("vocab", vocab_based[0], vocab_based[1]/vocab_based[2])
+        print("active", active_search_based[0], active_search_based[1]/active_search_based[2])
+
         print(f"Matching accuracy={round(count_all/samples_all*100, 3)}%")
 
     localization_results = []

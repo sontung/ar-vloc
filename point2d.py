@@ -9,41 +9,48 @@ class FeatureCloud:
         self.points = []
         self.point_desc_list = []
         self.point_xy_list = []
+        self.point_indices = []
         self.desc_tree = None
-        self.vocab, self.cluster_model = None, None
+        self.level2features = {}
 
-    def desc_nearest(self, desc, nb_neighbors=2):
-        pass
+    def __getitem__(self, item):
+        return self.points[item]
 
-    def add_point(self, desc, xy):
-        a_point = Feature(desc, xy)
+    def __len__(self):
+        return len(self.points)
+
+    def add_point(self, index, desc, xy):
+        a_point = Feature(index, desc, xy)
         self.points.append(a_point)
+        self.point_indices.append(index)
         self.point_xy_list.append(xy)
         self.point_desc_list.append(desc)
 
-    def commit(self):
-        self.vocab, self.cluster_model = build_vocabulary_of_descriptors(list(range(len(self.points))),
-                                                                         self.point_desc_list,
-                                                                         nb_clusters=len(self.points) // 5)
-        print("Feature cloud committed")
-
-    def assign_search_cost(self, query_desc):
-        query_desc = query_desc.reshape((1, -1))
-        word = self.cluster_model.predict(query_desc)[0]
-        return self.vocab[word]
-
-    def matching_3d_to_2d_vocab_based(self, query_desc):
-        word = self.cluster_model.predict(query_desc.reshape((1, -1)))[0]
-        candidates = self.vocab[word]
-        desc_list = [candidate[1] for candidate in candidates]
-        id_list = [candidate[0] for candidate in candidates]
+    def search(self, level_name, query_desc):
+        desc_list = [self.points[point_ind].desc for point_ind in self.level2features[level_name]]
+        point_indices = [point_ind for point_ind in self.level2features[level_name]]
         tree = KDTree(desc_list)
-        res = tree.query(query_desc, 2)
-        if res[0][1] > 0.0:
-            if res[0][0] / res[0][1] < 0.7:  # ratio test
-                index = id_list[res[1][0]]
-                return self.points[index]
+        res_ = tree.query(query_desc, 2)
+        if res_[0][1] > 0.0:
+            if res_[0][0] / res_[0][1] < 0.6:
+                desc_2d = self.point_desc_list[point_indices[res_[1][0]]]
+                return point_indices[res_[1][0]], res_[0][0], desc_2d
         return None
+
+    def assign_words(self, word2level, word_tree):
+        self.level2features.clear()
+        query_descriptors = np.vstack(self.point_desc_list)
+        query_words = word_tree.assign_words(query_descriptors)
+        for point_ind, word_id in enumerate(query_words):
+            levels = list(word2level[word_id].values())
+            for level_name in levels:
+                if level_name not in self.level2features:
+                    self.level2features[level_name] = [point_ind]
+                else:
+                    self.level2features[level_name].append(point_ind)
+
+    def assign_search_cost(self, level_name):
+        return len(self.level2features[level_name])
 
     def matching_3d_to_2d_brute_force(self, query_desc):
         """
@@ -61,10 +68,11 @@ class FeatureCloud:
 
 
 class Feature:
-    def __init__(self, descriptor, xy):
+    def __init__(self, index, descriptor, xy):
         self.desc = descriptor
         self.xy = xy
         self.visual_word = None
+        self.index = index
 
     def match(self, desc):
         pass
