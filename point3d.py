@@ -54,8 +54,8 @@ class PointCloud:
         if res[0][1] > 0.0:
             if res[0][0] / res[0][1] < 0.7:  # ratio test
                 index = res[1][0]
-                return self.points[index]
-        return None
+                return self.points[index], res[0][0], res[0][1]
+        return None, res[0][0], res[0][1]
 
     def matching_2d_to_3d_vocab_based(self, feature_cloud, debug=False):
         result = []
@@ -70,7 +70,8 @@ class PointCloud:
         # sort feature by search cost
         features_to_match = [
             (
-                du, desc_list[du],
+                du,
+                desc_list[du],
                 len(self.vocab[words[du]]),
                 self.vocab[words[du]]
             )

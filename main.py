@@ -21,8 +21,8 @@ from vocab_tree import VocabTree
 NEXT = False
 DEBUG_2D_3D_MATCHING = False
 DEBUG_PNP = False
-VISUALIZING_SFM_POSES = True
-VISUALIZING_POSES = False
+VISUALIZING_SFM_POSES = False
+VISUALIZING_POSES = True
 MATCHING_BENCHMARK = True
 
 
@@ -108,7 +108,8 @@ def produce_name2pose(image2pose):
 
 
 def main():
-    query_images_folder = "sfm_ws_hblab/images"
+    # query_images_folder = "sfm_ws_hblab/images"
+    query_images_folder = "/home/sontung/work/ar-vloc/Test line-20211207T083302Z-001/Test line"
     cam_info_dir = "sfm_ws_hblab/cameras.txt"
     sfm_images_dir = "sfm_ws_hblab/images.txt"
     sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
@@ -166,15 +167,13 @@ def main():
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         start = time.time()
-        res, count, samples = point3d_cloud.matching_2d_to_3d_vocab_based(point2d_cloud,
-                                                                          debug=MATCHING_BENCHMARK)
-
+        res, count, samples = vocab_tree.search(point2d_cloud, debug=MATCHING_BENCHMARK)
         vocab_based[0] += time.time()-start
         vocab_based[1] += count
         vocab_based[2] += samples
 
         start = time.time()
-        res, count, samples = vocab_tree.search(point2d_cloud, debug=MATCHING_BENCHMARK)
+        res, count, samples = vocab_tree.active_search(point2d_cloud, debug=MATCHING_BENCHMARK)
         active_search_based[0] += time.time()-start
         active_search_based[1] += count
         active_search_based[2] += samples
@@ -185,6 +184,7 @@ def main():
         p2d2p3d[i] = []
         for point2d, point3d in res:
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
+
     time_spent = time.time()-start_time
     print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
           f"avg. {round(time_spent/len(desc_list), 3)} seconds/image")

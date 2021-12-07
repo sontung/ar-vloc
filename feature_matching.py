@@ -5,9 +5,6 @@ import torch
 from PIL import Image
 import numpy as np
 import cv2
-import time
-import pydegensac
-import sklearn.cluster
 from scipy.spatial import KDTree
 from sklearn.cluster import MiniBatchKMeans
 
@@ -72,7 +69,7 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
         nb_clusters = len(p3d_desc_list) // 50
     vocab = {u: [] for u in range(nb_clusters)}
     p3d_desc_list = np.array(p3d_desc_list)
-    cluster_model = MiniBatchKMeans(nb_clusters)
+    cluster_model = MiniBatchKMeans(nb_clusters, random_state=0)
     labels = cluster_model.fit_predict(p3d_desc_list)
     for i in range(len(p3d_id_list)):
         vocab[labels[i]].append((p3d_id_list[i], p3d_desc_list[i], i))
@@ -90,65 +87,6 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None):
     for kp in kp_list:
         coords.append(list(kp.pt))
     return coords, des
-
-
-def matching_2d_to_3d_brute_force(kd_tree, point3d_id_list, point3d_desc_list, query_desc):
-    """
-    brute forcing match for a single 2D point
-    """
-    res = kd_tree.query(query_desc, 2)
-    if res[0][1] > 0.0:
-        if res[0][0]/res[0][1] < 0.7:  # ratio test
-            return point3d_id_list[res[1][0]]
-    return None
-
-
-def matching_2d_to_3d_vocab_based(point3d_id_list, point3d_desc_list,
-                                  point2d_desc_list, cluster_model, vocab):
-    """
-    returns [image id] => point 2d id => point 3d id
-    """
-    start_time = time.time()
-    result = {i: [] for i in range(len(point2d_desc_list))}
-    matching_acc = []
-    if MATCHING_BENCHMARK:
-        kd_tree_3d = KDTree(point3d_desc_list)
-
-    for i in range(len(point2d_desc_list)):
-        desc_list = point2d_desc_list[i]
-
-        # assign each desc to a word
-        desc_list = np.array(desc_list)
-        words = cluster_model.predict(desc_list)
-
-        # sort feature by search cost
-        features_to_match = [(du, desc_list[du], len(vocab[words[du]]), vocab[words[du]])
-                             for du in range(desc_list.shape[0])]
-        features_to_match = sorted(features_to_match, key=lambda du: du[2])
-
-        count = 0
-        for j, desc, _, point_3d_list in features_to_match:
-            qu_point_3d_desc_list = [du2[1] for du2 in point_3d_list]
-            qu_point_3d_id_list = [du2[0] for du2 in point_3d_list]
-
-            kd_tree = KDTree(qu_point_3d_desc_list)
-            res = kd_tree.query(desc, 2)
-            if res[0][1] > 0.0:
-                if res[0][0]/res[0][1] < 0.7:  # ratio test
-                    result[i].append([j, qu_point_3d_id_list[res[1][0]]])
-                    if MATCHING_BENCHMARK:
-                        ref_res = matching_2d_to_3d_brute_force(kd_tree_3d, point3d_id_list, point3d_desc_list, desc)
-                        if ref_res == qu_point_3d_id_list[res[1][0]]:
-                            count += 1
-            if len(result[i]) >= 100:
-                matching_acc.append(count)
-                break
-    time_spent = time.time()-start_time
-    if MATCHING_BENCHMARK:
-        print(f"Matching accuracy={round(np.mean(matching_acc), 3)}%")
-    print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
-          f"avg. {round(time_spent/len(point2d_desc_list), 3)} seconds/image")
-    return result
 
 
 if __name__ == '__main__':
