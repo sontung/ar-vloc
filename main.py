@@ -161,6 +161,7 @@ def main():
     vocab_based = [0, 0, 0]
     active_search_based = [0, 0, 0]
     for i in range(len(desc_list)):
+        print(f"Matching {i}/{len(desc_list)}")
         point2d_cloud = FeatureCloud()
         for j in range(coord_list[i].shape[0]):
             point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
@@ -195,6 +196,25 @@ def main():
         print(f"Matching accuracy={round(count_all/samples_all*100, 3)}%")
 
     localization_results = []
+    index = -1
+    for im_idx in p2d2p3d:
+        index += 1
+        im_name = im_name_list[im_idx]
+        ref_cam_pose, cam_id = name2pose[im_name]
+        cam_model, _, _, cam_params = camid2params[cam_id]
+
+        if cam_model != "SIMPLE_RADIAL":
+            print("camera model is not known, skipping")
+            continue
+
+        f, cx, cy, k = cam_params
+        camera_matrix = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1]])
+        distortion_coefficients = np.array([k, 0, 0, 0])
+        res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+
+        if res is None:
+            continue
+        localization_results.append(res)
 
     if DEBUG_PNP:
         index = -1
