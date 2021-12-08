@@ -32,7 +32,7 @@ class FeatureCloud:
         tree = KDTree(desc_list)
         res_ = tree.query(query_desc, 2)
         if res_[0][1] > 0.0:
-            if res_[0][0] / res_[0][1] < 0.6:
+            if res_[0][0] / res_[0][1] < 0.7:
                 desc_2d = self.point_desc_list[point_indices[res_[1][0]]]
                 return point_indices[res_[1][0]], res_[0][0], desc_2d
         return None

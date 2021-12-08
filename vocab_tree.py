@@ -225,16 +225,16 @@ class VocabTree:
                         self.enforce_consistency(pair)
 
                         # re-check
-                        word_id = ans.visual_word
-                        level_name = self.word2level[word_id][level_to_use]
-                        new_candidate = (
-                            0,
-                            qu_point_3d_id_list[res_[1][0]],
-                            level_name,
-                            None,
-                            "point"
-                        )
-                        heapq.heappush(features_to_match, new_candidate)
+                        # word_id = ans.visual_word
+                        # level_name = self.word2level[word_id][level_to_use]
+                        # new_candidate = (
+                        #     0,
+                        #     qu_point_3d_id_list[res_[1][0]],
+                        #     level_name,
+                        #     None,
+                        #     "point"
+                        # )
+                        # heapq.heappush(features_to_match, new_candidate)
 
                         # potential checks
                         neighbors = self.point_cloud.xyz_nearest(ans.xyz)
@@ -243,7 +243,7 @@ class VocabTree:
                             level_name = self.word2level[word_id][level_to_use]
                             cost = features.assign_search_cost(level_name)
                             new_candidate = (
-                                cost,
+                                0,
                                 point_3d_index,
                                 level_name,
                                 None,
