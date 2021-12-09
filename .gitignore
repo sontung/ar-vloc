@@ -8,6 +8,7 @@ ScreenCamera_*
 *.zip
 Test line-20211207T083302Z-001/*
 Test line/*
+piazza_del_popolo/*
 *.lprof
 
 # Byte-compiled / optimized / DLL files

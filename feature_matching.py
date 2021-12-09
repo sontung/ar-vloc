@@ -2,13 +2,51 @@ import os
 import sys
 import random
 import torch
+from tqdm import tqdm
 from PIL import Image
+import pyheif
+import exifread
 import numpy as np
 import cv2
 from scipy.spatial import KDTree
 from sklearn.cluster import MiniBatchKMeans
 
 MATCHING_BENCHMARK = True
+
+
+def load_2d_queries_generic(folder):
+    im_names = os.listdir(folder)
+    descriptors = []
+    coordinates = []
+    md_list = []
+    for name in tqdm(im_names, desc="Reading query images"):
+        metadata = {}
+        im_name = os.path.join(folder, name)
+        if "HEIC" in name:
+            heif_file = pyheif.read(im_name)
+            image = Image.frombytes(
+                heif_file.mode,
+                heif_file.size,
+                heif_file.data,
+                "raw",
+                heif_file.mode,
+                heif_file.stride,
+            )
+            im = np.array(image)
+            f = open(im_name, 'rb')
+            tags = exifread.process_file(f)
+            metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
+            metadata["cx"] = im.shape[1]/2
+            metadata["cy"] = im.shape[0]/2
+
+        else:
+            im = cv2.imread(im_name)
+        coord, desc = compute_kp_descriptors_opencv(im)
+        coord = np.array(coord)
+        coordinates.append(coord)
+        descriptors.append(desc)
+        md_list.append(metadata)
+    return descriptors, coordinates, im_names, md_list
 
 
 def load_2d_queries_opencv(folder="test_images"):
@@ -28,7 +66,7 @@ def load_2d_queries_opencv(folder="test_images"):
 def build_descriptors_2d(images, images_folder="sfm_models/images"):
     point3did2descs = {}
     matching_ratio = []
-    for image_id in images:
+    for image_id in tqdm(images, desc="Loading descriptors of SfM model"):
         image_name = images[image_id][0]
         image_name = f"{images_folder}/{image_name}"
         im = cv2.imread(image_name)
@@ -91,4 +129,4 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None):
 
 
 if __name__ == '__main__':
-    build_descriptors_2d()
+    load_2d_queries_generic("Test line")
