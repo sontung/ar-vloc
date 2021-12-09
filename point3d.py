@@ -5,11 +5,13 @@ import numpy as np
 
 
 class PointCloud:
-    def __init__(self, debug=False):
+    def __init__(self, multiple_desc_map, debug=False):
         self.points = []
         self.point_id_list = []
         self.point_desc_list = []
         self.point_xyz_list = []
+        self.id2point = {}
+        self.multiple_desc_map = multiple_desc_map  # point id => multiple descriptors
         self.xyz_tree = None
         self.desc_tree = None
         self.debug = debug
@@ -27,6 +29,11 @@ class PointCloud:
         self.point_id_list.append(index)
         self.point_xyz_list.append(xyz)
         self.point_desc_list.append(desc)
+        assert index not in self.id2point
+        self.id2point[index] = len(self.points)-1
+
+    def access_by_id(self, pid):
+        return self.points[self.id2point[pid]]
 
     def commit(self):
         self.xyz_tree = KDTree(self.point_xyz_list)

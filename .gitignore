@@ -7,6 +7,7 @@ test_images2/*
 ScreenCamera_*
 *.zip
 Test line-20211207T083302Z-001/*
+Test line/*
 *.lprof
 
 # Byte-compiled / optimized / DLL files

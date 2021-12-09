@@ -21,7 +21,11 @@ class VocabNode:
         return self.vocab[word_id]
 
     def build(self, point_cloud):
-        p3d_id_list, p3d_desc_list = point_cloud.point_id_list, point_cloud.point_desc_list
+        p3d_id_list, p3d_desc_list = [], []
+        for p3d_id in point_cloud.multiple_desc_map:
+            for _, p3d_desc in point_cloud.multiple_desc_map[p3d_id]:
+                p3d_id_list.append(p3d_id)
+                p3d_desc_list.append(p3d_desc)
         if self.nb_clusters > len(p3d_id_list):
             raise AttributeError
         self.vocab = {u: [] for u in range(self.nb_clusters)}
@@ -29,8 +33,9 @@ class VocabNode:
         self.cluster_model = MiniBatchKMeans(self.nb_clusters, random_state=1)
         labels = self.cluster_model.fit_predict(p3d_desc_list)
         for ind in range(len(p3d_id_list)):
-            point_cloud[ind].visual_word = labels[ind]
-            self.vocab[labels[ind]].append((p3d_id_list[ind], p3d_desc_list[ind], ind))
+            point_cloud[point_cloud.id2point[p3d_id_list[ind]]].visual_word = labels[ind]
+            self.vocab[labels[ind]].append((p3d_id_list[ind], p3d_desc_list[ind],
+                                            point_cloud.id2point[p3d_id_list[ind]]))
         cluster_centers = self.cluster_model.cluster_centers_
         words = [Word(du, cluster_centers[du]) for du in range(cluster_centers.shape[0])]
         stats = [len(self.vocab[du]) for du in self.vocab]
@@ -122,7 +127,7 @@ class VocabTree:
                 return True
         return False
 
-    def search(self, features, debug=False):
+    def search(self, features, nb_matches=100, debug=False):
         self.matches.clear()
         self.matches_reverse.clear()
 
@@ -148,7 +153,7 @@ class VocabTree:
         ]
         heapq.heapify(features_to_match)
 
-        while len(self.matches) < 100 and len(features_to_match) > 0:
+        while len(self.matches) < nb_matches and len(features_to_match) > 0:
             candidate = heapq.heappop(features_to_match)
             if candidate[-1] == "feature":
                 _, feature_ind, desc, point_3d_list, _ = candidate
@@ -178,7 +183,7 @@ class VocabTree:
         print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
         return result, count, samples
 
-    def active_search(self, features, debug=False):
+    def active_search(self, features, nb_matches=100, debug=False):
         self.matches.clear()
         self.matches_reverse.clear()
 
@@ -209,7 +214,7 @@ class VocabTree:
         ]
         heapq.heapify(features_to_match)
 
-        while len(self.matches) < 100 and len(features_to_match) > 0:
+        while len(self.matches) < nb_matches and len(features_to_match) > 0:
             candidate = heapq.heappop(features_to_match)
             if candidate[-1] == "feature":
                 _, feature_ind, desc, point_3d_list, _ = candidate

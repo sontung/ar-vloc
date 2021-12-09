@@ -53,7 +53,8 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
                         point3did2descs[p3d_id].append([image_id, desc[idx]])
 
         matching_ratio.append(nb_points/nb_3d_points)
-    print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors")
+    print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
+          f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
     p3d_id_list = []
     p3d_desc_list = []
     for p3d_id in point3did2descs:
@@ -61,7 +62,7 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
         desc_list = [du[1] for du in point3did2descs[p3d_id]]
         desc = np.mean(desc_list, axis=0)
         p3d_desc_list.append(desc)
-    return p3d_id_list, p3d_desc_list
+    return p3d_id_list, p3d_desc_list, point3did2descs
 
 
 def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None):
