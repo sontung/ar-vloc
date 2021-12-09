@@ -72,6 +72,7 @@ def main():
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         res, _, _ = vocab_tree.active_search(point2d_cloud)
+        # res, _, _ = vocab_tree.search(point2d_cloud)
 
         p2d2p3d[i] = []
         for point2d, point3d in res:
@@ -86,7 +87,7 @@ def main():
         metadata = metadata_list[im_idx]
         if len(metadata) == 0:
             pass
-        f = metadata["f"]
+        f = metadata["f"]*1000
         cx = metadata["cx"]
         cy = metadata["cy"]
         k = 0.06
