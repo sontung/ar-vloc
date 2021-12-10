@@ -113,19 +113,34 @@ class VocabTree:
             level_statistics[len(level_name.split("-"))-1] += 1
         print("Level statistics:", level_statistics)
 
-    def enforce_consistency(self, pair):
+    def enforce_consistency(self, pair, debug=False):
+        candidates = [pair]
         f_id, p_id, dist = pair
-        if f_id not in self.matches:
-            self.matches[f_id] = (p_id, dist)
-            self.matches_reverse[p_id] = f_id
-            return True
-        else:
-            _, prev_dist = self.matches[f_id]
-            if dist < prev_dist:
-                self.matches[f_id] = (p_id, dist)
-                self.matches_reverse[p_id] = f_id
-                return True
-        return False
+        if f_id in self.matches:
+            p_id2, dist2 = self.matches[f_id]
+            pair2 = (f_id, p_id2, dist2)
+            candidates.append(pair2)
+            del self.matches[f_id]
+            del self.matches_reverse[p_id2]
+
+        if p_id in self.matches_reverse:
+            f_id2, dist2 = self.matches_reverse[p_id]
+            pair2 = (f_id2, p_id, dist2)
+            candidates.append(pair2)
+            del self.matches[f_id2]
+            del self.matches_reverse[p_id]
+        f_id, p_id, dist = min(candidates, key=lambda du: du[-1])
+        self.matches[f_id] = (p_id, dist)
+        self.matches_reverse[p_id] = (f_id, dist)
+        if debug:
+            print("enforce", f_id, p_id, dist)
+        for f_id in self.matches:
+            p_id, dist = self.matches[f_id]
+            f_id2, dist = self.matches_reverse[p_id]
+            assert f_id2 == f_id, f"{f_id} {f_id2}"
+
+    def search_brute_force(self, features, nb_matches=100, debug=False):
+        raise NotImplementedError
 
     def search(self, features, nb_matches=100, debug=False):
         self.matches.clear()
@@ -167,20 +182,30 @@ class VocabTree:
                         pair = (feature_ind, qu_point_3d_id_list[res_[1][0]], res_[0][0])
                         self.enforce_consistency(pair)
 
-        if debug:
-            for point_3d_index in self.matches_reverse:
-                feature_ind = self.matches_reverse[point_3d_index]
-                desc_2d = features[feature_ind].desc
-                ref_res, _, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc_2d)
-                samples += 1
-                if ref_res is not None and self.point_cloud[point_3d_index] == ref_res:
-                    count += 1
+        # check consistency
+        # for f_id in self.matches:
+        #     p_id, dist = self.matches[f_id]
+        #     f_id2, dist = self.matches_reverse[p_id]
+        #     assert f_id2 == f_id
 
         result = []
         for f_id in self.matches:
             p_id, dist = self.matches[f_id]
             result.append((features[f_id], self.point_cloud[p_id], dist))
         print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
+
+        if debug:
+            bf_results = []
+            for point_3d_index in self.matches_reverse:
+                feature_ind, _ = self.matches_reverse[point_3d_index]
+                desc_2d = features[feature_ind].desc
+                ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc_2d)
+                bf_results.append((features[feature_ind], ref_res, dist))
+                samples += 1
+                if ref_res is not None and self.point_cloud[point_3d_index] == ref_res:
+                    count += 1
+            return result, count, samples, bf_results
+
         return result, count, samples
 
     def active_search(self, features, nb_matches=100, debug=False):
@@ -266,13 +291,13 @@ class VocabTree:
 
                 else:
                     if point_3d_index in self.matches_reverse:
-                        fid_in_database = self.matches_reverse[point_3d_index]
+                        fid_in_database, _ = self.matches_reverse[point_3d_index]
                         del self.matches[fid_in_database]
                         del self.matches_reverse[point_3d_index]
 
         if debug:
             for point_3d_index in self.matches_reverse:
-                feature_ind = self.matches_reverse[point_3d_index]
+                feature_ind, _ = self.matches_reverse[point_3d_index]
                 desc_2d = features[feature_ind].desc
                 ref_res, _, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc_2d)
                 samples += 1

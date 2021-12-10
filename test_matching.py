@@ -28,31 +28,47 @@ def evaluate(res, tree_coord, point3d_cloud, ref_3d_id):
     return count, samples
 
 
-def visualize_matching(results, query_image_ori, sfm_image_folder):
-    for feature, point, dist in results:
-        print(f"distance = {dist}")
-        visualized_list = []
-        query_image = np.copy(query_image_ori)
-        (x, y) = map(int, feature.xy)
-        cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
-        cv2.circle(query_image, (y, x), 50, (255, 128, 0), -1)
+def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
+    visualized_list = []
+    (x, y) = map(int, feature.xy)
+    cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
+    cv2.circle(query_image, (y, x), 50, (255, 128, 0), -1)
 
-        visualized_list.append(query_image)
-        for database_image in point.visibility:
-            x2, y2 = map(int, point.visibility[database_image])
-            image = cv2.imread(f"{sfm_image_folder}/{database_image}")
-            cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
-            visualized_list.append(image)
-        list2 = []
-        for im in visualized_list:
-            im2 = Image.fromarray(im)
-            im2.thumbnail((500, 500))
-            im2 = np.array(im2)
-            list2.append(im2)
-        list2 = np.hstack(list2)
-        cv2.imshow("t", list2)
-        cv2.waitKey()
-        cv2.destroyAllWindows()
+    visualized_list.append(query_image)
+    for database_image in point.visibility:
+        x2, y2 = map(int, point.visibility[database_image])
+        image = cv2.imread(f"{sfm_image_folder}/{database_image}")
+        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+        visualized_list.append(image)
+    list2 = []
+    for im in visualized_list:
+        im2 = Image.fromarray(im)
+        im2.thumbnail((500, 500))
+        im2 = np.array(im2)
+        list2.append(im2)
+    list2 = np.hstack(list2)
+    return list2
+
+
+def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
+    for ind in range(len(results)):
+        print(results[ind][0].xy, bf_results[ind][0].xy)
+        assert np.sum(results[ind][0].xy-bf_results[ind][0].xy) < 0.1
+        feature, point, dist = results[ind]
+        query_image = np.copy(query_image_ori)
+        l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
+        # cv2.imshow("t", l1)
+
+        feature, point, dist = bf_results[ind]
+        if point is not None:
+            query_image = np.copy(query_image_ori)
+            l2 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
+            # cv2.imshow("t2", l2)
+        else:
+            print("unreliable match")
+
+        # cv2.waitKey()
+        # cv2.destroyAllWindows()
 
 
 def main():
@@ -115,10 +131,11 @@ def main():
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         start = time.time()
-        res, count, samples = vocab_tree.search(point2d_cloud, nb_matches=100)
+        res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
+        print(f"Accuracy compared to brute force {count}/{samples}")
         vocab_based[0] += time.time() - start
         if DEBUG_2D_3D_MATCHING:
-            visualize_matching(res, image_list[i], sfm_images_folder)
+            visualize_matching(bf_res, res, image_list[i], sfm_images_folder)
         if len(ref_3d_id) > 0:
             tree_coord = KDTree(np.array(ref_coords))
             count, samples = evaluate(res, tree_coord, point3d_cloud, ref_3d_id)
