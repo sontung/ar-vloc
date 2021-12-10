@@ -178,8 +178,8 @@ class VocabTree:
 
         result = []
         for f_id in self.matches:
-            p_id, _ = self.matches[f_id]
-            result.append((features[f_id], self.point_cloud[p_id]))
+            p_id, dist = self.matches[f_id]
+            result.append((features[f_id], self.point_cloud[p_id], dist))
         print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
         return result, count, samples
 

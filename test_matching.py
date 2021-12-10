@@ -1,27 +1,18 @@
 import sys
 import numpy as np
-import cv2
-import random
-import psutil
 import time
+import cv2
 import open3d as o3d
-from feature_matching import build_descriptors_2d, load_2d_queries_opencv
+from feature_matching import build_descriptors_2d, load_2d_queries_opencv, load_2d_queries_generic
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
-from colmap_read import qvec2rotmat
-from localization import localize_single_image
 from scipy.spatial import KDTree
-from vis_utils import produce_sphere, produce_cam_mesh, visualize_2d_3d_matching_single
-from PIL import Image
-from active_search import matching_active_search
 from point3d import PointCloud, Point3D
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
+from PIL import Image
 
-NEXT = False
-DEBUG_2D_3D_MATCHING = False
-DEBUG_PNP = False
-VISUALIZING_SFM_POSES = False
-VISUALIZING_POSES = True
+
+DEBUG_2D_3D_MATCHING = True
 MATCHING_BENCHMARK = True
 
 
@@ -37,35 +28,47 @@ def evaluate(res, tree_coord, point3d_cloud, ref_3d_id):
     return count, samples
 
 
+def visualize_matching(results, query_image_ori, sfm_image_folder):
+    for feature, point, dist in results:
+        print(f"distance = {dist}")
+        visualized_list = []
+        query_image = np.copy(query_image_ori)
+        (x, y) = map(int, feature.xy)
+        cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
+        cv2.circle(query_image, (y, x), 50, (255, 128, 0), -1)
+
+        visualized_list.append(query_image)
+        for database_image in point.visibility:
+            x2, y2 = map(int, point.visibility[database_image])
+            image = cv2.imread(f"{sfm_image_folder}/{database_image}")
+            cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+            visualized_list.append(image)
+        list2 = []
+        for im in visualized_list:
+            im2 = Image.fromarray(im)
+            im2.thumbnail((500, 500))
+            im2 = np.array(im2)
+            list2.append(im2)
+        list2 = np.hstack(list2)
+        cv2.imshow("t", list2)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
+
+
 def main():
-    # query_images_folder = "sfm_ws_hblab/images"
-    # cam_info_dir = "sfm_ws_hblab/cameras.txt"
-    # sfm_images_dir = "sfm_ws_hblab/images.txt"
-    # sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
-    # sfm_images_folder = "sfm_ws_hblab/images"
+    query_images_folder = "Test line small"
+    sfm_images_dir = "sfm_ws_hblab/images.txt"
+    sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
+    sfm_images_folder = "sfm_ws_hblab/images"
 
-    query_images_folder = "test_images"
-    cam_info_dir = "sfm_models/cameras.txt"
-    sfm_images_dir = "sfm_models/images.txt"
-    sfm_point_cloud_dir = "sfm_models/points3D.txt"
-    sfm_images_folder = "sfm_models/images"
+    # query_images_folder = "test_images"
+    # sfm_images_dir = "sfm_models/images.txt"
+    # sfm_point_cloud_dir = "sfm_models/points3D.txt"
+    # sfm_images_folder = "sfm_models/images"
 
-    camid2params = read_cameras(cam_info_dir)
     image2pose = read_images(sfm_images_dir)
     point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
-    points_3d_list = []
     point3d_id_list, point3d_desc_list, point3did2descs = build_descriptors_2d(image2pose, sfm_images_folder)
-
-    gt_data = {}
-    for image in image2pose:
-        data = image2pose[image]
-        ref_coords = []
-        ref_3d_id = []
-        for x, y, pid in data[1]:
-            if pid > 0:
-                ref_coords.append([x, y])
-                ref_3d_id.append(pid)
-        gt_data[data[0]] = (ref_coords, ref_3d_id)
 
     point3d_cloud = PointCloud(point3did2descs, debug=MATCHING_BENCHMARK)
     for i in range(len(point3d_id_list)):
@@ -75,8 +78,24 @@ def main():
         point3d_cloud.add_point(point3d_id, point3d_desc, xyzrgb[:3], xyzrgb[3:])
     point3d_cloud.commit()
     vocab_tree = VocabTree(point3d_cloud)
+    gt_data = {}
+    for image in image2pose:
+        if image not in image2pose:
+            continue
+        data = image2pose[image]
+        ref_coords = []
+        ref_3d_id = []
+        for x, y, pid in data[1]:
+            if pid > 0:
+                ref_coords.append([x, y])
+                ref_3d_id.append(pid)
+                # print(pid)
+                a_point = point3d_cloud.access_by_id(pid)
+                if a_point is not None:
+                    a_point.assign_visibility(data[0], (x, y))
+        gt_data[data[0]] = (ref_coords, ref_3d_id)
 
-    desc_list, coord_list, im_name_list = load_2d_queries_opencv(query_images_folder)
+    desc_list, coord_list, im_name_list, _, image_list = load_2d_queries_generic(query_images_folder)
     p2d2p3d = {}
     start_time = time.time()
     count_all = 0
@@ -86,8 +105,10 @@ def main():
     for i in range(len(desc_list)):
         print(f"Matching {i}/{len(desc_list)}")
         point2d_cloud = FeatureCloud()
-        ref_coords, ref_3d_id = gt_data[im_name_list[0]]
-        tree_coord = KDTree(np.array(ref_coords))
+        if im_name_list[0] in gt_data:
+            ref_coords, ref_3d_id = gt_data[im_name_list[0]]
+        else:
+            ref_coords, ref_3d_id = [], []
 
         for j in range(coord_list[i].shape[0]):
             point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
@@ -96,8 +117,13 @@ def main():
         start = time.time()
         res, count, samples = vocab_tree.search(point2d_cloud, nb_matches=100)
         vocab_based[0] += time.time() - start
+        if DEBUG_2D_3D_MATCHING:
+            visualize_matching(res, image_list[i], sfm_images_folder)
+        if len(ref_3d_id) > 0:
+            tree_coord = KDTree(np.array(ref_coords))
+            count, samples = evaluate(res, tree_coord, point3d_cloud, ref_3d_id)
 
-        count, samples = evaluate(res, tree_coord, point3d_cloud, ref_3d_id)
+        sys.exit()
 
         vocab_based[1] += count
         vocab_based[2] += samples

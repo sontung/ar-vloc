@@ -19,6 +19,7 @@ def load_2d_queries_generic(folder):
     descriptors = []
     coordinates = []
     md_list = []
+    im_list = []
     for name in tqdm(im_names, desc="Reading query images"):
         metadata = {}
         im_name = os.path.join(folder, name)
@@ -33,6 +34,7 @@ def load_2d_queries_generic(folder):
                 heif_file.stride,
             )
             im = np.array(image)
+            im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
             f = open(im_name, 'rb')
             tags = exifread.process_file(f)
             metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
@@ -46,7 +48,8 @@ def load_2d_queries_generic(folder):
         coordinates.append(coord)
         descriptors.append(desc)
         md_list.append(metadata)
-    return descriptors, coordinates, im_names, md_list
+        im_list.append(im)
+    return descriptors, coordinates, im_names, md_list, im_list
 
 
 def load_2d_queries_opencv(folder="test_images"):

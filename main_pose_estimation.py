@@ -61,7 +61,7 @@ def main():
         point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
         point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
-    desc_list, coord_list, im_name_list, metadata_list = load_2d_queries_generic(query_images_folder)
+    desc_list, coord_list, im_name_list, metadata_list, _ = load_2d_queries_generic(query_images_folder)
     p2d2p3d = {}
     start_time = time.time()
     for i in range(len(desc_list)):

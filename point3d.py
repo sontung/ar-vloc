@@ -33,6 +33,8 @@ class PointCloud:
         self.id2point[index] = len(self.points)-1
 
     def access_by_id(self, pid):
+        if pid not in self.id2point:
+            return None
         return self.points[self.id2point[pid]]
 
     def commit(self):
@@ -114,6 +116,10 @@ class Point3D:
         self.xyz = xyz
         self.rgb = rgb
         self.visual_word = None
+        self.visibility = {}
+
+    def assign_visibility(self, im_name, coord):
+        self.visibility[im_name] = coord
 
     def match(self, desc):
         pass

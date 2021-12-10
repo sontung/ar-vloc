@@ -26,28 +26,6 @@ VISUALIZING_POSES = True
 MATCHING_BENCHMARK = True
 
 
-def matching_2d_to_3d(point3d_id_list, point3d_desc_list, point2d_desc_list):
-    """
-    returns [image id] => point 2d id => point 3d id
-    """
-    start_time = time.time()
-    kd_tree = KDTree(point3d_desc_list)
-    print("Done constructing K-D tree")
-    result = {i: [] for i in range(len(point2d_desc_list))}
-    for i in range(len(point2d_desc_list)):
-        desc_list = point2d_desc_list[i]
-        for j in range(desc_list.shape[0]):
-            desc = desc_list[j]
-            res = kd_tree.query(desc, 2)
-            if res[0][1] > 0.0:
-                if res[0][0]/res[0][1] < 0.7:  # ratio test
-                    result[i].append([j, point3d_id_list[res[1][0]]])
-    time_spent = time.time()-start_time
-    print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
-          f"avg. {round(time_spent/len(point2d_desc_list), 3)} seconds/image")
-    return result
-
-
 def key_sw(u):
     global NEXT
     NEXT = not NEXT
