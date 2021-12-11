@@ -132,12 +132,6 @@ class VocabTree:
         f_id, p_id, dist = min(candidates, key=lambda du: du[-1])
         self.matches[f_id] = (p_id, dist)
         self.matches_reverse[p_id] = (f_id, dist)
-        if debug:
-            print("enforce", f_id, p_id, dist)
-        for f_id in self.matches:
-            p_id, dist = self.matches[f_id]
-            f_id2, dist = self.matches_reverse[p_id]
-            assert f_id2 == f_id, f"{f_id} {f_id2}"
 
     def search_brute_force(self, features, nb_matches=100, debug=False):
         raise NotImplementedError

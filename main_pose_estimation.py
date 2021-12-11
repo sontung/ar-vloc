@@ -75,8 +75,12 @@ def main():
         # res, _, _ = vocab_tree.search(point2d_cloud)
 
         p2d2p3d[i] = []
-        for point2d, point3d in res:
-            p2d2p3d[i].append((point2d.xy, point3d.xyz))
+        if len(res[0]) > 2:
+            for point2d, point3d, _ in res:
+                p2d2p3d[i].append((point2d.xy, point3d.xyz))
+        else:
+            for point2d, point3d in res:
+                p2d2p3d[i].append((point2d.xy, point3d.xyz))
 
     time_spent = time.time()-start_time
     print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
