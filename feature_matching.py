@@ -121,9 +121,14 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
 def compute_kp_descriptors_opencv(img, nb_keypoints=None):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if nb_keypoints is not None:
-        sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02, nfeatures=nb_keypoints)
+        sift = cv2.SIFT_create(edgeThreshold=10,
+                               nOctaveLayers=4,
+                               contrastThreshold=0.02,
+                               nfeatures=nb_keypoints)
     else:
-        sift = cv2.SIFT_create(edgeThreshold=10, contrastThreshold=0.02)
+        sift = cv2.SIFT_create(edgeThreshold=10,
+                               nOctaveLayers=4,
+                               contrastThreshold=0.02)
     kp_list, des = sift.detectAndCompute(img, None)
     coords = []
     for kp in kp_list:

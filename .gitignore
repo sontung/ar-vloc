@@ -10,6 +10,7 @@ Test line-20211207T083302Z-001/*
 Test line/*
 Test line small/*
 piazza_del_popolo/*
+debug/*
 *.lprof
 
 # Byte-compiled / optimized / DLL files

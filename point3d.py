@@ -1,3 +1,5 @@
+import sys
+
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 import time
@@ -11,11 +13,39 @@ class PointCloud:
         self.point_desc_list = []
         self.point_xyz_list = []
         self.id2point = {}
+        self.visibility_map = {}
+        self.visibility_graph = {}
+        self.point2map = {}
         self.multiple_desc_map = multiple_desc_map  # point id => multiple descriptors
         self.xyz_tree = None
         self.desc_tree = None
         self.debug = debug
         self.vocab, self.cluster_model = None, None
+
+    def build_visibility_map(self, image2pose):
+        for map_id, image in enumerate(list(image2pose.keys())):
+            data = image2pose[image]
+            pid_list = []
+            self.visibility_map[map_id] = []
+            for x, y, pid in data[1]:
+                if pid > 0 and pid in self.id2point:
+                    index = self.id2point[pid]
+                    pid_list.append(index)
+                    if index in self.point2map:
+                        self.point2map[index].append(map_id)
+                    else:
+                        self.point2map[index] = [map_id]
+            self.visibility_map[map_id] = pid_list
+        for index in self.point2map:
+            graph_id = tuple(self.point2map[index])
+            self.points[index].visibility_graph_index = graph_id
+            if graph_id not in self.visibility_graph:
+                data = []
+                for gid in graph_id:
+                    data.extend(self.visibility_map[gid])
+                data = set(data)
+                self.visibility_graph[graph_id] = data
+        print(f"Done building visibility graph of size {len(self.visibility_graph)}")
 
     def __len__(self):
         return len(self.points)
@@ -40,7 +70,8 @@ class PointCloud:
     def build_desc_tree(self):
         self.desc_tree = KDTree(self.point_desc_list)
 
-    def commit(self):
+    def commit(self, image2pose):
+        self.build_visibility_map(image2pose)
         self.xyz_tree = KDTree(self.point_xyz_list)
         if self.debug:
             self.desc_tree = KDTree(self.point_desc_list)
@@ -122,6 +153,7 @@ class Point3D:
         self.rgb = rgb
         self.visual_word = None
         self.visibility = {}
+        self.visibility_graph_index = None
 
     def assign_visibility(self, im_name, coord):
         self.visibility[im_name] = coord
