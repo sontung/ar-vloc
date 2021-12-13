@@ -32,7 +32,6 @@ def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
     visualized_list = []
     (x, y) = map(int, feature.xy)
     cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
-    cv2.circle(query_image, (y, x), 50, (255, 128, 0), -1)
 
     visualized_list.append(query_image)
     for database_image in point.visibility:
@@ -52,23 +51,22 @@ def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
 
 def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
     for ind in range(len(results)):
-        print(results[ind][0].xy, bf_results[ind][0].xy)
+        print(ind)
+        # print(results[ind][0].xy, bf_results[ind][0].xy)
         assert np.sum(results[ind][0].xy-bf_results[ind][0].xy) < 0.1
-        feature, point, dist = results[ind]
+        feature, point, dist1 = results[ind]
         query_image = np.copy(query_image_ori)
         l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
-        # cv2.imshow("t", l1)
+        cv2.imshow("t", l1)
 
-        feature, point, dist = bf_results[ind]
+        feature, point, dist2 = bf_results[ind]
         if point is not None:
             query_image = np.copy(query_image_ori)
             l2 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
-            # cv2.imshow("t2", l2)
-        else:
-            print("unreliable match")
-
-        # cv2.waitKey()
-        # cv2.destroyAllWindows()
+            cv2.imshow("t2", l2)
+        # print(f"vc dist1={dist1} bf dist={dist2}")
+        cv2.waitKey()
+        cv2.destroyAllWindows()
 
 
 def main():
@@ -168,7 +166,6 @@ def main():
         print("active", active_search_based[0], active_search_based[1] / active_search_based[2])
 
         print(f"Matching accuracy={round(count_all / samples_all * 100, 3)}%")
-
 
 
 if __name__ == '__main__':

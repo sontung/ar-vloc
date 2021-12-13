@@ -134,7 +134,46 @@ class VocabTree:
         self.matches_reverse[p_id] = (f_id, dist)
 
     def search_brute_force(self, features, nb_matches=100, debug=False):
-        raise NotImplementedError
+        self.matches.clear()
+        self.matches_reverse.clear()
+
+        count = 0
+        samples = 0
+
+        # assign each desc to a word
+        query_desc_list = features.point_desc_list
+        query_desc_list = np.array(query_desc_list)
+        words = self.v1.assign_words(query_desc_list)
+
+        # sort feature by search cost
+        features_to_match = [
+            (
+                len(self.v1.traverse(words[du])),
+                du,
+                query_desc_list[du],
+                self.v1.traverse(words[du]),
+                "feature"
+            )
+            for du in range(query_desc_list.shape[0])
+            if len(self.v1.traverse(words[du])) > 20
+        ]
+        heapq.heapify(features_to_match)
+
+        while len(self.matches) < nb_matches and len(features_to_match) > 0:
+            candidate = heapq.heappop(features_to_match)
+            if candidate[-1] == "feature":
+                _, feature_ind, desc, point_3d_list, _ = candidate
+                ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
+                if ref_res is not None:
+                    pair = (feature_ind, ref_res, dist)
+                    self.enforce_consistency(pair)
+
+        result = []
+        for f_id in self.matches:
+            p_id, dist = self.matches[f_id]
+            result.append((features[f_id], self.point_cloud[p_id], dist))
+        print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
+        return result, count, samples
 
     def search(self, features, nb_matches=100, debug=False):
         self.matches.clear()

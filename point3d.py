@@ -37,6 +37,9 @@ class PointCloud:
             return None
         return self.points[self.id2point[pid]]
 
+    def build_desc_tree(self):
+        self.desc_tree = KDTree(self.point_desc_list)
+
     def commit(self):
         self.xyz_tree = KDTree(self.point_xyz_list)
         if self.debug:
@@ -53,7 +56,7 @@ class PointCloud:
         res = self.desc_tree.query(desc, nb_neighbors)
         return res
 
-    def matching_2d_to_3d_brute_force(self, query_desc):
+    def matching_2d_to_3d_brute_force(self, query_desc, returning_index=False):
         """
         brute forcing match for a single 2D point
         """
@@ -63,6 +66,8 @@ class PointCloud:
         if res[0][1] > 0.0:
             if res[0][0] / res[0][1] < 0.7:  # ratio test
                 index = res[1][0]
+                if returning_index:
+                    return index, res[0][0], res[0][1]
                 return self.points[index], res[0][0], res[0][1]
         return None, res[0][0], res[0][1]
 

@@ -16,6 +16,7 @@ from vocab_tree import VocabTree
 
 VISUALIZING_SFM_POSES = False
 VISUALIZING_POSES = True
+BRUTE_FORCE_MATCHING = True
 
 
 def main():
@@ -43,6 +44,8 @@ def main():
         xyzrgb = point3did2xyzrgb[point3d_id]
         point3d_cloud.add_point(point3d_id, point3d_desc, xyzrgb[:3], xyzrgb[3:])
     point3d_cloud.commit()
+    if BRUTE_FORCE_MATCHING:
+        point3d_cloud.build_desc_tree()
     vocab_tree = VocabTree(point3d_cloud)
 
     if VISUALIZING_POSES:
@@ -71,8 +74,9 @@ def main():
             point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-        res, _, _ = vocab_tree.active_search(point2d_cloud)
+        # res, _, _ = vocab_tree.active_search(point2d_cloud)
         # res, _, _ = vocab_tree.search(point2d_cloud)
+        res, _, _ = vocab_tree.search_brute_force(point2d_cloud)
 
         p2d2p3d[i] = []
         if len(res[0]) > 2:
@@ -91,7 +95,7 @@ def main():
         metadata = metadata_list[im_idx]
         if len(metadata) == 0:
             pass
-        f = metadata["f"]*1000
+        f = metadata["f"]*100
         cx = metadata["cx"]
         cy = metadata["cy"]
         k = 0.06
