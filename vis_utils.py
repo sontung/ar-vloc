@@ -1,6 +1,13 @@
 import open3d as o3d
-import cv2
 import random
+import sys
+import numpy as np
+import time
+import cv2
+import os
+import glob
+
+from PIL import Image
 from scipy.spatial import KDTree
 
 
@@ -92,3 +99,53 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
         break
     vis.destroy_window()
 
+def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
+    visualized_list = []
+    (x, y) = map(int, feature.xy)
+    cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
+
+    visualized_list.append(query_image)
+    for database_image in point.visibility:
+        x2, y2 = map(int, point.visibility[database_image])
+        image = cv2.imread(f"{sfm_image_folder}/{database_image}")
+        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+        visualized_list.append(image)
+    list2 = []
+    for im in visualized_list:
+        im2 = Image.fromarray(im)
+        im2.thumbnail((500, 500))
+        im2 = np.array(im2)
+        list2.append(im2)
+    list2 = np.hstack(list2)
+    return list2
+
+
+def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
+    for ind in range(len(results)):
+        # print(results[ind][0].xy, bf_results[ind][0].xy)
+        assert np.sum(results[ind][0].xy-bf_results[ind][0].xy) < 0.1
+        feature, point, dist1 = results[ind]
+        query_image = np.copy(query_image_ori)
+        l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
+        cv2.imshow("t", l1)
+
+        feature, point, dist2 = bf_results[ind]
+        if point is not None:
+            query_image = np.copy(query_image_ori)
+            l2 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
+            cv2.imshow("t2", l2)
+        # print(f"vc dist1={dist1} bf dist={dist2}")
+        cv2.waitKey()
+        cv2.destroyAllWindows()
+
+
+def visualize_matching_and_save(results, query_image_ori, sfm_image_folder, debug_dir, folder_name):
+    os.makedirs(f"{debug_dir}/{folder_name}", exist_ok=True)
+    files = glob.glob(f"{debug_dir}/{folder_name}/*.png")
+    for f in files:
+        os.remove(f)
+    for ind in range(len(results)):
+        feature, point, dist1 = results[ind]
+        query_image = np.copy(query_image_ori)
+        l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
+        cv2.imwrite(f"{debug_dir}/{folder_name}/im-{ind}.png", l1)

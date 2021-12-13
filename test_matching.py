@@ -2,15 +2,17 @@ import sys
 import numpy as np
 import time
 import cv2
-import os, glob
+import os
+import glob
 import open3d as o3d
 from feature_matching import build_descriptors_2d, load_2d_queries_opencv, load_2d_queries_generic
-from colmap_io import read_points3D_coordinates, read_images, read_cameras
+from colmap_io import read_points3D_coordinates, read_images
 from scipy.spatial import KDTree
 from point3d import PointCloud, Point3D
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
 from PIL import Image
+from vis_utils import visualize_matching_and_save, visualize_matching
 
 
 DEBUG_2D_3D_MATCHING = True
@@ -27,59 +29,6 @@ def evaluate(res, tree_coord, point3d_cloud, ref_3d_id):
             if ref_point == point:
                 count += 1
     return count, samples
-
-
-def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
-    visualized_list = []
-    (x, y) = map(int, feature.xy)
-    cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
-
-    visualized_list.append(query_image)
-    for database_image in point.visibility:
-        x2, y2 = map(int, point.visibility[database_image])
-        image = cv2.imread(f"{sfm_image_folder}/{database_image}")
-        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
-        visualized_list.append(image)
-    list2 = []
-    for im in visualized_list:
-        im2 = Image.fromarray(im)
-        im2.thumbnail((500, 500))
-        im2 = np.array(im2)
-        list2.append(im2)
-    list2 = np.hstack(list2)
-    return list2
-
-
-def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
-    for ind in range(len(results)):
-        print(ind)
-        # print(results[ind][0].xy, bf_results[ind][0].xy)
-        assert np.sum(results[ind][0].xy-bf_results[ind][0].xy) < 0.1
-        feature, point, dist1 = results[ind]
-        query_image = np.copy(query_image_ori)
-        l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
-        cv2.imshow("t", l1)
-
-        feature, point, dist2 = bf_results[ind]
-        if point is not None:
-            query_image = np.copy(query_image_ori)
-            l2 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
-            cv2.imshow("t2", l2)
-        # print(f"vc dist1={dist1} bf dist={dist2}")
-        cv2.waitKey()
-        cv2.destroyAllWindows()
-
-
-def visualize_matching_and_save(results, query_image_ori, sfm_image_folder, debug_dir, folder_name):
-    os.makedirs(f"{debug_dir}/{folder_name}", exist_ok=True)
-    files = glob.glob(f"{debug_dir}/{folder_name}/*.png")
-    for f in files:
-        os.remove(f)
-    for ind in range(len(results)):
-        feature, point, dist1 = results[ind]
-        query_image = np.copy(query_image_ori)
-        l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
-        cv2.imwrite(f"{debug_dir}/{folder_name}/im-{ind}.png", l1)
 
 
 def dump_matches():
@@ -194,6 +143,9 @@ def main():
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         start = time.time()
+        res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
+                                             sfm_images_folder, nb_matches=100)
+
         res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
         print(f"Accuracy compared to brute force {count}/{samples}")
         vocab_based[0] += time.time() - start
@@ -232,5 +184,5 @@ def main():
 
 
 if __name__ == '__main__':
-    dump_matches()
-    # main()
+    # dump_matches()
+    main()

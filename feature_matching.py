@@ -118,7 +118,7 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
     return vocab, cluster_model
 
 
-def compute_kp_descriptors_opencv(img, nb_keypoints=None):
+def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if nb_keypoints is not None:
         sift = cv2.SIFT_create(edgeThreshold=10,
@@ -130,6 +130,11 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None):
                                nOctaveLayers=4,
                                contrastThreshold=0.02)
     kp_list, des = sift.detectAndCompute(img, None)
+    if root_sift:
+        des /= (np.linalg.norm(des, axis=1, ord=1, keepdims=True) + 1e-7)
+        des = np.sqrt(des)
+        des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
+
     coords = []
     for kp in kp_list:
         coords.append(list(kp.pt))
