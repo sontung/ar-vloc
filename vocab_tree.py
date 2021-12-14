@@ -189,11 +189,11 @@ class VocabTree:
                                            [(features[feature_ind], self.point_cloud[ref_res], dist)],
                                            query_image_ori, sfm_image_folder)
 
-        result = []
-        for f_id in self.matches:
-            p_id, dist = self.matches[f_id]
-            result.append((features[f_id], self.point_cloud[p_id], dist))
-        print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
+            result = []
+            for f_id in self.matches:
+                p_id, dist = self.matches[f_id]
+                result.append((features[f_id], self.point_cloud[p_id], dist))
+            print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
         return result, count, samples
 
     def search_brute_force(self, features, nb_matches=100, debug=False):

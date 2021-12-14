@@ -1,10 +1,11 @@
 import numpy as np
 import open3d as o3d
+import time
 from feature_matching import build_descriptors_2d, load_2d_queries_generic
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
 from localization import localize_single_image
-from vis_utils import produce_sphere, produce_cam_mesh, visualize_2d_3d_matching_single
-from point3d import PointCloud, Point3D
+from vis_utils import produce_cam_mesh
+from point3d import PointCloud
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
 
@@ -53,13 +54,13 @@ if VISUALIZING_POSES:
 desc_list, coord_list, im_name_list, metadata_list, _ = load_2d_queries_generic(query_images_folder)
 p2d2p3d = {}
 for i in range(len(desc_list)):
+    start_time = time.time()
     point2d_cloud = FeatureCloud()
     for j in range(coord_list[i].shape[0]):
         point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    # res, _, _ = vocab_tree.search(point2d_cloud)
-    res, _, _ = vocab_tree.search_brute_force(point2d_cloud)
+    res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)
 
     p2d2p3d[i] = []
     if len(res[0]) > 2:
@@ -68,6 +69,8 @@ for i in range(len(desc_list)):
     else:
         for point2d, point3d in res:
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
+
+    print(f"Done in {time.time()-start_time}")
 
 localization_results = []
 for im_idx in p2d2p3d:
@@ -85,10 +88,14 @@ for im_idx in p2d2p3d:
                               [0, 0, 1]])
     distortion_coefficients = np.array([k, 0, 0, 0])
     res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+    localization_results.append((res, (0, 1, 0)))
 
-    if res is None:
-        continue
-    localization_results.append(res)
+    camera_matrix = np.array([[f, 0, 0],
+                              [0, f, 0],
+                              [0, 0, -1]])
+    distortion_coefficients = np.array([k, 0, 0, 0])
+    res2 = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+    localization_results.append((res, (1, 1, 0)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)
@@ -98,7 +105,7 @@ coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
 cameras = [point_cloud, coord_mesh]
 
 # queried poses
-for result in localization_results:
+for result, color_cam in localization_results:
     if result is None:
         continue
     rot_mat, trans = result
@@ -107,7 +114,7 @@ for result in localization_results:
     mat = np.hstack([-rot_mat.transpose(), t])
     mat = np.vstack([mat, np.array([0, 0, 0, 1])])
 
-    cm = produce_cam_mesh(color=[0, 1, 0])
+    cm = produce_cam_mesh(color=color_cam)
 
     vertices = np.asarray(cm.vertices)
     for i in range(vertices.shape[0]):

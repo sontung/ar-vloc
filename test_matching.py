@@ -33,7 +33,7 @@ def evaluate(res, tree_coord, point3d_cloud, ref_3d_id):
 
 def dump_matches():
     debug_dir = "debug/matches"
-    query_images_folder = "Test line"
+    query_images_folder = "Test line small"
     sfm_images_dir = "sfm_ws_hblab/images.txt"
     sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
     sfm_images_folder = "sfm_ws_hblab/images"
@@ -75,7 +75,7 @@ def dump_matches():
             point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-        res, count, samples = vocab_tree.search_brute_force(point2d_cloud, nb_matches=100, debug=True)
+        res, count, samples = vocab_tree.search_brute_force(point2d_cloud, nb_matches=30, debug=True)
         # res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
 
         print(f"Accuracy compared to brute force {count}/{samples}")
