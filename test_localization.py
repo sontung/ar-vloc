@@ -21,15 +21,16 @@ sfm_images_folder = "sfm_ws_hblab/images"
 image2pose = read_images(sfm_images_dir)
 point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
 points_3d_list = []
-point3d_id_list, point3d_desc_list, point3did2descs = build_descriptors_2d(image2pose, sfm_images_folder)
+point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d(image2pose,
+                                                                                                   sfm_images_folder)
 
 point3d_cloud = PointCloud(point3did2descs)
 for i in range(len(point3d_id_list)):
     point3d_id = point3d_id_list[i]
     point3d_desc = point3d_desc_list[i]
     xyzrgb = point3did2xyzrgb[point3d_id]
-    point3d_cloud.add_point(point3d_id, point3d_desc, xyzrgb[:3], xyzrgb[3:])
-point3d_cloud.commit()
+    point3d_cloud.add_point(point3d_id, point3d_desc, p3d_desc_list_multiple[i], xyzrgb[:3], xyzrgb[3:])
+point3d_cloud.commit(image2pose)
 point3d_cloud.build_desc_tree()
 vocab_tree = VocabTree(point3d_cloud)
 

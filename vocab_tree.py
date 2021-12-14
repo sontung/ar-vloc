@@ -181,7 +181,6 @@ class VocabTree:
                 if candidate[-1] == "feature":
                     count += 1
                     cost, feature_ind, desc, point_3d_list, _ = candidate
-                    print(feature_ind, cost)
                     ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
                     if ref_res is not None:
                         pair = (feature_ind, ref_res, dist)

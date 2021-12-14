@@ -50,10 +50,10 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
     val, rot, trans, inliers = cv2.solvePnPRansac(object_points, image_points,
                                                   camera_matrix, distortion_coefficients)
     if not val:
-        print(f"{object_points.shape[0]} 2D-3D pairs computed but localization failed.")
+        print(f" {object_points.shape[0]} 2D-3D pairs computed but localization failed.")
         return None
     rot_mat, _ = cv2.Rodrigues(rot)
-    print(f"{inliers.shape[0]}/{image_points.shape[0]} are inliers, "
+    print(f" {inliers.shape[0]}/{image_points.shape[0]} are inliers, "
           f"time spent={round(time.time()-start_time, 4)} seconds")
     return rot_mat, trans
 

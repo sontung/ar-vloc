@@ -11,6 +11,7 @@ class PointCloud:
         self.points = []
         self.point_id_list = []
         self.point_desc_list = []
+        self.point_indices_for_desc_tree = []
         self.point_xyz_list = []
         self.id2point = {}
         self.visibility_map = {}
@@ -53,8 +54,9 @@ class PointCloud:
     def __getitem__(self, item):
         return self.points[item]
 
-    def add_point(self, index, desc, xyz, rgb):
+    def add_point(self, index, desc, desc_list, xyz, rgb):
         a_point = Point3D(index, desc, xyz, rgb)
+        a_point.multi_desc_list = desc_list
         self.points.append(a_point)
         self.point_id_list.append(index)
         self.point_xyz_list.append(xyz)
@@ -68,13 +70,19 @@ class PointCloud:
         return self.points[self.id2point[pid]]
 
     def build_desc_tree(self):
-        self.desc_tree = KDTree(self.point_desc_list)
+        assert len(self.point_indices_for_desc_tree) == 0
+        desc_list = []
+        for index, point in enumerate(self.points):
+            for desc in point.multi_desc_list:
+                desc_list.append(desc)
+                self.point_indices_for_desc_tree.append(index)
+        self.desc_tree = KDTree(desc_list)
 
     def commit(self, image2pose):
         self.build_visibility_map(image2pose)
         self.xyz_tree = KDTree(self.point_xyz_list)
         if self.debug:
-            self.desc_tree = KDTree(self.point_desc_list)
+            self.build_desc_tree()
         self.vocab, self.cluster_model = build_vocabulary_of_descriptors(self.point_id_list,
                                                                          self.point_desc_list)
         print("Point cloud committed")
@@ -82,10 +90,6 @@ class PointCloud:
     def xyz_nearest(self, xyz, nb_neighbors=5):
         _, indices = self.xyz_tree.query(xyz, nb_neighbors)
         return indices
-
-    def desc_nearest(self, desc, nb_neighbors=2):
-        res = self.desc_tree.query(desc, nb_neighbors)
-        return res
 
     def matching_2d_to_3d_brute_force(self, query_desc, returning_index=False):
         """
@@ -96,7 +100,7 @@ class PointCloud:
         res = self.desc_tree.query(query_desc, 2)
         if res[0][1] > 0.0:
             if res[0][0] / res[0][1] < 0.7:  # ratio test
-                index = res[1][0]
+                index = self.point_indices_for_desc_tree[res[1][0]]
                 if returning_index:
                     return index, res[0][0], res[0][1]
                 return self.points[index], res[0][0], res[0][1]
@@ -148,6 +152,7 @@ class PointCloud:
 class Point3D:
     def __init__(self, index, descriptor, xyz, rgb):
         self.index = index
+        self.multi_desc_list = []
         self.desc = descriptor
         self.xyz = xyz
         self.rgb = rgb

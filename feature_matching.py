@@ -98,12 +98,14 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
           f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
     p3d_id_list = []
     p3d_desc_list = []
+    p3d_desc_list_multiple = []
     for p3d_id in point3did2descs:
         p3d_id_list.append(p3d_id)
         desc_list = [du[1] for du in point3did2descs[p3d_id]]
+        p3d_desc_list_multiple.append(desc_list)
         desc = np.mean(desc_list, axis=0)
         p3d_desc_list.append(desc)
-    return p3d_id_list, p3d_desc_list, point3did2descs
+    return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
 
 
 def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None):
@@ -130,10 +132,11 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True):
                                nOctaveLayers=4,
                                contrastThreshold=0.02)
     kp_list, des = sift.detectAndCompute(img, None)
+    des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
+
     if root_sift:
         des /= (np.linalg.norm(des, axis=1, ord=1, keepdims=True) + 1e-7)
         des = np.sqrt(des)
-        des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
 
     coords = []
     for kp in kp_list:
