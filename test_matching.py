@@ -184,5 +184,5 @@ def main():
 
 
 if __name__ == '__main__':
-    dump_matches()
-    # main()
+    # dump_matches()
+    main()

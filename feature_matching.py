@@ -120,7 +120,7 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
     return vocab, cluster_model
 
 
-def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True):
+def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=False):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if nb_keypoints is not None:
         sift = cv2.SIFT_create(edgeThreshold=10,
@@ -132,6 +132,8 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True):
                                nOctaveLayers=4,
                                contrastThreshold=0.02)
     kp_list, des = sift.detectAndCompute(img, None)
+    if debug:
+        return kp_list, des, img
     des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
 
     if root_sift:
@@ -145,4 +147,21 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True):
 
 
 if __name__ == '__main__':
-    load_2d_queries_generic("Test line")
+    query_images_folder = "Test line small"
+    desc_list, coord_list, im_name_list, _, image_list = load_2d_queries_generic(query_images_folder)
+    kp, des, img = compute_kp_descriptors_opencv(image_list[0], debug=True)
+    sift = cv2.SIFT_create(edgeThreshold=10,
+                           nOctaveLayers=4,
+                           contrastThreshold=0.02)
+    kp = sift.detect(img, None)
+
+    img = cv2.drawKeypoints(img, kp, img, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+
+    im2 = Image.fromarray(img)
+    im2.thumbnail((900, 900))
+    im2 = np.array(im2)
+
+    cv2.imshow("t", im2)
+    cv2.waitKey()
+    cv2.destroyAllWindows()
+

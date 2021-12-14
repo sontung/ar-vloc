@@ -99,6 +99,7 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
         break
     vis.destroy_window()
 
+
 def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
     visualized_list = []
     (x, y) = map(int, feature.xy)

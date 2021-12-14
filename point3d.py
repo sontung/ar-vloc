@@ -101,6 +101,11 @@ class PointCloud:
         if res[0][1] > 0.0:
             if res[0][0] / res[0][1] < 0.7:  # ratio test
                 index = self.point_indices_for_desc_tree[res[1][0]]
+                index2 = self.point_indices_for_desc_tree[res[1][1]]
+
+                print(index, index2,
+                      len(self.points[index].multi_desc_list),
+                      len(self.points[index2].multi_desc_list))
                 if returning_index:
                     return index, res[0][0], res[0][1]
                 return self.points[index], res[0][0], res[0][1]
