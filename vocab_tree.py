@@ -139,6 +139,7 @@ class VocabTree:
 
         count = 0
         samples = 0
+        result = []
 
         # assign each desc to a word
         query_desc_list = features.point_desc_list
@@ -165,7 +166,8 @@ class VocabTree:
         else:
             features_to_match = [
                 (
-                    len(self.v1.traverse(words[du])),
+                    -features[du].strength,
+                    # len(self.v1.traverse(words[du])),
                     du,
                     query_desc_list[du],
                     self.v1.traverse(words[du]),
@@ -178,6 +180,7 @@ class VocabTree:
             count = 0
             while len(self.matches) < nb_matches and len(features_to_match) > 0:
                 candidate = heapq.heappop(features_to_match)
+                # print(len(features_to_match), len(self.matches))
                 if candidate[-1] == "feature":
                     count += 1
                     cost, feature_ind, desc, point_3d_list, _ = candidate
@@ -185,16 +188,15 @@ class VocabTree:
                     if ref_res is not None:
                         pair = (feature_ind, ref_res, dist)
                         self.enforce_consistency(pair)
-                        visualize_matching([(features[feature_ind], None, dist)],
-                                           [(features[feature_ind], self.point_cloud[ref_res], dist)],
-                                           query_image_ori, sfm_image_folder)
+                        # visualize_matching([(features[feature_ind], None, dist)],
+                        #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
+                        #                    query_image_ori, sfm_image_folder)
 
-            result = []
             for f_id in self.matches:
                 p_id, dist = self.matches[f_id]
                 result.append((features[f_id], self.point_cloud[p_id], dist))
             print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
-        return result, count, samples
+        return result
 
     def search_brute_force(self, features, nb_matches=100, debug=False):
         self.matches.clear()

@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import torch
+import pickle
 from tqdm import tqdm
 from PIL import Image
 import pyheif
@@ -10,6 +11,7 @@ import numpy as np
 import cv2
 from scipy.spatial import KDTree
 from sklearn.cluster import MiniBatchKMeans
+from pathlib import Path
 
 MATCHING_BENCHMARK = True
 
@@ -20,6 +22,7 @@ def load_2d_queries_generic(folder):
     coordinates = []
     md_list = []
     im_list = []
+    response_list = []
     for name in tqdm(im_names, desc="Reading query images"):
         metadata = {}
         im_name = os.path.join(folder, name)
@@ -43,13 +46,14 @@ def load_2d_queries_generic(folder):
 
         else:
             im = cv2.imread(im_name)
-        coord, desc = compute_kp_descriptors_opencv(im)
+        coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True)
         coord = np.array(coord)
         coordinates.append(coord)
         descriptors.append(desc)
         md_list.append(metadata)
         im_list.append(im)
-    return descriptors, coordinates, im_names, md_list, im_list
+        response_list.append(response)
+    return descriptors, coordinates, im_names, md_list, im_list, response_list
 
 
 def load_2d_queries_opencv(folder="test_images"):
@@ -69,42 +73,53 @@ def load_2d_queries_opencv(folder="test_images"):
 def build_descriptors_2d(images, images_folder="sfm_models/images"):
     point3did2descs = {}
     matching_ratio = []
-    for image_id in tqdm(images, desc="Loading descriptors of SfM model"):
-        image_name = images[image_id][0]
-        image_name = f"{images_folder}/{image_name}"
-        im = cv2.imread(image_name)
-        coord, desc = compute_kp_descriptors_opencv(im)
+    from pathlib import Path
 
-        tree = KDTree(coord)
-        total_dis = 0
-        nb_points = 0
-        nb_3d_points = 0
-        points2d_meaningful = images[image_id][1]
+    my_file = Path(f"{images_folder}/sfm_data.pkl")
+    if my_file.is_file():
+        with open(f"{images_folder}/sfm_data.pkl", 'rb') as handle:
+            p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs = pickle.load(handle)
+    else:
+        for image_id in tqdm(images, desc="Loading descriptors of SfM model"):
+            image_name = images[image_id][0]
+            image_name = f"{images_folder}/{image_name}"
+            im = cv2.imread(image_name)
+            coord, desc = compute_kp_descriptors_opencv(im)
 
-        for x, y, p3d_id in points2d_meaningful:
-            if p3d_id > 0:
-                dis, idx = tree.query([x, y], 1)
-                nb_3d_points += 1
-                if dis < 2:
-                    total_dis += dis
-                    nb_points += 1
-                    if p3d_id not in point3did2descs:
-                        point3did2descs[p3d_id] = [[image_id, desc[idx]]]
-                    else:
-                        point3did2descs[p3d_id].append([image_id, desc[idx]])
+            tree = KDTree(coord)
+            total_dis = 0
+            nb_points = 0
+            nb_3d_points = 0
+            points2d_meaningful = images[image_id][1]
 
-        matching_ratio.append(nb_points/nb_3d_points)
-    print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
-          f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
-    p3d_id_list = []
-    p3d_desc_list = []
-    p3d_desc_list_multiple = []
-    for p3d_id in point3did2descs:
-        p3d_id_list.append(p3d_id)
-        desc_list = [du[1] for du in point3did2descs[p3d_id]]
-        p3d_desc_list_multiple.append(desc_list)
-        desc = np.mean(desc_list, axis=0)
-        p3d_desc_list.append(desc)
+            for x, y, p3d_id in points2d_meaningful:
+                if p3d_id > 0:
+                    dis, idx = tree.query([x, y], 1)
+                    nb_3d_points += 1
+                    if dis < 2:
+                        total_dis += dis
+                        nb_points += 1
+                        if p3d_id not in point3did2descs:
+                            point3did2descs[p3d_id] = [[image_id, desc[idx]]]
+                        else:
+                            point3did2descs[p3d_id].append([image_id, desc[idx]])
+
+            matching_ratio.append(nb_points/nb_3d_points)
+        print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
+              f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
+        p3d_id_list = []
+        p3d_desc_list = []
+        p3d_desc_list_multiple = []
+        for p3d_id in point3did2descs:
+            p3d_id_list.append(p3d_id)
+            desc_list = [du[1] for du in point3did2descs[p3d_id]]
+            p3d_desc_list_multiple.append(desc_list)
+            desc = np.mean(desc_list, axis=0)
+            p3d_desc_list.append(desc)
+        with open(f"{images_folder}/sfm_data.pkl", 'wb') as handle:
+            pickle.dump([p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs],
+                        handle, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"Saved SFM model to {images_folder}")
     return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
 
 
@@ -120,7 +135,7 @@ def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None
     return vocab, cluster_model
 
 
-def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=False):
+def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=False, return_response=False):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     if nb_keypoints is not None:
         sift = cv2.SIFT_create(edgeThreshold=10,
@@ -143,20 +158,28 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
     coords = []
     for kp in kp_list:
         coords.append(list(kp.pt))
+    if return_response:
+        response_list = [kp.response for kp in kp_list]
+        return coords, des, response_list
     return coords, des
 
 
 if __name__ == '__main__':
     query_images_folder = "Test line small"
-    desc_list, coord_list, im_name_list, _, image_list = load_2d_queries_generic(query_images_folder)
+    desc_list, coord_list, im_name_list, _, image_list, _ = load_2d_queries_generic(query_images_folder)
     kp, des, img = compute_kp_descriptors_opencv(image_list[0], debug=True)
     sift = cv2.SIFT_create(edgeThreshold=10,
                            nOctaveLayers=4,
-                           contrastThreshold=0.02)
+                           contrastThreshold=0.06)
     kp = sift.detect(img, None)
-
-    img = cv2.drawKeypoints(img, kp, img, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
+    kp = sorted(kp, key=lambda du: du.response)
+    # img = cv2.drawKeypoints(img, kp[:100], img, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    for k in kp[:100]:
+        (x, y) = map(int, k.pt)
+        cv2.circle(img, (x, y), 30, (128, 128, 0), -1)
+    for k in kp[-100:]:
+        (x, y) = map(int, k.pt)
+        cv2.circle(img, (x, y), 30, (0, 128, 128), -1)
     im2 = Image.fromarray(img)
     im2.thumbnail((900, 900))
     im2 = np.array(im2)

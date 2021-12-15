@@ -6,6 +6,17 @@ import time
 import numpy as np
 
 
+def ratio_test(results):
+    distances, indices = results
+    first_ind = indices[0]
+    for i in range(1, len(indices)):
+        if indices[i] != first_ind:
+            if distances[i] > 0.0:
+                if distances[0] / distances[i] < 0.7:
+                    return True
+    return False
+
+
 class PointCloud:
     def __init__(self, multiple_desc_map, debug=False):
         self.points = []
@@ -32,6 +43,7 @@ class PointCloud:
                 if pid > 0 and pid in self.id2point:
                     index = self.id2point[pid]
                     pid_list.append(index)
+                    self.points[index].assign_visibility(data[0], (x, y))
                     if index in self.point2map:
                         self.point2map[index].append(map_id)
                     else:
@@ -97,18 +109,17 @@ class PointCloud:
         """
         if self.desc_tree is None:
             raise AttributeError("Descriptor tree not built, use matching_2d_to_3d_vocab_based instead")
-        res = self.desc_tree.query(query_desc, 2)
-        if res[0][1] > 0.0:
-            if res[0][0] / res[0][1] < 0.7:  # ratio test
-                index = self.point_indices_for_desc_tree[res[1][0]]
-                index2 = self.point_indices_for_desc_tree[res[1][1]]
+        res = self.desc_tree.query(query_desc, 1)
+        index = self.point_indices_for_desc_tree[res[1]]
+        nb_neighbors = len(self.points[index].multi_desc_list)+1
+        res = self.desc_tree.query(query_desc, nb_neighbors)
 
-                print(index, index2,
-                      len(self.points[index].multi_desc_list),
-                      len(self.points[index2].multi_desc_list))
-                if returning_index:
-                    return index, res[0][0], res[0][1]
-                return self.points[index], res[0][0], res[0][1]
+        if ratio_test(res):
+            index = self.point_indices_for_desc_tree[res[1][0]]
+            if returning_index:
+                return index, res[0][0], res[0][1]
+            return self.points[index], res[0][0], res[0][1]
+
         return None, res[0][0], res[0][1]
 
     def matching_2d_to_3d_vocab_based(self, feature_cloud, debug=False):

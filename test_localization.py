@@ -51,18 +51,20 @@ if VISUALIZING_POSES:
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
-desc_list, coord_list, im_name_list, metadata_list, _ = load_2d_queries_generic(query_images_folder)
+desc_list, coord_list, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
 p2d2p3d = {}
 for i in range(len(desc_list)):
     start_time = time.time()
     point2d_cloud = FeatureCloud()
     for j in range(coord_list[i].shape[0]):
-        point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
+        point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)
-
+    # res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)
+    res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
+                                         sfm_images_folder, nb_matches=30)
     p2d2p3d[i] = []
+    print(res[0])
     if len(res[0]) > 2:
         for count, (point2d, point3d, _) in enumerate(res):
             p2d2p3d[i].append((point2d.xy, point3d.xyz))

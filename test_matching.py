@@ -66,13 +66,13 @@ def dump_matches():
                     a_point.assign_visibility(data[0], (x, y))
         gt_data[data[0]] = (ref_coords, ref_3d_id)
 
-    desc_list, coord_list, im_name_list, _, image_list = load_2d_queries_generic(query_images_folder)
+    desc_list, coord_list, im_name_list, _, image_list, response_list = load_2d_queries_generic(query_images_folder)
     for i in range(len(desc_list)):
         print(f"Matching {i+1}/{len(desc_list)}")
         point2d_cloud = FeatureCloud()
 
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
+            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         res, count, samples = vocab_tree.search_brute_force(point2d_cloud, nb_matches=30, debug=True)
@@ -117,13 +117,12 @@ def main():
             if pid > 0:
                 ref_coords.append([x, y])
                 ref_3d_id.append(pid)
-                # print(pid)
                 a_point = point3d_cloud.access_by_id(pid)
                 if a_point is not None:
                     a_point.assign_visibility(data[0], (x, y))
         gt_data[data[0]] = (ref_coords, ref_3d_id)
 
-    desc_list, coord_list, im_name_list, _, image_list = load_2d_queries_generic(query_images_folder)
+    desc_list, coord_list, im_name_list, _, image_list, response_list = load_2d_queries_generic(query_images_folder)
     p2d2p3d = {}
     start_time = time.time()
     count_all = 0
@@ -139,7 +138,7 @@ def main():
             ref_coords, ref_3d_id = [], []
 
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j])
+            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         start = time.time()
@@ -184,5 +183,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # dump_matches()
-    main()
+    dump_matches()
+    # main()

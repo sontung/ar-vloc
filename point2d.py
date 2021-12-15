@@ -19,8 +19,8 @@ class FeatureCloud:
     def __len__(self):
         return len(self.points)
 
-    def add_point(self, index, desc, xy):
-        a_point = Feature(index, desc, xy)
+    def add_point(self, index, desc, xy, response):
+        a_point = Feature(index, desc, xy, response)
         self.points.append(a_point)
         self.point_indices.append(index)
         self.point_xy_list.append(xy)
@@ -68,11 +68,12 @@ class FeatureCloud:
 
 
 class Feature:
-    def __init__(self, index, descriptor, xy):
+    def __init__(self, index, descriptor, xy, strength):
         self.desc = descriptor
         self.xy = xy
         self.visual_word = None
         self.index = index
+        self.strength = strength
 
     def match(self, desc):
         pass
