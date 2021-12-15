@@ -1,6 +1,7 @@
 import sys
 import heapq
 import numpy as np
+import tqdm
 from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial import KDTree
 from vis_utils import visualize_matching
@@ -185,18 +186,36 @@ class VocabTree:
                     count += 1
                     cost, feature_ind, desc, point_3d_list, _ = candidate
                     ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
-                    if ref_res is not None:
-                        pair = (feature_ind, ref_res, dist)
-                        self.enforce_consistency(pair)
+                    if ref_res is None:
+                        continue
+                    additional = self.nearby_check(feature_ind, ref_res, features)
+                    if len(additional) > 0:
+                        self.enforce_consistency((feature_ind, ref_res, dist))
                         # visualize_matching([(features[feature_ind], None, dist)],
                         #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
                         #                    query_image_ori, sfm_image_folder)
-
+                        for pair in additional:
+                            self.enforce_consistency(pair)
+                            # feature_ind, ref_res, dist = pair
+                            # visualize_matching([(features[feature_ind], None, dist)],
+                            #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
+                            #                    query_image_ori, sfm_image_folder)
             for f_id in self.matches:
                 p_id, dist = self.matches[f_id]
                 result.append((features[f_id], self.point_cloud[p_id], dist))
             print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
         return result
+
+    def nearby_check(self, feature_ind, point_ind, features):
+        nearby_points = list(self.point_cloud.xyz_nearest(self.point_cloud[point_ind].xyz))
+        # nearby_points.append(point_ind)
+        res = []
+        for new_feature_ind in features.nearby_feature(feature_ind):
+            pid, d, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[new_feature_ind].desc,
+                                                                       returning_index=True)
+            if pid in nearby_points:
+                res.append((new_feature_ind, pid, d))
+        return res
 
     def search_brute_force(self, features, nb_matches=100, debug=False):
         self.matches.clear()

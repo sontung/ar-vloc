@@ -64,7 +64,6 @@ for i in range(len(desc_list)):
     res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
                                          sfm_images_folder, nb_matches=30)
     p2d2p3d[i] = []
-    print(res[0])
     if len(res[0]) > 2:
         for count, (point2d, point3d, _) in enumerate(res):
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
@@ -83,7 +82,6 @@ for im_idx in p2d2p3d:
     cx = metadata["cx"]
     cy = metadata["cy"]
     k = 0.06
-    print(f, cx, cy)
     # f, cx, cy, k = 3031.9540853272997, 1134.0, 2016.0, 0.061174702881675876
     camera_matrix = np.array([[f, 0, cx],
                               [0, f, cy],
@@ -97,7 +95,7 @@ for im_idx in p2d2p3d:
                               [0, 0, -1]])
     distortion_coefficients = np.array([k, 0, 0, 0])
     res2 = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
-    localization_results.append((res, (1, 1, 0)))
+    localization_results.append((res, (0, 0, 1)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)

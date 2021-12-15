@@ -19,6 +19,26 @@ VISUALIZING_POSES = True
 BRUTE_FORCE_MATCHING = True
 
 
+def move_cam(result, color):
+    if result is None:
+        return None
+    rot_mat, trans = result
+    t = -rot_mat.transpose() @ trans
+    t = t.reshape((3, 1))
+    mat = np.hstack([-rot_mat.transpose(), t])
+    mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+
+    cm = produce_cam_mesh(color=color)
+
+    vertices = np.asarray(cm.vertices)
+    for i in range(vertices.shape[0]):
+        arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+        arr = mat @ arr
+        vertices[i] = arr[:3]
+    cm.vertices = o3d.utility.Vector3dVector(vertices)
+    return cm
+
+
 def main():
     query_images_folder = "Test line"
     cam_info_dir = "sfm_ws_hblab/cameras.txt"
@@ -66,7 +86,9 @@ def main():
 
     desc_list, coord_list, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
     p2d2p3d = {}
-    start_time = time.time()
+    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+
     for i in range(len(desc_list)):
         print(f"Matching {i+1}/{len(desc_list)}")
         point2d_cloud = FeatureCloud()
@@ -87,62 +109,41 @@ def main():
             for point2d, point3d in res:
                 p2d2p3d[i].append((point2d.xy, point3d.xyz))
 
-    time_spent = time.time()-start_time
-    print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
-          f"avg. {round(time_spent/len(desc_list), 3)} seconds/image")
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(width=1920, height=1025)
 
-    localization_results = []
-    for im_idx in p2d2p3d:
-        print(f"Localizing image {im_name_list[im_idx]}")
-        metadata = metadata_list[im_idx]
+        metadata = metadata_list[i]
         if len(metadata) == 0:
             pass
+        print(f"Localizing image {im_name_list[i]}")
+
         f = metadata["f"]*100
         cx = metadata["cx"]
         cy = metadata["cy"]
         k = 0.06
-        # f, cx, cy, k = 3031.9540853272997, 1134.0, 2016.0, 0.061174702881675876
+
+        camera_matrix = np.array([[f, 0, 0],
+                                  [0, f, 0],
+                                  [0, 0, -1]])
+        distortion_coefficients = np.array([k, 0, 0, 0])
+        result = localize_single_image(p2d2p3d[i], camera_matrix, distortion_coefficients)
+        cm = move_cam(result, [0, 1, 0])
+        if cm is not None:
+            vis.add_geometry(cm)
+
         camera_matrix = np.array([[f, 0, cx],
                                   [0, f, cy],
                                   [0, 0, 1]])
         distortion_coefficients = np.array([k, 0, 0, 0])
-        res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+        result = localize_single_image(p2d2p3d[i], camera_matrix, distortion_coefficients)
+        cm = move_cam(result, [0, 0, 1])
+        if cm is not None:
+            vis.add_geometry(cm)
 
-        if res is None:
-            continue
-        localization_results.append(res)
-
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(width=1920, height=1025)
-
-    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-    coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
-    cameras = [point_cloud, coord_mesh]
-
-    # queried poses
-    for result in localization_results:
-        if result is None:
-            continue
-        rot_mat, trans = result
-        t = -rot_mat.transpose() @ trans
-        t = t.reshape((3, 1))
-        mat = np.hstack([-rot_mat.transpose(), t])
-        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
-
-        cm = produce_cam_mesh(color=[0, 1, 0])
-
-        vertices = np.asarray(cm.vertices)
-        for i in range(vertices.shape[0]):
-            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
-            arr = mat @ arr
-            vertices[i] = arr[:3]
-        cm.vertices = o3d.utility.Vector3dVector(vertices)
-        cameras.append(cm)
-
-    for c in cameras:
-        vis.add_geometry(c)
-    vis.run()
-    vis.destroy_window()
+        vis.add_geometry(point_cloud)
+        vis.add_geometry(coord_mesh)
+        vis.run()
+        vis.destroy_window()
 
 
 if __name__ == '__main__':
