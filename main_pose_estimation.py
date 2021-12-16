@@ -102,9 +102,9 @@ def main():
         cy = metadata["cy"]
         k = 0.06
         # f, cx, cy, k = 3031.9540853272997, 1134.0, 2016.0, 0.061174702881675876
-        camera_matrix = np.array([[f, 0, 0],
-                                  [0, f, 0],
-                                  [0, 0, -1]])
+        camera_matrix = np.array([[f, 0, cx],
+                                  [0, f, cy],
+                                  [0, 0, 1]])
         distortion_coefficients = np.array([k, 0, 0, 0])
         res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
 
@@ -118,6 +118,8 @@ def main():
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
     coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
     cameras = [point_cloud, coord_mesh]
+    for c in cameras:
+        vis.add_geometry(c)
 
     # queried poses
     for result in localization_results:
@@ -138,9 +140,7 @@ def main():
             vertices[i] = arr[:3]
         cm.vertices = o3d.utility.Vector3dVector(vertices)
         cameras.append(cm)
-
-    for c in cameras:
-        vis.add_geometry(c)
+        vis.add_geometry(cm, reset_bounding_box=False)
     vis.run()
     vis.destroy_window()
 

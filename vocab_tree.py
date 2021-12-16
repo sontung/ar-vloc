@@ -135,6 +135,7 @@ class VocabTree:
         self.matches[f_id] = (p_id, dist)
         self.matches_reverse[p_id] = (f_id, dist)
 
+    @profile
     def search_experimental(self, features, query_image_ori, sfm_image_folder, nb_matches=100, debug=False):
         self.matches.clear()
         self.matches_reverse.clear()
@@ -180,39 +181,51 @@ class VocabTree:
             ]
             heapq.heapify(features_to_match)
             count = 0
+            retired_list = []
             while len(self.matches) < nb_matches and len(features_to_match) > 0:
                 candidate = heapq.heappop(features_to_match)
-                # print(len(features_to_match), len(self.matches))
-                if candidate[-1] == "feature":
-                    count += 1
-                    cost, feature_ind, desc, point_3d_list, _ = candidate
-                    ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
-                    if ref_res is None:
-                        continue
-                    additional = self.nearby_check(feature_ind, ref_res, features)
-                    if len(additional) > 0:
-                        print(features[feature_ind].xy)
-                        self.enforce_consistency((feature_ind, ref_res, dist))
-                        # visualize_matching([(features[feature_ind], None, dist)],
-                        #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
-                        #                    query_image_ori, sfm_image_folder)
-                        for pair in additional:
-                            self.enforce_consistency(pair)
-                            # feature_ind, ref_res, dist = pair
-                            # visualize_matching([(features[feature_ind], None, dist)],
-                            #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
-                            #                    query_image_ori, sfm_image_folder)
+                # print(f"retired list={len(retired_list)}, matches={len(self.matches)}, left={len(features_to_match)}")
+                count += 1
+                cost, feature_ind, desc, point_3d_list, _ = candidate
+
+                # if feature_ind in retired_list:
+                #     continue
+                #
+                # retired_list.append(feature_ind)
+                # for neighbor in features.nearby_feature(feature_ind, min_distance=0, max_distance=4):
+                #     if neighbor not in retired_list:
+                #         retired_list.append(neighbor)
+
+                ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc,
+                                                                                  returning_index=True)
+                if ref_res is None:
+                    continue
+                additional = self.nearby_check(feature_ind, ref_res, features, retired_list)
+                self.enforce_consistency((feature_ind, ref_res, dist))
+                # visualize_matching([(features[feature_ind], None, dist)],
+                #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
+                #                    query_image_ori, sfm_image_folder)
+
+                for pair in additional:
+                    self.enforce_consistency(pair)
+                    feature_ind, ref_res, dist = pair
+                    retired_list.append(feature_ind)
+                    # visualize_matching([(features[feature_ind], None, dist)],
+                    #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
+                    #                    query_image_ori, sfm_image_folder)
             for f_id in self.matches:
                 p_id, dist = self.matches[f_id]
                 result.append((features[f_id], self.point_cloud[p_id], dist))
             print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
         return result
 
-    def nearby_check(self, feature_ind, point_ind, features):
-        nearby_points = list(self.point_cloud.xyz_nearest(self.point_cloud[point_ind].xyz))
-        # nearby_points.append(point_ind)
+    def nearby_check(self, feature_ind, point_ind, features, retired_list):
+        # nearby_points = list(self.point_cloud.xyz_nearest(self.point_cloud[point_ind].xyz))
+        nearby_points = list(self.point_cloud.xyz_nearest_and_covisible(point_ind))
         res = []
         for new_feature_ind in features.nearby_feature(feature_ind):
+            if new_feature_ind in retired_list:
+                continue
             pid, d, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[new_feature_ind].desc,
                                                                        returning_index=True)
             if pid in nearby_points:

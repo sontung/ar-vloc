@@ -56,8 +56,9 @@ class PointCloud:
                 data = []
                 for gid in graph_id:
                     data.extend(self.visibility_map[gid])
-                data = set(data)
-                self.visibility_graph[graph_id] = data
+                data = list(set(data))
+                xyz_list = [self.point_xyz_list[du] for du in data]
+                self.visibility_graph[graph_id] = (KDTree(xyz_list), data)
         print(f"Done building visibility graph of size {len(self.visibility_graph)}")
 
     def __len__(self):
@@ -69,6 +70,7 @@ class PointCloud:
     def add_point(self, index, desc, desc_list, xyz, rgb):
         a_point = Point3D(index, desc, xyz, rgb)
         a_point.multi_desc_list = desc_list
+        a_point.compute_differences_between_descriptors()
         self.points.append(a_point)
         self.point_id_list.append(index)
         self.point_xyz_list.append(xyz)
@@ -102,6 +104,11 @@ class PointCloud:
     def xyz_nearest(self, xyz, nb_neighbors=5):
         _, indices = self.xyz_tree.query(xyz, nb_neighbors)
         return indices
+
+    def xyz_nearest_and_covisible(self, point_index, nb_neighbors=5):
+        tree, data = self.visibility_graph[self.points[point_index].visibility_graph_index]
+        _, indices = tree.query(self.points[point_index].xyz, nb_neighbors)
+        return [data[du] for du in indices]
 
     def matching_2d_to_3d_brute_force_no_ratio_test(self, query_desc, returning_index=False):
         """
@@ -187,6 +194,16 @@ class Point3D:
         self.visual_word = None
         self.visibility = {}
         self.visibility_graph_index = None
+        self.max_diff = None
+        self.min_diff = None
+
+    def compute_differences_between_descriptors(self):
+        diff_list = []
+        for d1 in self.multi_desc_list:
+            for d2 in self.multi_desc_list:
+                diff_list.append(np.sum(np.square(d1-d2)))
+        self.max_diff = max(diff_list)
+        self.min_diff = min(diff_list)
 
     def assign_visibility(self, im_name, coord):
         self.visibility[im_name] = coord

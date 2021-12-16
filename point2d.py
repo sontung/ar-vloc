@@ -20,7 +20,7 @@ class FeatureCloud:
     def __len__(self):
         return len(self.points)
 
-    def nearby_feature(self, ind, nb_neighbors=5, min_distance=3):
+    def nearby_feature(self, ind, nb_neighbors=20, max_distance=50, min_distance=4):
         if self.xy_tree is None:
             self.xy_tree = KDTree(self.point_xy_list)
         distances, indices = self.xy_tree.query(self.point_xy_list[ind], nb_neighbors)
@@ -28,7 +28,7 @@ class FeatureCloud:
             return [indices]
         res = []
         for i in range(len(distances)):
-            if distances[i] <= min_distance:
+            if min_distance <= distances[i] <= max_distance:
                 res.append(indices[i])
         return res
 
