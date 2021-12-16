@@ -57,7 +57,7 @@ for i in range(len(desc_list)):
     start_time = time.time()
     point2d_cloud = FeatureCloud()
     for j in range(coord_list[i].shape[0]):
-        point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
+        point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
     # res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)

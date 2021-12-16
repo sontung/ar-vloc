@@ -6,6 +6,7 @@ from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial import KDTree
 from vis_utils import visualize_matching
 
+
 class VocabNode:
     def __init__(self, nb_clusters):
         self.nb_clusters = nb_clusters
@@ -190,6 +191,7 @@ class VocabTree:
                         continue
                     additional = self.nearby_check(feature_ind, ref_res, features)
                     if len(additional) > 0:
+                        print(features[feature_ind].xy)
                         self.enforce_consistency((feature_ind, ref_res, dist))
                         # visualize_matching([(features[feature_ind], None, dist)],
                         #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],

@@ -111,12 +111,9 @@ class PointCloud:
             raise AttributeError("Descriptor tree not built, use matching_2d_to_3d_vocab_based instead")
         res = self.desc_tree.query(query_desc, 1)
         index = self.point_indices_for_desc_tree[res[1]]
-        nb_neighbors = len(self.points[index].multi_desc_list)+1
-        res = self.desc_tree.query(query_desc, nb_neighbors)
-        index = self.point_indices_for_desc_tree[res[1][0]]
         if returning_index:
-            return index, res[0][0], res[0][1]
-        return self.points[index], res[0][0], res[0][1]
+            return index, res[0], res[0]
+        return self.points[index], res[0], res[0]
 
     def matching_2d_to_3d_brute_force(self, query_desc, returning_index=False):
         """

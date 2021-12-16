@@ -72,7 +72,7 @@ def dump_matches():
         point2d_cloud = FeatureCloud()
 
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
+            point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         res, count, samples = vocab_tree.search_brute_force(point2d_cloud, nb_matches=30, debug=True)
@@ -138,14 +138,14 @@ def main():
             ref_coords, ref_3d_id = [], []
 
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
+            point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         start = time.time()
         res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
                                              sfm_images_folder, nb_matches=100)
 
-        res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
+        # res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
         print(f"Accuracy compared to brute force {count}/{samples}")
         vocab_based[0] += time.time() - start
         if DEBUG_2D_3D_MATCHING:
@@ -183,5 +183,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # dump_matches()
-    main()
+    dump_matches()
+    # main()

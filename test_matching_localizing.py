@@ -93,7 +93,7 @@ def main():
         print(f"Matching {i+1}/{len(desc_list)}")
         point2d_cloud = FeatureCloud()
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
+            point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         # res, _, _ = vocab_tree.active_search(point2d_cloud)

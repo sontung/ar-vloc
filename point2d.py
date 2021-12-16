@@ -24,6 +24,8 @@ class FeatureCloud:
         if self.xy_tree is None:
             self.xy_tree = KDTree(self.point_xy_list)
         distances, indices = self.xy_tree.query(self.point_xy_list[ind], nb_neighbors)
+        if nb_neighbors == 1:
+            return [indices]
         res = []
         for i in range(len(distances)):
             if distances[i] <= min_distance:

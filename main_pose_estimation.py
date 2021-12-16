@@ -71,7 +71,7 @@ def main():
         print(f"Matching {i+1}/{len(desc_list)}")
         point2d_cloud = FeatureCloud()
         for j in range(coord_list[i].shape[0]):
-            point2d_cloud.add_point(i, desc_list[i][j], coord_list[i][j], response_list[i][j])
+            point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
         # res, _, _ = vocab_tree.active_search(point2d_cloud)
@@ -102,9 +102,9 @@ def main():
         cy = metadata["cy"]
         k = 0.06
         # f, cx, cy, k = 3031.9540853272997, 1134.0, 2016.0, 0.061174702881675876
-        camera_matrix = np.array([[f, 0, cx],
-                                  [0, f, cy],
-                                  [0, 0, 1]])
+        camera_matrix = np.array([[f, 0, 0],
+                                  [0, f, 0],
+                                  [0, 0, -1]])
         distortion_coefficients = np.array([k, 0, 0, 0])
         res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
 
