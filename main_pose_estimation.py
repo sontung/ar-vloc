@@ -77,7 +77,7 @@ def main():
         # res, _, _ = vocab_tree.active_search(point2d_cloud)
         # res, _, _ = vocab_tree.search(point2d_cloud)
         res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
-                                             sfm_images_folder, nb_matches=30)
+                                             sfm_images_folder, nb_matches=100)
 
         p2d2p3d[i] = []
         if len(res[0]) > 2:

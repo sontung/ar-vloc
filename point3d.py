@@ -122,6 +122,7 @@ class PointCloud:
             return index, res[0], res[0]
         return self.points[index], res[0], res[0]
 
+    # @profile
     def matching_2d_to_3d_brute_force(self, query_desc, returning_index=False):
         """
         brute forcing match for a single 2D point

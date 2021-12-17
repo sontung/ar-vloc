@@ -65,19 +65,19 @@ class FeatureCloud:
     def assign_search_cost(self, level_name):
         return len(self.level2features[level_name])
 
+    # @profile
     def matching_3d_to_2d_brute_force(self, query_desc):
         """
         brute forcing match for a single 3D point
         """
         if self.desc_tree is None:
-            print("Descriptor tree not built, use matching_3d_to_2d_vocab_based instead")
-            raise AttributeError
+            self.desc_tree = KDTree(self.point_desc_list)
         res = self.desc_tree.query(query_desc, 2)
         if res[0][1] > 0.0:
             if res[0][0] / res[0][1] < 0.7:  # ratio test
                 index = res[1][0]
-                return self.points[index]
-        return None
+                return index, res[0][0]
+        return None, res[0][0]
 
 
 class Feature:
