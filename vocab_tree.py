@@ -208,16 +208,22 @@ class VocabTree:
                 if ref_res is None:
                     neighbors = features.nearby_feature(feature_ind, nb_neighbors=50, min_distance=0, max_distance=16)
 
-                    # img = np.copy(query_image_ori)
-                    # cv2.circle(img, list(map(int, features[feature_ind].xy)), 10, (255, 0, 0), -1)
+                    img = np.copy(query_image_ori)
+                    cv2.circle(img, list(map(int, features[feature_ind].xy)), 30, (255, 0, 0), -1)
+                    count2 = 0
                     for neighbor in neighbors:
                         retired_list.add(neighbor)
-                        # cv2.circle(img, list(map(int, features[neighbor].xy)), 10, (0, 0, 255), 2)
+                        ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[neighbor].desc,
+                                                                                          returning_index=True)
+                        if ref_res is not None:
+                            count2 += 1
+                            cv2.circle(img, list(map(int, features[neighbor].xy)), 30, (0, 0, 255), 2)
                     # img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
                     # cv2.imshow("t", img)
                     # cv2.waitKey()
                     # cv2.destroyAllWindows()
-                    # cv2.imwrite(f"debug/retire/{count}-{len(neighbors)}.jpg", img)
+                    if count2 > 0:
+                        cv2.imwrite(f"debug/retire/{count}-{count2}.jpg", img)
                     continue
                 self.enforce_consistency((feature_ind, ref_res, dist))
                 a1, new_features1 = self.nearby_check(feature_ind, features)
