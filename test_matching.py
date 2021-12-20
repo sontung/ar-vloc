@@ -105,7 +105,7 @@ def main():
         point3d_cloud.add_point(point3d_id, point3d_desc, p3d_desc_list_multiple[i], xyzrgb[:3], xyzrgb[3:])
 
     point3d_cloud.commit(image2pose)
-    vocab_tree = VocabTree(point3d_cloud)
+    vocab_tree = VocabTree(point3d_cloud, debug=True)
     gt_data = {}
     for image in image2pose:
         if image not in image2pose:

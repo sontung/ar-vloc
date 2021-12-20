@@ -68,7 +68,7 @@ def main():
     p2d2p3d = {}
     start_time = time.time()
     for i in range(len(desc_list)):
-        print(f"Matching {i+1}/{len(desc_list)}")
+        print(f"Matching {i+1}/{len(desc_list)}: {im_name_list[i]}")
         point2d_cloud = FeatureCloud()
         for j in range(coord_list[i].shape[0]):
             point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])

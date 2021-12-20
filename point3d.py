@@ -12,9 +12,12 @@ def ratio_test(results):
     for i in range(1, len(indices)):
         if indices[i] != first_ind:
             if distances[i] > 0.0:
-                if distances[0] / distances[i] < 0.7:
-                    return True
-    return False
+                ratio = distances[0] / distances[i]
+                if ratio < 0.7:
+                    return True, ratio
+                else:
+                    return False, ratio
+            return False, 10
 
 
 class PointCloud:
@@ -133,14 +136,14 @@ class PointCloud:
         index = self.point_indices_for_desc_tree[res[1]]
         nb_neighbors = len(self.points[index].multi_desc_list)+1
         res = self.desc_tree.query(query_desc, nb_neighbors)
-
-        if ratio_test(res):
+        positive, ratio = ratio_test(res)
+        if positive:
             index = self.point_indices_for_desc_tree[res[1][0]]
             if returning_index:
-                return index, res[0][0], res[0][1]
-            return self.points[index], res[0][0], res[0][1]
+                return index, res[0][0], res[0][1], ratio
+            return self.points[index], res[0][0], res[0][1], ratio
 
-        return None, res[0][0], res[0][1]
+        return None, res[0][0], res[0][1], ratio
 
     def matching_2d_to_3d_vocab_based(self, feature_cloud, debug=False):
         result = []

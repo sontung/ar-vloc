@@ -2,7 +2,9 @@ import sys
 import cv2
 import heapq
 import numpy as np
+import random
 import tqdm
+import time
 from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial import KDTree
 from vis_utils import visualize_matching
@@ -89,8 +91,9 @@ class VocabNodeForWords:
 
 
 class VocabTree:
-    def __init__(self, point_cloud, branching_factor=2):
+    def __init__(self, point_cloud, branching_factor=2, debug=False):
         self.point_cloud = point_cloud
+        self.debug = debug
         self.v1 = VocabNode(nb_clusters=len(point_cloud)//50)
         words = self.v1.build(point_cloud)
         print(f"Constructing {len(self.v1)} visual words.")
@@ -138,6 +141,7 @@ class VocabTree:
 
     # @profile
     def search_experimental(self, features, query_image_ori, sfm_image_folder, nb_matches=80, debug=False):
+        start_time = time.time()
         self.matches.clear()
         self.matches_reverse.clear()
 
@@ -156,7 +160,7 @@ class VocabTree:
             for feature_ind in feature_indices:
                 desc = features[feature_ind].desc
 
-                ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
+                ref_res, dist, _, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
 
                 if ref_res is not None:
                     print(dist)
@@ -183,71 +187,118 @@ class VocabTree:
             prioritised_list = []
             heapq.heapify(features_to_match)
             retired_list = set([])
+            low_priority_list = []
+            low_priority_set = set([])
+            probabilities = [0.4, 0.1]
+            p1, p2 = probabilities
             additional_matches = 0
             skipping = 0
             count = 0
+            gain1 = 0
+            gain2 = 0
+            stats = [0, 0, 0]
+
+            if self.debug:
+                img = np.copy(query_image_ori)
+                img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+                cv2.namedWindow('image')
+                img2 = np.copy(query_image_ori)
+                img2 = cv2.resize(img2, (img2.shape[1] // 4, img2.shape[0] // 4))
+                cv2.namedWindow('res')
+
             while len(self.matches) < nb_matches and len(features_to_match) > 0:
                 count += 1
-                if len(prioritised_list) > 0:
-                    candidate = prioritised_list.pop()
+                sampled_from_low_priority = False
+                prob = random.random()
+                if prob < p2 and len(low_priority_list) > 0:
+                    candidate = heapq.heappop(low_priority_list)
+                    sampled_from_low_priority = True
+                    color = (0, 255, 0)
+                    stats[0] += 1
+                elif prob > p1 and len(prioritised_list) > 0:
+                    candidate = heapq.heappop(prioritised_list)
+                    color = (0, 0, 255)
+                    stats[1] += 1
                 else:
                     candidate = heapq.heappop(features_to_match)
-                # print(f"retired list={len(retired_list)}, matches={len(self.matches)}, "
-                #       f"gain={additional_matches} matches, left={len(features_to_match)}, "
-                #       f"skipping={skipping}, priority={len(prioritised_list)}")
+                    color = (255, 0, 0)
+                    stats[2] += 1
+
                 cost, feature_ind, desc, point_3d_list, _ = candidate
 
                 # skip this feature
+                if self.debug:
+                    print(f"retired list={len(retired_list)}, matches={len(self.matches)}, "
+                          f"gain={additional_matches}, left={len(features_to_match)}, "
+                          f"skipping={skipping}, prio={len(prioritised_list)}, "
+                          f"low prio={len(low_priority_list)} "
+                          f"gain 2d={gain1}, gain 3d={gain2}, "
+                          f"(l, h, n)={stats}")
+                    x, y = list(map(int, features[feature_ind].xy))
+                    cv2.circle(img, (x//4, y//4), 5, color, 1)
+                    cv2.imshow("image", img)
+                    cv2.waitKey(1)
+
                 if feature_ind in retired_list:
                     skipping += 1
                     continue
 
-                ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc,
-                                                                                  returning_index=True)
+                if not sampled_from_low_priority and feature_ind in low_priority_set:
+                    skipping += 1
+                    continue
+
+                ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
                 retired_list.add(feature_ind)
                 if ref_res is None:
-                    neighbors = features.nearby_feature(feature_ind, nb_neighbors=50, min_distance=0, max_distance=16)
-
-                    img = np.copy(query_image_ori)
-                    cv2.circle(img, list(map(int, features[feature_ind].xy)), 30, (255, 0, 0), -1)
-                    count2 = 0
+                    neighbors = features.nearby_feature(feature_ind, nb_neighbors=50, min_distance=0, max_distance=0)
                     for neighbor in neighbors:
                         retired_list.add(neighbor)
-                        ref_res, dist, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[neighbor].desc,
-                                                                                          returning_index=True)
-                        if ref_res is not None:
-                            count2 += 1
-                            cv2.circle(img, list(map(int, features[neighbor].xy)), 30, (0, 0, 255), 2)
-                    # img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
-                    # cv2.imshow("t", img)
-                    # cv2.waitKey()
-                    # cv2.destroyAllWindows()
-                    if count2 > 0:
-                        cv2.imwrite(f"debug/retire/{count}-{count2}.jpg", img)
+
+                    # neighbors of failed candidates put into low priority queue
+                    neighbors, distances = features.nearby_feature(feature_ind, nb_neighbors=200,
+                                                                   min_distance=0, max_distance=200,
+                                                                   strict_lower_bound=True, return_distances=True)
+                    for idx, neighbor in enumerate(neighbors):
+                        ori_len = len(low_priority_set)
+                        low_priority_set.add(neighbor)
+                        if len(low_priority_set) > ori_len:
+                            heapq.heappush(low_priority_list,
+                                           (ratio, neighbor, features[neighbor].desc, 0, "feature"))
+
                     continue
+
+                # visualize matches
+                if self.debug:
+                    cv2.circle(img2, (x//4, y//4), 5, (255, 0, 0), -1)
+                    cv2.imshow("res", img2)
+                    cv2.waitKey(1)
+
+                ori = len(self.matches)
                 self.enforce_consistency((feature_ind, ref_res, dist))
+                if len(self.matches) == ori:
+                    continue
                 a1, new_features1 = self.nearby_check(feature_ind, features)
                 a2, new_features2 = self.nearby_check_3d_2d(ref_res, features)
                 additional_matches += a1+a2
+                gain1 += a1
+                gain2 += a2
                 if a1 > 0:
                     for new_feature in new_features1:
-                        for neighbor in features.nearby_feature(new_feature, nb_neighbors=50,
-                                                                min_distance=0, max_distance=50):
-                            prioritised_list.append((0, neighbor, features[neighbor].desc, 0, "feature"))
+                        heapq.heappush(prioritised_list, new_feature)
                 if a2 > 0:
                     for new_feature in new_features2:
-                        for neighbor in features.nearby_feature(new_feature, nb_neighbors=50,
-                                                                min_distance=0, max_distance=50):
-                            prioritised_list.append((0, neighbor, features[neighbor].desc, 0, "feature"))
+                        heapq.heappush(prioritised_list, new_feature)
 
             for f_id in self.matches:
                 p_id, dist = self.matches[f_id]
                 result.append((features[f_id], self.point_cloud[p_id], dist))
-            print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
+            print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider. "
+                  f"Done in {round(time.time()-start_time, 3)}.")
+
         return result
 
     def nearby_check_3d_2d(self, point_ind, features):
-        nearby_points = list(self.point_cloud.xyz_nearest_and_covisible(point_ind, nb_neighbors=50))
+        nearby_points = list(self.point_cloud.xyz_nearest_and_covisible(point_ind, nb_neighbors=200))
         res = []
         additional_matches = 0
         for new_point_ind in nearby_points:
@@ -259,19 +310,21 @@ class VocabTree:
         for pair in res:
             ori = len(self.matches)
             self.enforce_consistency(pair)
-            data.append(pair[0])
-            # feature_ind, ref_res, dist = pair
-            # visualize_matching([(features[feature_ind], None, dist)],
-            #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
-            #                    query_image_ori, sfm_image_folder)
             additional_matches += len(self.matches) - ori
+            neighbors, distances = features.nearby_feature(pair[0], nb_neighbors=200,
+                                                           min_distance=0, max_distance=200,
+                                                           strict_lower_bound=True, return_distances=True)
+            for idx, neighbor in enumerate(neighbors):
+                data.append((distances[idx], neighbor, features[neighbor].desc, 0, "feature"))
         return additional_matches, data
 
     def nearby_check(self, feature_ind, features):
         res = []
         additional_matches = 0
-        for new_feature_ind in features.nearby_feature(feature_ind):
-            pid, d, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[new_feature_ind].desc,
+        neighbors = features.nearby_feature(feature_ind, nb_neighbors=200, min_distance=0, max_distance=200,
+                                            strict_lower_bound=True)
+        for new_feature_ind in neighbors:
+            pid, d, _, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[new_feature_ind].desc,
                                                                        returning_index=True)
             if pid is None:
                 continue
@@ -280,12 +333,12 @@ class VocabTree:
         for pair in res:
             ori = len(self.matches)
             self.enforce_consistency(pair)
-            data.append(pair[0])
-            # feature_ind, ref_res, dist = pair
-            # visualize_matching([(features[feature_ind], None, dist)],
-            #                    [(features[feature_ind], self.point_cloud[ref_res], dist)],
-            #                    query_image_ori, sfm_image_folder)
             additional_matches += len(self.matches) - ori
+            neighbors, distances = features.nearby_feature(pair[0], nb_neighbors=200,
+                                                           min_distance=0, max_distance=200,
+                                                           strict_lower_bound=True, return_distances=True)
+            for idx, neighbor in enumerate(neighbors):
+                data.append((distances[idx], neighbor, features[neighbor].desc, 0, "feature"))
         return additional_matches, data
 
     def search_brute_force(self, features, nb_matches=100, debug=False):
