@@ -110,12 +110,16 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
         p3d_id_list = []
         p3d_desc_list = []
         p3d_desc_list_multiple = []
+        mean_diff = []
         for p3d_id in point3did2descs:
             p3d_id_list.append(p3d_id)
             desc_list = [du[1] for du in point3did2descs[p3d_id]]
             p3d_desc_list_multiple.append(desc_list)
             desc = np.mean(desc_list, axis=0)
+            if len(desc_list) > 1:
+                mean_diff.extend([np.sqrt(np.sum(np.square(desc-du))) for du in desc_list])
             p3d_desc_list.append(desc)
+        print(f"Mean var. = {np.mean(mean_diff)}")
         with open(f"{images_folder}/sfm_data.pkl", 'wb') as handle:
             pickle.dump([p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs],
                         handle, protocol=pickle.HIGHEST_PROTOCOL)
