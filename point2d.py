@@ -2,10 +2,13 @@ import sys
 
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
+from sklearn.cluster import MiniBatchKMeans
+import sampling_utils
 import time
 import heapq
 import numpy as np
 import cv2
+import kmeans1d
 
 
 class FeatureCloud:
@@ -103,7 +106,36 @@ class FeatureCloud:
         res = self.desc_tree.query(query_desc, 2)
         return res[1][0], res[0][0], res[0][0] / res[0][1]
 
+    def cluster(self, nb_clusters=100):
+        data = [[self.points[du].xy[0],
+                 self.points[du].xy[1],
+                 self.points[du].strength] for du in range(len(self.points))]
+        cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
+        clusters = cluster_model.fit_predict(data)
+        cid2res = {idx: cluster_model.cluster_centers_[idx, 2] for idx in range(nb_clusters)}
+        cid2kp = {idx: [] for idx in range(nb_clusters)}
+        for kp, cid in enumerate(clusters):
+            cid2kp[cid].append(kp)
+        cid2prob = sampling_utils.combine([
+            sampling_utils.rank_by_area(cid2kp),
+            sampling_utils.rank_by_response(cid2res)
+        ])
+        cluster2color = {du3: np.random.random((3,))*255.0 for du3 in range(nb_clusters)}
+        img = np.copy(self.image)
+        while len(cid2prob) > 0:
+            cid = max(list(cid2prob.keys()), key=lambda du: cid2prob[du])
+            del cid2prob[cid]
+            for feature_ind in cid2kp[cid]:
+                x, y = list(map(int, self.points[feature_ind].xy))
+                cv2.circle(img, (x, y), 5, cluster2color[clusters[feature_ind]], -1)
+            img2 = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+            cv2.imshow("image", img2)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
+        sys.exit()
+
     def sample(self):
+        self.cluster()
         features_to_match = [
             (
                 -self.points[du].strength,
