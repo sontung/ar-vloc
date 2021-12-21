@@ -113,7 +113,7 @@ class PointCloud:
         _, indices = tree.query(self.points[point_index].xyz, nb_neighbors)
         return [data[du] for du in indices]
 
-    def matching_2d_to_3d_brute_force_no_ratio_test(self, query_desc, returning_index=False):
+    def matching_2d_to_3d_brute_force_no_ratio_test(self, query_desc):
         """
         brute forcing match for a single 2D point
         """
@@ -121,9 +121,10 @@ class PointCloud:
             raise AttributeError("Descriptor tree not built, use matching_2d_to_3d_vocab_based instead")
         res = self.desc_tree.query(query_desc, 1)
         index = self.point_indices_for_desc_tree[res[1]]
-        if returning_index:
-            return index, res[0], res[0]
-        return self.points[index], res[0], res[0]
+        nb_neighbors = len(self.points[index].multi_desc_list) + 1
+        res = self.desc_tree.query(query_desc, nb_neighbors)
+        positive, ratio = ratio_test(res)
+        return index, res[0][0], res[0][1], ratio
 
     # @profile
     def matching_2d_to_3d_brute_force(self, query_desc, returning_index=False):

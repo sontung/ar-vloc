@@ -75,10 +75,9 @@ def dump_matches():
             point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-        res, count, samples = vocab_tree.search_brute_force(point2d_cloud, nb_matches=30, debug=True)
-        # res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
+        res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
+                                             sfm_images_folder, nb_matches=100)
 
-        print(f"Accuracy compared to brute force {count}/{samples}")
         visualize_matching_and_save(res, image_list[i], sfm_images_folder, debug_dir, i)
 
 
@@ -131,7 +130,7 @@ def main():
     active_search_based = [0, 0, 0]
     for i in range(len(desc_list)):
         print(f"Matching {i}/{len(desc_list)}")
-        point2d_cloud = FeatureCloud()
+        point2d_cloud = FeatureCloud(image_list[i])
         if im_name_list[0] in gt_data:
             ref_coords, ref_3d_id = gt_data[im_name_list[0]]
         else:
@@ -140,46 +139,11 @@ def main():
         for j in range(coord_list[i].shape[0]):
             point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
+        point2d_cloud.sample()
 
         start = time.time()
         res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
                                              sfm_images_folder, nb_matches=100)
-
-        # res, count, samples, bf_res = vocab_tree.search(point2d_cloud, nb_matches=100, debug=True)
-        print(f"Accuracy compared to brute force {count}/{samples}")
-        vocab_based[0] += time.time() - start
-        if DEBUG_2D_3D_MATCHING:
-            visualize_matching(bf_res, res, image_list[i], sfm_images_folder)
-        if len(ref_3d_id) > 0:
-            tree_coord = KDTree(np.array(ref_coords))
-            count, samples = evaluate(res, tree_coord, point3d_cloud, ref_3d_id)
-
-    #     vocab_based[1] += count
-    #     vocab_based[2] += samples
-    #
-    #     start = time.time()
-    #     res, count, samples = vocab_tree.active_search(point2d_cloud, nb_matches=100)
-    #     active_search_based[0] += time.time() - start
-    #
-    #     count, samples = evaluate(res, tree_coord, point3d_cloud, ref_3d_id)
-    #     active_search_based[1] += count
-    #     active_search_based[2] += samples
-    #
-    #     count_all += count
-    #     samples_all += samples
-    #
-    #     p2d2p3d[i] = []
-    #     for point2d, point3d in res:
-    #         p2d2p3d[i].append((point2d.xy, point3d.xyz))
-    #
-    # time_spent = time.time() - start_time
-    # print(f"Matching 2D-3D done in {round(time_spent, 3)} seconds, "
-    #       f"avg. {round(time_spent / len(desc_list), 3)} seconds/image")
-    # if MATCHING_BENCHMARK:
-    #     print("vocab", vocab_based[0], vocab_based[1] / vocab_based[2])
-    #     print("active", active_search_based[0], active_search_based[1] / active_search_based[2])
-    #
-    #     print(f"Matching accuracy={round(count_all / samples_all * 100, 3)}%")
 
 
 if __name__ == '__main__':

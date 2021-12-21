@@ -92,6 +92,9 @@ class VocabNodeForWords:
 
 class VocabTree:
     def __init__(self, point_cloud, branching_factor=2, debug=False):
+        self.retired_list = set([])
+        self.matching_results = []
+        self.ratio_map = {}
         self.point_cloud = point_cloud
         self.debug = debug
         self.v1 = VocabNode(nb_clusters=len(point_cloud)//50)
@@ -119,9 +122,11 @@ class VocabTree:
             level_statistics[len(level_name.split("-"))-1] += 1
         print("Level statistics:", level_statistics)
 
-    def enforce_consistency(self, pair, debug=False):
-        candidates = [pair]
-        f_id, p_id, dist = pair
+    def enforce_consistency(self, pair):
+        f_id, p_id, dist, ratio = pair
+        self.ratio_map[(f_id, p_id)] = ratio
+        candidates = [(f_id, p_id, dist)]
+
         if f_id in self.matches:
             p_id2, dist2 = self.matches[f_id]
             pair2 = (f_id, p_id2, dist2)
@@ -139,14 +144,21 @@ class VocabTree:
         self.matches[f_id] = (p_id, dist)
         self.matches_reverse[p_id] = (f_id, dist)
 
+    def retire_feature(self, feature_ind, features):
+        self.retired_list.add(feature_ind)
+        neighbors = features.nearby_feature(feature_ind, nb_neighbors=50, min_distance=0, max_distance=0)
+        for neighbor in neighbors:
+            self.retired_list.add(neighbor)
+
     # @profile
     def search_experimental(self, features, query_image_ori, sfm_image_folder, nb_matches=80, debug=False):
         start_time = time.time()
         self.matches.clear()
         self.matches_reverse.clear()
+        self.retired_list.clear()
+        self.ratio_map.clear()
+        self.matching_results = []
 
-        count = 0
-        samples = 0
         result = []
 
         # assign each desc to a word
@@ -175,7 +187,6 @@ class VocabTree:
             features_to_match = [
                 (
                     -features[du].strength,
-                    # len(self.v1.traverse(words[du])),
                     du,
                     query_desc_list[du],
                     self.v1.traverse(words[du]),
@@ -186,160 +197,95 @@ class VocabTree:
             ]
             prioritised_list = []
             heapq.heapify(features_to_match)
-            retired_list = set([])
-            low_priority_list = []
-            low_priority_set = set([])
-            probabilities = [0.4, 0.1]
-            p1, p2 = probabilities
-            additional_matches = 0
+            # random.shuffle(features_to_match)
             skipping = 0
-            count = 0
-            gain1 = 0
-            gain2 = 0
-            stats = [0, 0, 0]
 
             if self.debug:
                 img = np.copy(query_image_ori)
                 img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
                 cv2.namedWindow('image')
-                img2 = np.copy(query_image_ori)
-                img2 = cv2.resize(img2, (img2.shape[1] // 4, img2.shape[0] // 4))
-                cv2.namedWindow('res')
 
-            while len(self.matches) < nb_matches and len(features_to_match) > 0:
-                count += 1
-                sampled_from_low_priority = False
-                prob = random.random()
-                if prob < p2 and len(low_priority_list) > 0:
-                    candidate = heapq.heappop(low_priority_list)
-                    sampled_from_low_priority = True
-                    color = (0, 255, 0)
-                    stats[0] += 1
-                elif prob > p1 and len(prioritised_list) > 0:
-                    candidate = heapq.heappop(prioritised_list)
-                    color = (0, 0, 255)
-                    stats[1] += 1
-                else:
-                    candidate = heapq.heappop(features_to_match)
-                    color = (255, 0, 0)
-                    stats[2] += 1
+            while len(features_to_match) > 0 and len(prioritised_list) < 100:
+                # candidate = features_to_match.pop()
+                candidate = heapq.heappop(features_to_match)
 
+                color = (255, 0, 0)
                 cost, feature_ind, desc, point_3d_list, _ = candidate
-
-                # skip this feature
+                if feature_ind in self.retired_list:
+                    skipping += 1
+                    continue
                 if self.debug:
-                    print(f"retired list={len(retired_list)}, matches={len(self.matches)}, "
-                          f"gain={additional_matches}, left={len(features_to_match)}, "
-                          f"skipping={skipping}, prio={len(prioritised_list)}, "
-                          f"low prio={len(low_priority_list)} "
-                          f"gain 2d={gain1}, gain 3d={gain2}, "
-                          f"(l, h, n)={stats}")
                     x, y = list(map(int, features[feature_ind].xy))
                     cv2.circle(img, (x//4, y//4), 5, color, 1)
                     cv2.imshow("image", img)
                     cv2.waitKey(1)
+                ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force_no_ratio_test(desc)
+                heapq.heappush(self.matching_results, (ratio, feature_ind, ref_res, dist))
+                heapq.heappush(prioritised_list, (ratio, feature_ind, ref_res, dist))
+                self.retire_feature(feature_ind, features)
 
-                if feature_ind in retired_list:
-                    skipping += 1
+            while len(prioritised_list) > 0:
+                candidate = heapq.heappop(prioritised_list)
+                ratio, feature_ind, ref_res, dist = candidate
+                if ratio > 0.9:
                     continue
+                print(f"first: ratio={ratio}, prio={len(prioritised_list)}, matching q={len(self.matching_results)} "
+                      f"admitted matches={len(self.matches)}")
+                self.nearby_check(feature_ind, features, ratio)
+                self.nearby_check_3d_2d(ref_res, features, ratio)
 
-                if not sampled_from_low_priority and feature_ind in low_priority_set:
-                    skipping += 1
-                    continue
+            for iter_ in range(4):
+                prioritised_list = self.matching_results[:]
+                while len(prioritised_list) > 0 and len(self.matches) < 100:
+                    candidate = heapq.heappop(prioritised_list)
+                    ratio, feature_ind, ref_res, dist = candidate
+                    if ratio > 0.9-(iter_+1)*0.05:
+                        continue
+                    if ratio < 0.7:
+                        self.enforce_consistency((feature_ind, ref_res, dist, ratio))
+                    print(f"{iter_}: ratio={ratio}, prio={len(prioritised_list)}, "
+                          f"matching q={len(self.matching_results)}, "
+                          f"admitted matches={len(self.matches)}")
+                    self.nearby_check(feature_ind, features, ratio, 0, 400)
+                    self.nearby_check_3d_2d(ref_res, features, ratio, 0, 400)
 
-                ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
-                retired_list.add(feature_ind)
-                if ref_res is None:
-                    neighbors = features.nearby_feature(feature_ind, nb_neighbors=50, min_distance=0, max_distance=0)
-                    for neighbor in neighbors:
-                        retired_list.add(neighbor)
-
-                    # neighbors of failed candidates put into low priority queue
-                    neighbors, distances = features.nearby_feature(feature_ind, nb_neighbors=200,
-                                                                   min_distance=0, max_distance=200,
-                                                                   strict_lower_bound=True, return_distances=True)
-                    for idx, neighbor in enumerate(neighbors):
-                        ori_len = len(low_priority_set)
-                        low_priority_set.add(neighbor)
-                        if len(low_priority_set) > ori_len:
-                            heapq.heappush(low_priority_list,
-                                           (ratio, neighbor, features[neighbor].desc, 0, "feature"))
-
-                    continue
-
-                # visualize matches
-                if self.debug:
-                    cv2.circle(img2, (x//4, y//4), 5, (255, 0, 0), -1)
-                    cv2.imshow("res", img2)
-                    cv2.waitKey(1)
-
-                ori = len(self.matches)
-                self.enforce_consistency((feature_ind, ref_res, dist))
-                if len(self.matches) == ori:
-                    continue
-                a1, new_features1 = self.nearby_check(feature_ind, features)
-                a2, new_features2 = self.nearby_check_3d_2d(ref_res, features)
-                additional_matches += a1+a2
-                gain1 += a1
-                gain2 += a2
-                if a1 > 0:
-                    for new_feature in new_features1:
-                        heapq.heappush(prioritised_list, new_feature)
-                if a2 > 0:
-                    for new_feature in new_features2:
-                        heapq.heappush(prioritised_list, new_feature)
-
+            while len(self.matches) < 100 and len(self.matching_results) > 0:
+                candidate = heapq.heappop(self.matching_results)
+                ratio, feature_ind, ref_res, dist = candidate
+                self.enforce_consistency((feature_ind, ref_res, dist, ratio))
+            ratio_list = []
             for f_id in self.matches:
                 p_id, dist = self.matches[f_id]
+                ratio_list.append(self.ratio_map[(f_id, p_id)])
                 result.append((features[f_id], self.point_cloud[p_id], dist))
+            print(f"Mean ratio = {round(np.mean(ratio_list), 3)}")
             print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider. "
                   f"Done in {round(time.time()-start_time, 3)}.")
 
         return result
 
-    def nearby_check_3d_2d(self, point_ind, features):
-        nearby_points = list(self.point_cloud.xyz_nearest_and_covisible(point_ind, nb_neighbors=200))
-        res = []
-        additional_matches = 0
+    def nearby_check_3d_2d(self, point_ind, features, ratio, lower=10, upper=400):
+        x = (lower-upper)*ratio/0.9+upper
+        nearby_points = list(self.point_cloud.xyz_nearest_and_covisible(point_ind, nb_neighbors=x))
         for new_point_ind in nearby_points:
-            new_feature_ind, d = features.matching_3d_to_2d_brute_force(self.point_cloud[new_point_ind].desc)
-            if new_feature_ind is None:
-                continue
-            res.append((new_feature_ind, new_point_ind, d))
-        data = []
-        for pair in res:
-            ori = len(self.matches)
-            self.enforce_consistency(pair)
-            additional_matches += len(self.matches) - ori
-            neighbors, distances = features.nearby_feature(pair[0], nb_neighbors=200,
-                                                           min_distance=0, max_distance=200,
-                                                           strict_lower_bound=True, return_distances=True)
-            for idx, neighbor in enumerate(neighbors):
-                data.append((distances[idx], neighbor, features[neighbor].desc, 0, "feature"))
-        return additional_matches, data
+            comp = features.matching_3d_to_2d_brute_force_no_ratio_test(self.point_cloud[new_point_ind].desc)
+            new_feature_ind, d, r = comp
+            heapq.heappush(self.matching_results, (r, new_feature_ind, new_point_ind, d))
+            if ratio < 0.7:
+                self.enforce_consistency((new_feature_ind, new_point_ind, d, ratio))
 
-    def nearby_check(self, feature_ind, features):
-        res = []
-        additional_matches = 0
-        neighbors = features.nearby_feature(feature_ind, nb_neighbors=200, min_distance=0, max_distance=200,
+    def nearby_check(self, feature_ind, features, ratio, lower=10, upper=400):
+        x = (lower-upper)*ratio/0.9+upper
+        neighbors = features.nearby_feature(feature_ind, nb_neighbors=x, min_distance=0, max_distance=x,
                                             strict_lower_bound=True)
         for new_feature_ind in neighbors:
-            pid, d, _, _ = self.point_cloud.matching_2d_to_3d_brute_force(features[new_feature_ind].desc,
-                                                                       returning_index=True)
-            if pid is None:
+            if new_feature_ind in self.retired_list:
                 continue
-            res.append((new_feature_ind, pid, d))
-        data = []
-        for pair in res:
-            ori = len(self.matches)
-            self.enforce_consistency(pair)
-            additional_matches += len(self.matches) - ori
-            neighbors, distances = features.nearby_feature(pair[0], nb_neighbors=200,
-                                                           min_distance=0, max_distance=200,
-                                                           strict_lower_bound=True, return_distances=True)
-            for idx, neighbor in enumerate(neighbors):
-                data.append((distances[idx], neighbor, features[neighbor].desc, 0, "feature"))
-        return additional_matches, data
+            pid, d, _, r = self.point_cloud.matching_2d_to_3d_brute_force_no_ratio_test(features[new_feature_ind].desc)
+            self.retire_feature(new_feature_ind, features)
+            heapq.heappush(self.matching_results, (r, new_feature_ind, pid, d))
+            if ratio < 0.7:
+                self.enforce_consistency((new_feature_ind, pid, d, ratio))
 
     def search_brute_force(self, features, nb_matches=100, debug=False):
         self.matches.clear()

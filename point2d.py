@@ -1,11 +1,16 @@
+import sys
+
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 import time
+import heapq
 import numpy as np
+import cv2
 
 
 class FeatureCloud:
-    def __init__(self):
+    def __init__(self, image=None):
+        self.image = image
         self.points = []
         self.point_desc_list = []
         self.point_xy_list = []
@@ -76,7 +81,6 @@ class FeatureCloud:
     def assign_search_cost(self, level_name):
         return len(self.level2features[level_name])
 
-    # @profile
     def matching_3d_to_2d_brute_force(self, query_desc):
         """
         brute forcing match for a single 3D point
@@ -89,6 +93,37 @@ class FeatureCloud:
                 index = res[1][0]
                 return index, res[0][0]
         return None, res[0][0]
+
+    def matching_3d_to_2d_brute_force_no_ratio_test(self, query_desc):
+        """
+        brute forcing match for a single 3D point w/o ratio test
+        """
+        if self.desc_tree is None:
+            self.desc_tree = KDTree(self.point_desc_list)
+        res = self.desc_tree.query(query_desc, 2)
+        return res[1][0], res[0][0], res[0][0] / res[0][1]
+
+    def sample(self):
+        features_to_match = [
+            (
+                -self.points[du].strength,
+                du,
+            )
+            for du in range(len(self.points))
+        ]
+        heapq.heapify(features_to_match)
+        img = np.copy(self.image)
+        img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+        cv2.namedWindow('image')
+        while len(features_to_match) > 0:
+            candidate = heapq.heappop(features_to_match)
+            _, feature_ind = candidate
+            x, y = list(map(int, self.points[feature_ind].xy))
+            cv2.circle(img, (x // 4, y // 4), 5, (255, 0, 0), 1)
+            cv2.imshow("image", img)
+            cv2.waitKey(1)
+        sys.exit()
+        return
 
 
 class Feature:
