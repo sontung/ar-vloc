@@ -1,11 +1,12 @@
 import cv2
+import numpy as np
 from feature_matching import load_2d_queries_generic
 from point2d import FeatureCloud
 from point3d import PointCloud
 from colmap_io import read_points3D_coordinates, read_images
 from feature_matching import build_descriptors_2d
 from vocab_tree import VocabTree
-from vis_utils import visualize_matching
+from vis_utils import visualize_matching, visualize_matching_helper
 
 
 def draw_circle(event, x, y, flags, param):
@@ -51,13 +52,15 @@ image = image_ori.copy()
 MODE = None
 RESULT = {}
 RESULT_NO_RATIO = {}
-INTERACTIVE = False
+INTERACTIVE = True
 
 if INTERACTIVE:
     while True:
         cv2.imshow("image", image)
 
         if MODE == 1:
+            if mouseX < 0:
+                continue
             if (mouseX, mouseY) not in RESULT:
                 _, ind = point2d_cloud.xy_tree.query([mouseX, mouseY], 1)
                 point_ind, dist, _ = point3d_cloud.matching_2d_to_3d_brute_force(point2d_cloud[ind].desc,
@@ -67,29 +70,38 @@ if INTERACTIVE:
             else:
                 ind, point_ind, dist = RESULT[(mouseX, mouseY)]
             if point_ind is not None:
-                visualize_matching([(point2d_cloud[ind], None, dist)],
-                                   [(point2d_cloud[ind], point3d_cloud[point_ind], dist)],
-                                   im_list[0], sfm_images_folder)
+                images = visualize_matching_helper(np.copy(im_list[0]), point2d_cloud[ind],
+                                                   point3d_cloud[point_ind], sfm_images_folder)
+                cv2.imshow("t", images)
+                cv2.waitKey()
+                cv2.destroyWindow("t")
             fx, fy = point2d_cloud[ind].xy
             fx, fy = map(int, (fx//down_scale, fy//down_scale))
             cv2.circle(image, (fx, fy), 5, (128, 128, 0), 5)
         elif MODE == 2:
+            if mouseX < 0:
+                continue
             if (mouseX, mouseY) not in RESULT_NO_RATIO:
                 _, ind = point2d_cloud.xy_tree.query([mouseX, mouseY], 1)
-                point_ind, dist, _ = point3d_cloud.matching_2d_to_3d_brute_force_no_ratio_test(point2d_cloud[ind].desc,
-                                                                                               returning_index=True)
+                data1 = point3d_cloud.matching_2d_to_3d_brute_force_no_ratio_test(point2d_cloud[ind].desc)
+                point_ind, dist, _, ratio = data1
                 RESULT_NO_RATIO[(mouseX, mouseY)] = (ind, point_ind, dist)
-                print(f"ratio test: {mouseX, mouseY} => {ind, point_ind, dist}")
+                print(f"ratio test: {mouseX, mouseY} => {ind, point_ind, dist, ratio}")
             else:
                 ind, point_ind, dist = RESULT_NO_RATIO[(mouseX, mouseY)]
             if point_ind is not None:
-                visualize_matching([(point2d_cloud[ind], None, dist)],
-                                   [(point2d_cloud[ind], point3d_cloud[point_ind], dist)],
-                                   im_list[0], sfm_images_folder)
+                images = visualize_matching_helper(np.copy(im_list[0]), point2d_cloud[ind],
+                                                   point3d_cloud[point_ind], sfm_images_folder)
+                cv2.imshow("t", images)
+                cv2.waitKey()
+                cv2.destroyWindow("t")
             fx, fy = point2d_cloud[ind].xy
             fx, fy = map(int, (fx // down_scale, fy // down_scale))
             cv2.circle(image, (fx, fy), 5, (128, 128, 0), 5)
             MODE = None
+            image = np.copy(image_ori)
+            mouseX = -1
+            mouseY = -1
 
         k = cv2.waitKey(20) & 0xFF
 
@@ -100,11 +112,11 @@ if INTERACTIVE:
         elif k == ord('b'):
             MODE = 2
         elif k == ord('d'):
-            image = image_ori.copy()
+            image = np.copy(image_ori)
             mouseX = -1
             mouseY = -1
             MODE = None
-            RESULT = None
+            RESULT = {}
 
     cv2.destroyAllWindows()
 else:
