@@ -46,7 +46,7 @@ def load_2d_queries_generic(folder):
 
         else:
             im = cv2.imread(im_name)
-        coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True)
+        coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True, nb_keypoints=None)
         coord = np.array(coord)
         coordinates.append(coord)
         descriptors.append(desc)

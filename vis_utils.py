@@ -137,7 +137,7 @@ def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
             cv2.imshow("t2", l2)
         # print(f"vc dist1={dist1} bf dist={dist2}")
         cv2.waitKey()
-        cv2.destroyAllWindows()
+        cv2.destroyWindow("t2")
 
 
 def visualize_matching_and_save(results, query_image_ori, sfm_image_folder, debug_dir, folder_name):

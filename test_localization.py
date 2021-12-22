@@ -62,7 +62,7 @@ for i in range(len(desc_list)):
 
     # res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)
     res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
-                                         sfm_images_folder, nb_matches=30)
+                                         sfm_images_folder, nb_matches=100)
     p2d2p3d[i] = []
     if len(res[0]) > 2:
         for count, (point2d, point3d, _) in enumerate(res):

@@ -184,20 +184,8 @@ class VocabTree:
                 else:
                     print("not found", feature_ind)
         else:
-            features_to_match = [
-                (
-                    -features[du].strength,
-                    du,
-                    query_desc_list[du],
-                    self.v1.traverse(words[du]),
-                    "feature"
-                )
-                for du in range(query_desc_list.shape[0])
-                if len(self.v1.traverse(words[du])) > 2
-            ]
             prioritised_list = []
-            heapq.heapify(features_to_match)
-            # random.shuffle(features_to_match)
+
             skipping = 0
 
             if self.debug:
@@ -205,12 +193,10 @@ class VocabTree:
                 img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
                 cv2.namedWindow('image')
 
-            while len(features_to_match) > 0 and len(prioritised_list) < 100:
-                # candidate = features_to_match.pop()
-                candidate = heapq.heappop(features_to_match)
+            while len(prioritised_list) < 500:
+                feature_ind = features.sample()
 
                 color = (255, 0, 0)
-                cost, feature_ind, desc, point_3d_list, _ = candidate
                 if feature_ind in self.retired_list:
                     skipping += 1
                     continue
@@ -219,37 +205,38 @@ class VocabTree:
                     cv2.circle(img, (x//4, y//4), 5, color, 1)
                     cv2.imshow("image", img)
                     cv2.waitKey(1)
-                ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force_no_ratio_test(desc)
+                data1 = self.point_cloud.matching_2d_to_3d_brute_force_no_ratio_test(features[feature_ind].desc)
+                ref_res, dist, _, ratio = data1
                 heapq.heappush(self.matching_results, (ratio, feature_ind, ref_res, dist))
                 heapq.heappush(prioritised_list, (ratio, feature_ind, ref_res, dist))
                 self.retire_feature(feature_ind, features)
 
-            while len(prioritised_list) > 0:
-                candidate = heapq.heappop(prioritised_list)
-                ratio, feature_ind, ref_res, dist = candidate
-                if ratio > 0.9:
-                    continue
-                print(f"first: ratio={ratio}, prio={len(prioritised_list)}, matching q={len(self.matching_results)} "
-                      f"admitted matches={len(self.matches)}")
-                self.nearby_check(feature_ind, features, ratio)
-                self.nearby_check_3d_2d(ref_res, features, ratio)
+            # while len(prioritised_list) > 0:
+            #     candidate = heapq.heappop(prioritised_list)
+            #     ratio, feature_ind, ref_res, dist = candidate
+            #     if ratio > 0.9:
+            #         continue
+            #     print(f"first: ratio={ratio}, prio={len(prioritised_list)}, matching q={len(self.matching_results)} "
+            #           f"admitted matches={len(self.matches)}")
+            #     self.nearby_check(feature_ind, features, ratio)
+            #     self.nearby_check_3d_2d(ref_res, features, ratio)
+            #
+            # for iter_ in range(4):
+            #     prioritised_list = self.matching_results[:]
+            #     while len(prioritised_list) > 0 and len(self.matches) < 100:
+            #         candidate = heapq.heappop(prioritised_list)
+            #         ratio, feature_ind, ref_res, dist = candidate
+            #         if ratio > 0.9-(iter_+1)*0.05:
+            #             continue
+            #         if ratio < 0.7:
+            #             self.enforce_consistency((feature_ind, ref_res, dist, ratio))
+            #         print(f"{iter_}: ratio={ratio}, prio={len(prioritised_list)}, "
+            #               f"matching q={len(self.matching_results)}, "
+            #               f"admitted matches={len(self.matches)}")
+            #         self.nearby_check(feature_ind, features, ratio, 0, 400)
+            #         self.nearby_check_3d_2d(ref_res, features, ratio, 0, 400)
 
-            for iter_ in range(4):
-                prioritised_list = self.matching_results[:]
-                while len(prioritised_list) > 0 and len(self.matches) < 100:
-                    candidate = heapq.heappop(prioritised_list)
-                    ratio, feature_ind, ref_res, dist = candidate
-                    if ratio > 0.9-(iter_+1)*0.05:
-                        continue
-                    if ratio < 0.7:
-                        self.enforce_consistency((feature_ind, ref_res, dist, ratio))
-                    print(f"{iter_}: ratio={ratio}, prio={len(prioritised_list)}, "
-                          f"matching q={len(self.matching_results)}, "
-                          f"admitted matches={len(self.matches)}")
-                    self.nearby_check(feature_ind, features, ratio, 0, 400)
-                    self.nearby_check_3d_2d(ref_res, features, ratio, 0, 400)
-
-            while len(self.matches) < 100 and len(self.matching_results) > 0:
+            while len(self.matching_results) > 0:
                 candidate = heapq.heappop(self.matching_results)
                 ratio, feature_ind, ref_res, dist = candidate
                 self.enforce_consistency((feature_ind, ref_res, dist, ratio))
@@ -258,8 +245,16 @@ class VocabTree:
                 p_id, dist = self.matches[f_id]
                 ratio_list.append(self.ratio_map[(f_id, p_id)])
                 result.append((features[f_id], self.point_cloud[p_id], dist))
+                if self.debug:
+                    x, y = list(map(int, features[f_id].xy))
+                    cv2.circle(img, (x // 4, y // 4), 5, (0, 255, 0), -1)
+            if self.debug:
+                cv2.imshow("image", img)
+                cv2.waitKey()
+                cv2.destroyAllWindows()
+
             print(f"Mean ratio = {round(np.mean(ratio_list), 3)}")
-            print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider. "
+            print(f"Found {len(self.matches)} 2D-3D pairs. "
                   f"Done in {round(time.time()-start_time, 3)}.")
 
         return result

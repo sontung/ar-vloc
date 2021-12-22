@@ -21,6 +21,11 @@ class FeatureCloud:
         self.desc_tree = None
         self.xy_tree = None
         self.level2features = {}
+        self.cid2prob = None
+        self.cluster_centers_ = None
+        self.cid2kp = None
+        self.cid_list = None
+        self.cid_prob = None
 
     def __getitem__(self, item):
         return self.points[item]
@@ -57,6 +62,12 @@ class FeatureCloud:
         self.point_indices.append(index)
         self.point_xy_list.append(xy)
         self.point_desc_list.append(desc)
+
+    def rank_feature_strengths(self):
+        ranks = [(idx, self.points[idx].strength) for idx in range(len(self.points))]
+        ranks = sorted(ranks, key=lambda du: du[1], reverse=False)
+        for rank, (idx, _) in enumerate(ranks):
+            self.points[idx].strength_rank = (rank+1)/len(ranks)
 
     def search(self, level_name, query_desc):
         desc_list = [self.points[point_ind].desc for point_ind in self.level2features[level_name]]
@@ -106,7 +117,7 @@ class FeatureCloud:
         res = self.desc_tree.query(query_desc, 2)
         return res[1][0], res[0][0], res[0][0] / res[0][1]
 
-    def cluster(self, nb_clusters=100):
+    def cluster(self, nb_clusters=5, debug=False):
         data = [[self.points[du].xy[0],
                  self.points[du].xy[1],
                  self.points[du].strength] for du in range(len(self.points))]
@@ -120,42 +131,39 @@ class FeatureCloud:
             sampling_utils.rank_by_area(cid2kp),
             sampling_utils.rank_by_response(cid2res)
         ])
-        cluster2color = {du3: np.random.random((3,))*255.0 for du3 in range(nb_clusters)}
-        img = np.copy(self.image)
-        while len(cid2prob) > 0:
-            cid = max(list(cid2prob.keys()), key=lambda du: cid2prob[du])
-            del cid2prob[cid]
-            for feature_ind in cid2kp[cid]:
-                x, y = list(map(int, self.points[feature_ind].xy))
-                cv2.circle(img, (x, y), 5, cluster2color[clusters[feature_ind]], -1)
-            img2 = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
-            cv2.imshow("image", img2)
-            cv2.waitKey()
-            cv2.destroyAllWindows()
-        sys.exit()
+        for cid in cid2kp:
+            kp_list = cid2kp[cid]
+            prob_list = np.array([self.points[kp].strength for kp in kp_list])
+            prob_list /= np.sum(prob_list)
+            cid2kp[cid] = (kp_list, prob_list)
+        if debug:
+            cluster2color = {du3: np.random.random((3,)) * 255.0 for du3 in range(nb_clusters)}
+            img = np.copy(self.image)
+            cid2prob2 = cid2prob.copy()
+            while len(cid2prob2) > 0:
+                cid = max(list(cid2prob2.keys()), key=lambda du: cid2prob2[du])
+                del cid2prob2[cid]
+                for feature_ind in cid2kp[cid][0]:
+                    x, y = list(map(int, self.points[feature_ind].xy))
+                    cv2.circle(img, (x, y), 5, cluster2color[clusters[feature_ind]], -1)
+            return img
+        return cid2prob, cluster_model.cluster_centers_, cid2kp
 
     def sample(self):
-        self.cluster()
-        features_to_match = [
-            (
-                -self.points[du].strength,
-                du,
-            )
-            for du in range(len(self.points))
-        ]
-        heapq.heapify(features_to_match)
-        img = np.copy(self.image)
-        img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
-        cv2.namedWindow('image')
-        while len(features_to_match) > 0:
-            candidate = heapq.heappop(features_to_match)
-            _, feature_ind = candidate
-            x, y = list(map(int, self.points[feature_ind].xy))
-            cv2.circle(img, (x // 4, y // 4), 5, (255, 0, 0), 1)
-            cv2.imshow("image", img)
-            cv2.waitKey(1)
-        sys.exit()
-        return
+        if self.cid2prob is None:
+            self.cid2prob, self.cluster_centers_, self.cid2kp = self.cluster(debug=False)
+            self.cid_list = [cid for cid in self.cid2prob.keys() if len(self.cid2kp[cid][0]) > 0]
+            self.cid_prob = [self.cid2prob[cid] for cid in self.cid_list]
+
+        try:
+            random_cid = np.random.choice(self.cid_list, p=self.cid_prob)
+        except ValueError:
+            random_cid = np.random.choice(self.cid_list)
+
+        fid_list, fid_prob_list = self.cid2kp[random_cid]
+        random_fid = np.random.choice(fid_list)
+
+        return random_fid
 
 
 class Feature:
@@ -165,6 +173,7 @@ class Feature:
         self.visual_word = None
         self.index = index
         self.strength = strength
+        self.strength_rank = -1
 
     def match(self, desc):
         pass

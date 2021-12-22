@@ -14,7 +14,7 @@ from hardnet import load_2d_queries_generic as load_2d_queries_generic_hardnet
 
 VISUALIZING_SFM_POSES = False
 VISUALIZING_POSES = True
-using_ps = True
+using_ps = False
 
 query_images_folder = "Test line small"
 sfm_images_dir = "sfm_ws_hblab/images.txt"
@@ -65,9 +65,8 @@ for i in range(len(desc_list)):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    # res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)
     res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
-                                         sfm_images_folder, nb_matches=30)
+                                         sfm_images_folder, nb_matches=100)
     p2d2p3d[i] = []
     if len(res[0]) > 2:
         for count, (point2d, point3d, _) in enumerate(res):

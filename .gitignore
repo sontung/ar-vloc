@@ -11,6 +11,7 @@ Test line/*
 Test line small/*
 piazza_del_popolo/*
 debug/*
+trash_code/*
 *.lprof
 
 # Byte-compiled / optimized / DLL files
