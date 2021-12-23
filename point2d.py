@@ -136,6 +136,7 @@ class FeatureCloud:
             prob_list = np.array([self.points[kp].strength for kp in kp_list])
             prob_list /= np.sum(prob_list)
             cid2kp[cid] = (kp_list, prob_list)
+        self.cid2kp = cid2kp
         if debug:
             cluster2color = {du3: np.random.random((3,)) * 255.0 for du3 in range(nb_clusters)}
             img = np.copy(self.image)
