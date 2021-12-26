@@ -74,10 +74,7 @@ def main():
             point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-        # res, _, _ = vocab_tree.active_search(point2d_cloud)
-        # res, _, _ = vocab_tree.search(point2d_cloud)
-        res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
-                                             sfm_images_folder, nb_matches=100)
+        res = vocab_tree.search_brute_force(point2d_cloud)
 
         p2d2p3d[i] = []
         if len(res[0]) > 2:

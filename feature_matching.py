@@ -12,47 +12,54 @@ import cv2
 from scipy.spatial import KDTree
 from sklearn.cluster import MiniBatchKMeans
 from pathlib import Path
-
 MATCHING_BENCHMARK = True
 
 
 def load_2d_queries_generic(folder):
-    im_names = os.listdir(folder)
-    descriptors = []
-    coordinates = []
-    md_list = []
-    im_list = []
-    response_list = []
-    for name in tqdm(im_names, desc="Reading query images"):
-        metadata = {}
-        im_name = os.path.join(folder, name)
-        if "HEIC" in name:
-            heif_file = pyheif.read(im_name)
-            image = Image.frombytes(
-                heif_file.mode,
-                heif_file.size,
-                heif_file.data,
-                "raw",
-                heif_file.mode,
-                heif_file.stride,
-            )
-            im = np.array(image)
-            im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-            f = open(im_name, 'rb')
-            tags = exifread.process_file(f)
-            metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
-            metadata["cx"] = im.shape[1]/2
-            metadata["cy"] = im.shape[0]/2
+    my_file = Path(f"{folder}/queries.pkl")
+    if my_file.is_file():
+        with open(f"{folder}/queries.pkl", 'rb') as handle:
+            descriptors, coordinates, im_names, md_list, im_list, response_list = pickle.load(handle)
+    else:
+        im_names = os.listdir(folder)
+        descriptors = []
+        coordinates = []
+        md_list = []
+        im_list = []
+        response_list = []
+        for name in tqdm(im_names, desc="Reading query images"):
+            metadata = {}
+            im_name = os.path.join(folder, name)
+            if "HEIC" in name:
+                heif_file = pyheif.read(im_name)
+                image = Image.frombytes(
+                    heif_file.mode,
+                    heif_file.size,
+                    heif_file.data,
+                    "raw",
+                    heif_file.mode,
+                    heif_file.stride,
+                )
+                im = np.array(image)
+                im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+                f = open(im_name, 'rb')
+                tags = exifread.process_file(f)
+                metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
+                metadata["cx"] = im.shape[1]/2
+                metadata["cy"] = im.shape[0]/2
 
-        else:
-            im = cv2.imread(im_name)
-        coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True, nb_keypoints=None)
-        coord = np.array(coord)
-        coordinates.append(coord)
-        descriptors.append(desc)
-        md_list.append(metadata)
-        im_list.append(im)
-        response_list.append(response)
+            else:
+                im = cv2.imread(im_name)
+            coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True, nb_keypoints=None)
+            coord = np.array(coord)
+            coordinates.append(coord)
+            descriptors.append(desc)
+            md_list.append(metadata)
+            im_list.append(im)
+            response_list.append(response)
+        with open(f"{folder}/queries.pkl", 'wb') as handle:
+            pickle.dump([descriptors, coordinates, im_names, md_list, im_list, response_list],
+                        handle, protocol=pickle.HIGHEST_PROTOCOL)
     return descriptors, coordinates, im_names, md_list, im_list, response_list
 
 
@@ -73,7 +80,6 @@ def load_2d_queries_opencv(folder="test_images"):
 def build_descriptors_2d(images, images_folder="sfm_models/images"):
     point3did2descs = {}
     matching_ratio = []
-    from pathlib import Path
 
     my_file = Path(f"{images_folder}/sfm_data.pkl")
     if my_file.is_file():
