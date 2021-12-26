@@ -4,10 +4,12 @@ import heapq
 import numpy as np
 import random
 import tqdm
+import pickle
 import time
 from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial import KDTree
 from vis_utils import visualize_matching
+from pathlib import Path
 
 
 class VocabNode:
@@ -97,6 +99,7 @@ class VocabTree:
         self.ratio_map = {}
         self.point_cloud = point_cloud
         self.debug = debug
+        self.matching_results_whole = {}
         self.v1 = VocabNode(nb_clusters=len(point_cloud)//50)
         words = self.v1.build(point_cloud)
         print(f"Constructing {len(self.v1)} visual words.")
@@ -149,6 +152,18 @@ class VocabTree:
         neighbors = features.nearby_feature(feature_ind, nb_neighbors=50, min_distance=0, max_distance=0)
         for neighbor in neighbors:
             self.retired_list.add(neighbor)
+
+    def save_matching_pairs(self, im_name, res, folder):
+        if im_name not in self.matching_results_whole:
+            self.matching_results_whole[im_name] = res
+            with open(f"{folder}/matches.pkl", 'wb') as handle:
+                pickle.dump(self.matching_results_whole, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_matching_pairs(self, folder):
+        my_file = Path(f"{folder}/matches.pkl")
+        if my_file.is_file():
+            with open(f"{folder}/matches.pkl", 'rb') as handle:
+                self.matching_results_whole = pickle.load(handle)
 
     def restart(self):
         self.matches.clear()
@@ -285,40 +300,45 @@ class VocabTree:
             if ratio < 0.7:
                 self.enforce_consistency((new_feature_ind, pid, d, ratio))
 
-    def search_brute_force(self, features, nb_matches=100, debug=False):
-        self.restart()
+    def search_brute_force(self, features, im_name, folder):
+        if im_name in self.matching_results_whole:
+            print("Loaded pre-computed matching pairs")
+            result = self.matching_results_whole[im_name]
+        else:
+            self.restart()
 
-        # assign each desc to a word
-        query_desc_list = features.point_desc_list
-        query_desc_list = np.array(query_desc_list)
-        words = self.v1.assign_words(query_desc_list)
+            # assign each desc to a word
+            query_desc_list = features.point_desc_list
+            query_desc_list = np.array(query_desc_list)
+            words = self.v1.assign_words(query_desc_list)
 
-        # sort feature by search cost
-        features_to_match = [
-            (
-                du,
-                query_desc_list[du],
-            )
-            for du in range(query_desc_list.shape[0])
-            if len(self.v1.traverse(words[du])) > 10
-        ]
+            # sort feature by search cost
+            features_to_match = [
+                (
+                    du,
+                    query_desc_list[du],
+                )
+                for du in range(query_desc_list.shape[0])
+                if len(self.v1.traverse(words[du])) > 10
+            ]
 
-        for idx in tqdm.tqdm(range(len(features_to_match)), desc="Matching 2D-3D"):
-            candidate = features_to_match[idx]
-            feature_ind, desc = candidate
-            if feature_ind in self.retired_list:
-                continue
-            ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
-            self.retire_feature(feature_ind, features)
-            if ref_res is not None:
-                pair = (feature_ind, ref_res, dist, ratio)
-                self.enforce_consistency(pair)
+            for idx in tqdm.tqdm(range(len(features_to_match)), desc="Matching 2D-3D"):
+                candidate = features_to_match[idx]
+                feature_ind, desc = candidate
+                if feature_ind in self.retired_list:
+                    continue
+                ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
+                self.retire_feature(feature_ind, features)
+                if ref_res is not None:
+                    pair = (feature_ind, ref_res, dist, ratio)
+                    self.enforce_consistency(pair)
 
-        result = []
-        for f_id in self.matches:
-            p_id, dist = self.matches[f_id]
-            result.append((features[f_id], self.point_cloud[p_id], dist))
-        print(f"Found {len(self.matches)} 2D-3D pairs, {len(features_to_match)} pairs left to consider.")
+            print(f"Found {len(self.matches)} 2D-3D pairs.")
+            result = []
+            for f_id in self.matches:
+                p_id, dist = self.matches[f_id]
+                result.append((features[f_id], self.point_cloud[p_id], dist))
+            self.save_matching_pairs(im_name, result, folder)
         return result
 
     def search(self, features, nb_matches=100, debug=False):

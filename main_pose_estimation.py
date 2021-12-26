@@ -47,6 +47,7 @@ def main():
     if BRUTE_FORCE_MATCHING:
         point3d_cloud.build_desc_tree()
     vocab_tree = VocabTree(point3d_cloud)
+    vocab_tree.load_matching_pairs(query_images_folder)
 
     if VISUALIZING_POSES:
         for point3d_id in point3did2xyzrgb:
@@ -74,7 +75,7 @@ def main():
             point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
         point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-        res = vocab_tree.search_brute_force(point2d_cloud)
+        res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
 
         p2d2p3d[i] = []
         if len(res[0]) > 2:
