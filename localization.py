@@ -48,7 +48,8 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
     image_points = np.array(image_points).reshape((-1, 1, 2))
 
     val, rot, trans, inliers = cv2.solvePnPRansac(object_points, image_points,
-                                                  camera_matrix, distortion_coefficients, flags=cv2.SOLVEPNP_ITERATIVE)
+                                                  camera_matrix, distortion_coefficients,
+                                                  flags=cv2.SOLVEPNP_ITERATIVE)
     if not val:
         print(f" {object_points.shape[0]} 2D-3D pairs computed but localization failed.")
         return None

@@ -306,7 +306,7 @@ class VocabTree:
             result = self.matching_results_whole[im_name]
         else:
             self.restart()
-
+            skipped = 0
             # assign each desc to a word
             query_desc_list = features.point_desc_list
             query_desc_list = np.array(query_desc_list)
@@ -326,6 +326,7 @@ class VocabTree:
                 candidate = features_to_match[idx]
                 feature_ind, desc = candidate
                 if feature_ind in self.retired_list:
+                    skipped += 1
                     continue
                 ref_res, dist, _, ratio = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
                 self.retire_feature(feature_ind, features)
@@ -333,7 +334,8 @@ class VocabTree:
                     pair = (feature_ind, ref_res, dist, ratio)
                     self.enforce_consistency(pair)
 
-            print(f"Found {len(self.matches)} 2D-3D pairs.")
+            print(f"Found {len(self.matches)} 2D-3D pairs, "
+                  f"skipped {skipped}({round(skipped/len(features_to_match), 3)}).")
             result = []
             for f_id in self.matches:
                 p_id, dist = self.matches[f_id]
