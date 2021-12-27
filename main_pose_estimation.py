@@ -4,7 +4,7 @@ import open3d as o3d
 from feature_matching import build_descriptors_2d, load_2d_queries_generic
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
 from colmap_read import qvec2rotmat
-from localization import localize_single_image
+from localization import localize_single_image, localize_single_image_lt_pnp
 from scipy.spatial import KDTree
 from vis_utils import produce_sphere, produce_cam_mesh, visualize_2d_3d_matching_single
 from PIL import Image
@@ -25,12 +25,6 @@ def main():
     sfm_images_dir = "sfm_ws_hblab/images.txt"
     sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
     sfm_images_folder = "sfm_ws_hblab/images"
-
-    # query_images_folder = "test_images"
-    # cam_info_dir = "sfm_models/cameras.txt"
-    # sfm_images_dir = "sfm_models/images.txt"
-    # sfm_point_cloud_dir = "sfm_models/points3D.txt"
-    # sfm_images_folder = "sfm_models/images"
 
     image2pose = read_images(sfm_images_dir)
     point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
@@ -105,10 +99,13 @@ def main():
                                   [0, 0, 1]])
         distortion_coefficients = np.array([k, 0, 0, 0])
         res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+        res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx])
 
         if res is None:
             continue
-        localization_results.append(res)
+        localization_results.append((res, "vector"))
+        localization_results.append((res2, "matrix"))
+
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
@@ -121,15 +118,24 @@ def main():
 
     # queried poses
     for result in localization_results:
-        if result is None:
-            continue
-        rot_mat, trans = result
-        t = -rot_mat.transpose() @ trans
-        t = t.reshape((3, 1))
-        mat = np.hstack([-rot_mat.transpose(), t])
-        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+        mat = None
+        cm = None
+        if result[-1] == "vector":
+            if result is None:
+                continue
+            rot_mat, trans = result[0]
+            t = -rot_mat.transpose() @ trans
+            t = t.reshape((3, 1))
+            mat = np.hstack([-rot_mat.transpose(), t])
+            mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+            cm = produce_cam_mesh(color=[0, 1, 0])
+            print(mat)
 
-        cm = produce_cam_mesh(color=[0, 1, 0])
+        elif result[-1] == "matrix":
+            mat = result[0]
+            cm = produce_cam_mesh(color=[0, 0, 1])
+            print(mat)
+
 
         vertices = np.asarray(cm.vertices)
         for i in range(vertices.shape[0]):
