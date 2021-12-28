@@ -40,7 +40,7 @@ def move_cam(result, color):
 
 
 def main():
-    query_images_folder = "Test line"
+    query_images_folder = "Test line small"
     sfm_images_dir = "sfm_ws_hblab/images.txt"
     sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
     sfm_images_folder = "sfm_ws_hblab/images"
@@ -104,8 +104,6 @@ def main():
         vis.create_window(width=1920, height=1025)
 
         metadata = metadata_list[i]
-        if len(metadata) == 0:
-            pass
         print(f"Localizing image {im_name_list[i]}")
 
         f = metadata["f"]*100

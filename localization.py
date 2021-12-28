@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import sys
 import pnp.build.pnp_python_binding
 import kmeans1d
 import sklearn.cluster
@@ -60,24 +61,21 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
     return rot_mat, trans
 
 
-def localize_single_image_lt_pnp(pairs):
+def localize_single_image_lt_pnp(pairs, f, c1, c2):
     object_points = []
     image_points = []
+
     for xy, xyz in pairs:
-        image_points.append(xy)
+        x, y = xy
+        u = (x-c1)/f
+        v = (y-c2)/f
+        image_points.append([u, v])
         object_points.append(xyz)
     object_points = np.array(object_points)
     image_points = np.array(image_points)
     res = pnp.build.pnp_python_binding.pnp(object_points, image_points)
-    return res
 
-
-if __name__ == '__main__':
-    xs = np.array([[-17.8431, 0.570044, 11.1874], [-80.6362, -23.8517, 21.0087], [-68.0126, 9.19776, 20.6913],
-                   [-8.31825, -13.5394, 23.8776], [-32.3177, 30.9775, 35.0005], [-60.5264, 3.64722, 62.0491],
-                   [-13.8288, -0.638686, 30.1851], [-25.1182, 35.7954, 81.3263], [0.841874, -20.8397, 42.3626],
-                   [-2.04336, 0.61477, 0.620302]])
-    ys = np.array([[-0.083742, 0.314872], [-0.516025, 0.0535602], [-0.392733, 0.51515], [0.400942, -0.423236],
-                   [0.371449, 0.98387], [0.123111, 0.257844], [0.481032, 0.102744], [0.850471, 0.608635],
-                   [0.846186, -0.652791], [0.154041, 0.784826]])
-    localize_single_image_lt_pnp(xs, ys)
+    # return in opencv format
+    r_mat, t_vec = res[:3, :3], res[:3, 3]
+    t_vec = t_vec.reshape((-1, 1))
+    return r_mat, t_vec

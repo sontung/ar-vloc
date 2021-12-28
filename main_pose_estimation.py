@@ -21,7 +21,6 @@ BRUTE_FORCE_MATCHING = True
 
 def main():
     query_images_folder = "Test line"
-    cam_info_dir = "sfm_ws_hblab/cameras.txt"
     sfm_images_dir = "sfm_ws_hblab/images.txt"
     sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
     sfm_images_folder = "sfm_ws_hblab/images"
@@ -87,8 +86,6 @@ def main():
     for im_idx in p2d2p3d:
         print(f"Localizing image {im_name_list[im_idx]}")
         metadata = metadata_list[im_idx]
-        if len(metadata) == 0:
-            pass
         f = metadata["f"]*100
         cx = metadata["cx"]
         cy = metadata["cy"]
@@ -99,13 +96,12 @@ def main():
                                   [0, 0, 1]])
         distortion_coefficients = np.array([k, 0, 0, 0])
         res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
-        res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx])
+        res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx], f, cx, cy)
 
         if res is None:
             continue
         localization_results.append((res, "vector"))
-        localization_results.append((res2, "matrix"))
-
+        localization_results.append((res2, "vector2"))
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
@@ -118,24 +114,19 @@ def main():
 
     # queried poses
     for result in localization_results:
-        mat = None
         cm = None
+        if result is None:
+            continue
+        rot_mat, trans = result[0]
+        t = -rot_mat.transpose() @ trans
+        t = t.reshape((3, 1))
+        mat = np.hstack([-rot_mat.transpose(), t])
+        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
         if result[-1] == "vector":
-            if result is None:
-                continue
-            rot_mat, trans = result[0]
-            t = -rot_mat.transpose() @ trans
-            t = t.reshape((3, 1))
-            mat = np.hstack([-rot_mat.transpose(), t])
-            mat = np.vstack([mat, np.array([0, 0, 0, 1])])
             cm = produce_cam_mesh(color=[0, 1, 0])
-            print(mat)
 
-        elif result[-1] == "matrix":
-            mat = result[0]
+        elif result[-1] == "vector2":
             cm = produce_cam_mesh(color=[0, 0, 1])
-            print(mat)
-
 
         vertices = np.asarray(cm.vertices)
         for i in range(vertices.shape[0]):
