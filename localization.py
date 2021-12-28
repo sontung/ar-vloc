@@ -62,6 +62,9 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
 
 
 def localize_single_image_lt_pnp(pairs, f, c1, c2):
+    """
+    using lambda twist pnp algorithm
+    """
     object_points = []
     image_points = []
 

@@ -89,19 +89,15 @@ def main():
         f = metadata["f"]*100
         cx = metadata["cx"]
         cy = metadata["cy"]
-        k = 0.06
+        # k = 0.06
         # f, cx, cy, k = 3031.9540853272997, 1134.0, 2016.0, 0.061174702881675876
-        camera_matrix = np.array([[f, 0, cx],
-                                  [0, f, cy],
-                                  [0, 0, 1]])
-        distortion_coefficients = np.array([k, 0, 0, 0])
-        res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+        # camera_matrix = np.array([[f, 0, cx],
+        #                           [0, f, cy],
+        #                           [0, 0, 1]])
+        # distortion_coefficients = np.array([k, 0, 0, 0])
         res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx], f, cx, cy)
 
-        if res is None:
-            continue
-        localization_results.append((res, "vector"))
-        localization_results.append((res2, "vector2"))
+        localization_results.append((res2, "vector"))
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
