@@ -13,8 +13,6 @@ from vocab_tree import VocabTree
 from vis_utils import visualize_matching, visualize_matching_helper
 from hardnet import build_descriptors_2d as build_descriptors_2d_hardnet
 from hardnet import load_2d_queries_generic as load_2d_queries_generic_hardnet
-from matplotlib import pyplot as plt
-from matplotlib import animation
 
 
 def draw_circle(event, x, y, flags, param):
@@ -62,7 +60,7 @@ for j in range(coordinates[0].shape[0]):
 point2d_cloud.nearby_feature(0, 2)
 point2d_cloud.rank_feature_strengths()
 
-NB_CLUSTERS = 10
+NB_CLUSTERS = 5
 image_ori = point2d_cloud.cluster(nb_clusters=NB_CLUSTERS, debug=True)
 down_scale = 5
 image_ori = cv2.resize(image_ori, (image_ori.shape[1]//down_scale, image_ori.shape[0]//down_scale))
@@ -79,6 +77,11 @@ feature_indices = list(range(len(point2d_cloud)))
 feature_strengths = np.array([1-abs(point2d_cloud[idx].strength_rank-0.5) for idx in feature_indices])
 cluster_indices = list(range(len(point2d_cloud.cid2kp)))
 cluster_probabilities = np.ones((len(point2d_cloud.cid2kp),))*1/len(point2d_cloud.cid2kp)
+cluster_probabilities_based_on_feature_strengths = np.ones((len(point2d_cloud.cid2kp),))*1/len(point2d_cloud.cid2kp)
+for c in point2d_cloud.cid2prob:
+    cluster_probabilities_based_on_feature_strengths[c] = point2d_cloud.cid2prob[c]
+print(cluster_probabilities_based_on_feature_strengths)
+
 feature_probabilities = np.array([1/len(feature_indices) for _ in range(len(feature_indices))])
 x_coords = [int(point2d_cloud[idx].xy[1]//down_scale)-1 for idx in feature_indices]
 y_coords = [int(point2d_cloud[idx].xy[0]//down_scale)-1 for idx in feature_indices]
@@ -104,10 +107,9 @@ for _ in range(2):
         if r_list[fid] == 1:
             continue
         r_list[fid] = 1
-        data1 = point3d_cloud.matching_2d_to_3d_brute_force_no_ratio_test(point2d_cloud[fid].desc)
-        point_ind, dist, _, ratio = data1
-        nb_desc = len(point3d_cloud[point_ind].multi_desc_list)
-        nb_desc_list[cid] += nb_desc
+        distances, indices = point3d_cloud.top_k_nearest_desc(point2d_cloud[fid].desc, 5)
+        total_nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
+        nb_desc_list[cid] += total_nb_desc
         count_desc_list[cid] += 1
 
 # exploiting
@@ -120,11 +122,15 @@ for _ in range(100):
     if non_zero_idx[0].shape[0] > 0:
         base_prob = 1 / len(cluster_indices)
         cluster_probabilities[non_zero_idx] = a1[non_zero_idx] * base_prob
-    print(cluster_probabilities)
     prob_sum = np.sum(cluster_probabilities)
+
     if prob_sum <= 0.0:
         continue
-    cid = np.random.choice(cluster_indices, p=cluster_probabilities/prob_sum)
+    sampling_prob = 0.7*cluster_probabilities_based_on_feature_strengths + 0.3*cluster_probabilities/prob_sum
+    print(sampling_prob/np.sum(sampling_prob),
+          cluster_probabilities_based_on_feature_strengths,
+          cluster_probabilities/prob_sum)
+    cid = np.random.choice(cluster_indices, p=sampling_prob/np.sum(sampling_prob))
     cid_tracks[cid] += 1
     fid_list, _ = point2d_cloud.cid2kp[cid]
     fid = np.random.choice(fid_list)
@@ -132,9 +138,9 @@ for _ in range(100):
     if r_list[fid] == 1:
         continue
     r_list[fid] = 1
-    data1 = point3d_cloud.matching_2d_to_3d_brute_force_no_ratio_test(point2d_cloud[fid].desc)
-    point_ind, dist, _, ratio = data1
-    nb_desc = len(point3d_cloud[point_ind].multi_desc_list)
+
+    distances, indices = point3d_cloud.top_k_nearest_desc(point2d_cloud[fid].desc, 5)
+    nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
 
     if nb_desc not in desc_tracks:
         desc_tracks[nb_desc] = 1
@@ -153,8 +159,6 @@ for _ in range(100):
     recent_desc.insert(0, nb_desc)
     if len(recent_desc) > 1000:
         recent_desc.pop()
-    print(f"desc={nb_desc} mean desc={np.round(np.mean(recent_desc), 3)} record={max_desc} "
-          f"explore prob={np.round(explore_prob, 3)}")
 
     if exploited:
         if nb_desc not in desc_tracks2:
@@ -168,14 +172,7 @@ for _ in range(100):
         cv2.circle(image_ori, (x // down_scale, y // down_scale), 5, (0, 0, 255), 2)
     cv2.imshow("t2", image_ori)
     cv2.waitKey(1)
-print(desc_tracks)
-print(desc_tracks2)
-cid_list = sorted(cluster_indices, key=lambda du: cid_tracks[du])
-data = []
-for cid in cid_list:
-    if cid_tracks[cid] > 0:
-        print(cid_tracks[cid], nb_desc_list[cid]/count_desc_list[cid])
-        data.append(nb_desc_list[cid]/count_desc_list[cid])
+print(cid_tracks)
 
 cv2.waitKey()
 cv2.destroyAllWindows()

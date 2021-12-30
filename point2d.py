@@ -128,7 +128,6 @@ class FeatureCloud:
         for kp, cid in enumerate(clusters):
             cid2kp[cid].append(kp)
         cid2prob = sampling_utils.combine([
-            sampling_utils.rank_by_area(cid2kp),
             sampling_utils.rank_by_response(cid2res)
         ])
         for cid in cid2kp:
@@ -136,9 +135,12 @@ class FeatureCloud:
             prob_list = np.array([self.points[kp].strength for kp in kp_list])
             prob_list /= np.sum(prob_list)
             cid2kp[cid] = (kp_list, prob_list)
-        self.cid2kp = cid2kp
+        self.cid2prob, self.cluster_centers_, self.cid2kp = cid2prob, cluster_model.cluster_centers_, cid2kp
         if debug:
             cluster2color = {du3: np.random.random((3,)) * 255.0 for du3 in range(nb_clusters)}
+            # for c in cluster2color:
+            #     if c != 2:
+            #         cluster2color[c] = (0, 0, 0)
             img = np.copy(self.image)
             cid2prob2 = cid2prob.copy()
             while len(cid2prob2) > 0:
@@ -152,7 +154,7 @@ class FeatureCloud:
 
     def sample(self):
         if self.cid2prob is None:
-            self.cid2prob, self.cluster_centers_, self.cid2kp = self.cluster(debug=False)
+            self.cluster(debug=False)
             self.cid_list = [cid for cid in self.cid2prob.keys() if len(self.cid2kp[cid][0]) > 0]
             self.cid_prob = [self.cid2prob[cid] for cid in self.cid_list]
 

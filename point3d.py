@@ -113,6 +113,13 @@ class PointCloud:
         _, indices = tree.query(self.points[point_index].xyz, nb_neighbors)
         return [data[du] for du in indices]
 
+    def top_k_nearest_desc(self, query_desc, nb_neighbors):
+        if self.desc_tree is None:
+            raise AttributeError("Descriptor tree not built, use matching_2d_to_3d_vocab_based instead")
+        distances, indices = self.desc_tree.query(query_desc, nb_neighbors)
+        p_indices = [self.point_indices_for_desc_tree[i] for i in indices]
+        return distances, p_indices
+
     def matching_2d_to_3d_brute_force_no_ratio_test(self, query_desc):
         """
         brute forcing match for a single 2D point
