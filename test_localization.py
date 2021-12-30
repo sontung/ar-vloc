@@ -1,13 +1,14 @@
 import numpy as np
 import open3d as o3d
 import time
+import cv2
 from feature_matching import build_descriptors_2d, load_2d_queries_generic
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
-from localization import localize_single_image
 from vis_utils import produce_cam_mesh
 from point3d import PointCloud
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
+from localization import localize_single_image, localize_single_image_lt_pnp
 
 
 VISUALIZING_SFM_POSES = False
@@ -34,6 +35,7 @@ for i in range(len(point3d_id_list)):
 point3d_cloud.commit(image2pose)
 point3d_cloud.build_desc_tree()
 vocab_tree = VocabTree(point3d_cloud)
+vocab_tree.load_matching_pairs(query_images_folder)
 
 if VISUALIZING_POSES:
     for point3d_id in point3did2xyzrgb:
@@ -54,19 +56,26 @@ if VISUALIZING_POSES:
 desc_list, coord_list, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
 p2d2p3d = {}
 for i in range(len(desc_list)):
+    print(f"{im_name_list[i]}")
     start_time = time.time()
     point2d_cloud = FeatureCloud()
     for j in range(coord_list[i].shape[0]):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    # res, _, _ = vocab_tree.search_brute_force(point2d_cloud, nb_matches=20)
-    res = vocab_tree.search_experimental(point2d_cloud, image_list[i],
-                                         sfm_images_folder, nb_matches=100)
+    res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
+
     p2d2p3d[i] = []
     if len(res[0]) > 2:
+        img = np.copy(image_list[i])
         for count, (point2d, point3d, _) in enumerate(res):
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
+            x, y = map(int, point2d.xy)
+            cv2.circle(img, (x, y), 20, (255, 0, 0), 5)
+        img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
+        cv2.imshow("", img)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
     else:
         for point2d, point3d in res:
             p2d2p3d[i].append((point2d.xy, point3d.xyz))
@@ -76,13 +85,11 @@ for i in range(len(desc_list)):
 localization_results = []
 for im_idx in p2d2p3d:
     metadata = metadata_list[im_idx]
-    if len(metadata) == 0:
-        pass
+
     f = metadata["f"]*100
     cx = metadata["cx"]
     cy = metadata["cy"]
     k = 0.06
-    # f, cx, cy, k = 3031.9540853272997, 1134.0, 2016.0, 0.061174702881675876
     camera_matrix = np.array([[f, 0, cx],
                               [0, f, cy],
                               [0, 0, 1]])
@@ -90,12 +97,8 @@ for im_idx in p2d2p3d:
     res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
     localization_results.append((res, (0, 1, 0)))
 
-    camera_matrix = np.array([[f, 0, 0],
-                              [0, f, 0],
-                              [0, 0, -1]])
-    distortion_coefficients = np.array([k, 0, 0, 0])
-    res2 = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
-    localization_results.append((res, (0, 0, 1)))
+    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx], f, cx, cy)
+    localization_results.append((res2, (0, 0, 1)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)

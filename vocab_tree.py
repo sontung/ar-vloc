@@ -185,95 +185,76 @@ class VocabTree:
         words = self.v1.assign_words(query_desc_list)
 
         # sort feature by search cost
-        if debug:
-            feature_indices = [75044, 76121, 49563]
-            for feature_ind in feature_indices:
-                desc = features[feature_ind].desc
 
-                ref_res, dist, _, _ = self.point_cloud.matching_2d_to_3d_brute_force(desc, returning_index=True)
+        prioritised_list = []
 
-                if ref_res is not None:
-                    print(dist)
-                    pair = (feature_ind, ref_res, dist)
-                    self.enforce_consistency(pair)
-                    visualize_matching([(features[feature_ind], None, dist)],
-                                       [(features[feature_ind], self.point_cloud[ref_res], dist)],
-                                       query_image_ori, sfm_image_folder)
-                else:
-                    print("not found", feature_ind)
-        else:
-            prioritised_list = []
+        if self.debug:
+            img = np.copy(query_image_ori)
+            img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+            cv2.namedWindow('image')
 
-            skipping = 0
+        while len(prioritised_list) < 500:
+            feature_ind = features.sample()
 
+            color = (255, 0, 0)
+            if feature_ind in self.retired_list:
+                continue
             if self.debug:
-                img = np.copy(query_image_ori)
-                img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
-                cv2.namedWindow('image')
-
-            while len(prioritised_list) < 500:
-                feature_ind = features.sample()
-
-                color = (255, 0, 0)
-                if feature_ind in self.retired_list:
-                    skipping += 1
-                    continue
-                if self.debug:
-                    x, y = list(map(int, features[feature_ind].xy))
-                    cv2.circle(img, (x//4, y//4), 5, color, 1)
-                    cv2.imshow("image", img)
-                    cv2.waitKey(1)
-                data1 = self.point_cloud.matching_2d_to_3d_brute_force_no_ratio_test(features[feature_ind].desc)
-                ref_res, dist, _, ratio = data1
-                heapq.heappush(self.matching_results, (ratio, feature_ind, ref_res, dist))
-                heapq.heappush(prioritised_list, (ratio, feature_ind, ref_res, dist))
-                self.retire_feature(feature_ind, features)
-
-            # while len(prioritised_list) > 0:
-            #     candidate = heapq.heappop(prioritised_list)
-            #     ratio, feature_ind, ref_res, dist = candidate
-            #     if ratio > 0.9:
-            #         continue
-            #     print(f"first: ratio={ratio}, prio={len(prioritised_list)}, matching q={len(self.matching_results)} "
-            #           f"admitted matches={len(self.matches)}")
-            #     self.nearby_check(feature_ind, features, ratio)
-            #     self.nearby_check_3d_2d(ref_res, features, ratio)
-            #
-            # for iter_ in range(4):
-            #     prioritised_list = self.matching_results[:]
-            #     while len(prioritised_list) > 0 and len(self.matches) < 100:
-            #         candidate = heapq.heappop(prioritised_list)
-            #         ratio, feature_ind, ref_res, dist = candidate
-            #         if ratio > 0.9-(iter_+1)*0.05:
-            #             continue
-            #         if ratio < 0.7:
-            #             self.enforce_consistency((feature_ind, ref_res, dist, ratio))
-            #         print(f"{iter_}: ratio={ratio}, prio={len(prioritised_list)}, "
-            #               f"matching q={len(self.matching_results)}, "
-            #               f"admitted matches={len(self.matches)}")
-            #         self.nearby_check(feature_ind, features, ratio, 0, 400)
-            #         self.nearby_check_3d_2d(ref_res, features, ratio, 0, 400)
-
-            while len(self.matching_results) > 0:
-                candidate = heapq.heappop(self.matching_results)
-                ratio, feature_ind, ref_res, dist = candidate
-                self.enforce_consistency((feature_ind, ref_res, dist, ratio))
-            ratio_list = []
-            for f_id in self.matches:
-                p_id, dist = self.matches[f_id]
-                ratio_list.append(self.ratio_map[(f_id, p_id)])
-                result.append((features[f_id], self.point_cloud[p_id], dist))
-                if self.debug:
-                    x, y = list(map(int, features[f_id].xy))
-                    cv2.circle(img, (x // 4, y // 4), 5, (0, 255, 0), -1)
-            if self.debug:
+                x, y = list(map(int, features[feature_ind].xy))
+                cv2.circle(img, (x//4, y//4), 5, color, 1)
                 cv2.imshow("image", img)
-                cv2.waitKey()
-                cv2.destroyAllWindows()
+                cv2.waitKey(1)
+            data1 = self.point_cloud.matching_2d_to_3d_brute_force_no_ratio_test(features[feature_ind].desc)
+            ref_res, dist, _, ratio = data1
+            heapq.heappush(self.matching_results, (ratio, feature_ind, ref_res, dist))
+            heapq.heappush(prioritised_list, (ratio, feature_ind, ref_res, dist))
+            self.retire_feature(feature_ind, features)
 
-            print(f"Mean ratio = {round(np.mean(ratio_list), 3)}")
-            print(f"Found {len(self.matches)} 2D-3D pairs. "
-                  f"Done in {round(time.time()-start_time, 3)}.")
+        # while len(prioritised_list) > 0:
+        #     candidate = heapq.heappop(prioritised_list)
+        #     ratio, feature_ind, ref_res, dist = candidate
+        #     if ratio > 0.9:
+        #         continue
+        #     print(f"first: ratio={ratio}, prio={len(prioritised_list)}, matching q={len(self.matching_results)} "
+        #           f"admitted matches={len(self.matches)}")
+        #     self.nearby_check(feature_ind, features, ratio)
+        #     self.nearby_check_3d_2d(ref_res, features, ratio)
+        #
+        # for iter_ in range(4):
+        #     prioritised_list = self.matching_results[:]
+        #     while len(prioritised_list) > 0 and len(self.matches) < 100:
+        #         candidate = heapq.heappop(prioritised_list)
+        #         ratio, feature_ind, ref_res, dist = candidate
+        #         if ratio > 0.9-(iter_+1)*0.05:
+        #             continue
+        #         if ratio < 0.7:
+        #             self.enforce_consistency((feature_ind, ref_res, dist, ratio))
+        #         print(f"{iter_}: ratio={ratio}, prio={len(prioritised_list)}, "
+        #               f"matching q={len(self.matching_results)}, "
+        #               f"admitted matches={len(self.matches)}")
+        #         self.nearby_check(feature_ind, features, ratio, 0, 400)
+        #         self.nearby_check_3d_2d(ref_res, features, ratio, 0, 400)
+
+        while len(self.matching_results) > 0:
+            candidate = heapq.heappop(self.matching_results)
+            ratio, feature_ind, ref_res, dist = candidate
+            self.enforce_consistency((feature_ind, ref_res, dist, ratio))
+        ratio_list = []
+        for f_id in self.matches:
+            p_id, dist = self.matches[f_id]
+            ratio_list.append(self.ratio_map[(f_id, p_id)])
+            result.append((features[f_id], self.point_cloud[p_id], dist))
+            if self.debug:
+                x, y = list(map(int, features[f_id].xy))
+                cv2.circle(img, (x // 4, y // 4), 5, (0, 255, 0), -1)
+        if self.debug:
+            cv2.imshow("image", img)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
+
+        print(f"Mean ratio = {round(np.mean(ratio_list), 3)}")
+        print(f"Found {len(self.matches)} 2D-3D pairs. "
+              f"Done in {round(time.time()-start_time, 3)}.")
 
         return result
 

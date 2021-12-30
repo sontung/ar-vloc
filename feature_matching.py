@@ -19,7 +19,7 @@ def load_2d_queries_generic(folder):
     my_file = Path(f"{folder}/queries.pkl")
     if my_file.is_file():
         with open(f"{folder}/queries.pkl", 'rb') as handle:
-            descriptors, coordinates, im_names, md_list, im_list, response_list = pickle.load(handle)
+            descriptors, coordinates, name_list, md_list, im_list, response_list = pickle.load(handle)
     else:
         im_names = os.listdir(folder)
         descriptors = []
@@ -27,6 +27,7 @@ def load_2d_queries_generic(folder):
         md_list = []
         im_list = []
         response_list = []
+        name_list = []
         for name in tqdm(im_names, desc="Reading query images"):
             metadata = {}
             im_name = os.path.join(folder, name)
@@ -47,7 +48,8 @@ def load_2d_queries_generic(folder):
                 metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
                 metadata["cx"] = im.shape[1]/2
                 metadata["cy"] = im.shape[0]/2
-
+            elif ".pkl" in name:
+                continue
             else:
                 im = cv2.imread(im_name)
             coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True, nb_keypoints=None)
@@ -57,10 +59,11 @@ def load_2d_queries_generic(folder):
             md_list.append(metadata)
             im_list.append(im)
             response_list.append(response)
+            name_list.append(name)
         with open(f"{folder}/queries.pkl", 'wb') as handle:
-            pickle.dump([descriptors, coordinates, im_names, md_list, im_list, response_list],
+            pickle.dump([descriptors, coordinates, name_list, md_list, im_list, response_list],
                         handle, protocol=pickle.HIGHEST_PROTOCOL)
-    return descriptors, coordinates, im_names, md_list, im_list, response_list
+    return descriptors, coordinates, name_list, md_list, im_list, response_list
 
 
 def load_2d_queries_opencv(folder="test_images"):

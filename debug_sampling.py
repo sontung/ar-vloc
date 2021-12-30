@@ -62,7 +62,7 @@ for j in range(coordinates[0].shape[0]):
 point2d_cloud.nearby_feature(0, 2)
 point2d_cloud.rank_feature_strengths()
 
-NB_CLUSTERS = 100
+NB_CLUSTERS = 10
 image_ori = point2d_cloud.cluster(nb_clusters=NB_CLUSTERS, debug=True)
 down_scale = 5
 image_ori = cv2.resize(image_ori, (image_ori.shape[1]//down_scale, image_ori.shape[0]//down_scale))
@@ -111,7 +111,7 @@ for _ in range(2):
         count_desc_list[cid] += 1
 
 # exploiting
-for _ in range(1000):
+for _ in range(100):
     record = 0
     exploited = True
     cluster_probabilities = np.zeros((len(cluster_indices),))
