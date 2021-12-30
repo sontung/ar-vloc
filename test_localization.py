@@ -64,21 +64,20 @@ for i in range(len(desc_list)):
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
     res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
+    res_exp = vocab_tree.search_experimental(point2d_cloud)
 
-    p2d2p3d[i] = []
+    p2d2p3d[i] = [[], []]
+
     if len(res[0]) > 2:
         img = np.copy(image_list[i])
         for count, (point2d, point3d, _) in enumerate(res):
-            p2d2p3d[i].append((point2d.xy, point3d.xyz))
-            x, y = map(int, point2d.xy)
-            cv2.circle(img, (x, y), 20, (255, 0, 0), 5)
-        img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
-        cv2.imshow("", img)
-        cv2.waitKey()
-        cv2.destroyAllWindows()
+            p2d2p3d[i][0].append((point2d.xy, point3d.xyz))
     else:
         for point2d, point3d in res:
-            p2d2p3d[i].append((point2d.xy, point3d.xyz))
+            p2d2p3d[i][0].append((point2d.xy, point3d.xyz))
+
+    for point2d, point3d in res_exp:
+        p2d2p3d[i][1].append((point2d.xy, point3d.xyz))
 
     print(f"Done in {time.time()-start_time}")
 
@@ -94,11 +93,14 @@ for im_idx in p2d2p3d:
                               [0, f, cy],
                               [0, 0, 1]])
     distortion_coefficients = np.array([k, 0, 0, 0])
-    res = localize_single_image(p2d2p3d[im_idx], camera_matrix, distortion_coefficients)
+    res = localize_single_image(p2d2p3d[im_idx][0], camera_matrix, distortion_coefficients)
     localization_results.append((res, (0, 1, 0)))
 
-    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx], f, cx, cy)
+    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)
     localization_results.append((res2, (0, 0, 1)))
+
+    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
+    localization_results.append((res2, (1, 0, 0)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)

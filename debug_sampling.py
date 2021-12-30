@@ -97,8 +97,7 @@ desc_tracks = {}
 desc_tracks2 = {}
 cid_tracks = {cid: 0 for cid in cluster_indices}
 
-# for _ in range(5):
-
+database = []
 # exploring
 for _ in range(2):
     for cid in cluster_indices:
@@ -111,6 +110,7 @@ for _ in range(2):
         total_nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
         nb_desc_list[cid] += total_nb_desc
         count_desc_list[cid] += 1
+        database.append((total_nb_desc, fid, indices, distances))
 
 # exploiting
 for _ in range(100):
@@ -128,7 +128,6 @@ for _ in range(100):
         continue
     sampling_prob = 0.7*cluster_probabilities_based_on_feature_strengths + 0.3*cluster_probabilities/prob_sum
     print(sampling_prob/np.sum(sampling_prob),
-          cluster_probabilities_based_on_feature_strengths,
           cluster_probabilities/prob_sum)
     cid = np.random.choice(cluster_indices, p=sampling_prob/np.sum(sampling_prob))
     cid_tracks[cid] += 1
@@ -141,6 +140,7 @@ for _ in range(100):
 
     distances, indices = point3d_cloud.top_k_nearest_desc(point2d_cloud[fid].desc, 5)
     nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
+    database.append((nb_desc, fid, indices, distances))
 
     if nb_desc not in desc_tracks:
         desc_tracks[nb_desc] = 1
@@ -173,7 +173,7 @@ for _ in range(100):
     cv2.imshow("t2", image_ori)
     cv2.waitKey(1)
 print(cid_tracks)
-
+print(len(database))
 cv2.waitKey()
 cv2.destroyAllWindows()
 

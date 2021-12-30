@@ -152,21 +152,69 @@ class FeatureCloud:
             return img
         return cid2prob, cluster_model.cluster_centers_, cid2kp
 
-    def sample(self):
-        if self.cid2prob is None:
-            self.cluster(debug=False)
-            self.cid_list = [cid for cid in self.cid2prob.keys() if len(self.cid2kp[cid][0]) > 0]
-            self.cid_prob = [self.cid2prob[cid] for cid in self.cid_list]
+    def sample(self, point3d_cloud):
+        self.cluster(nb_clusters=5)
+        fid2cid = {}
+        for cid in self.cid2kp:
+            fid_list, _ = self.cid2kp[cid]
+            for fid in fid_list:
+                fid2cid[fid] = cid
+        feature_indices = list(range(len(self)))
+        cluster_indices = list(range(len(self.cid2kp)))
+        cluster_probabilities = np.ones((len(self.cid2kp),)) * 1 / len(self.cid2kp)
+        cluster_probabilities_based_on_feature_strengths = np.ones((len(self.cid2kp),)) * 1 / len(
+            self.cid2kp)
+        for c in self.cid2prob:
+            cluster_probabilities_based_on_feature_strengths[c] = self.cid2prob[c]
+        print(cluster_probabilities_based_on_feature_strengths)
 
-        try:
-            random_cid = np.random.choice(self.cid_list, p=self.cid_prob)
-        except ValueError:
-            random_cid = np.random.choice(self.cid_list)
+        feature_probabilities = np.array([1 / len(feature_indices) for _ in range(len(feature_indices))])
+        nb_desc_list = np.zeros_like(cluster_probabilities)
+        count_desc_list = np.zeros_like(cluster_probabilities)
+        r_list = np.zeros_like(feature_probabilities)
+        database = []
 
-        fid_list, fid_prob_list = self.cid2kp[random_cid]
-        random_fid = np.random.choice(fid_list)
+        # exploring
+        for _ in range(2):
+            for cid in cluster_indices:
+                fid_list, _ = self.cid2kp[cid]
+                fid = np.random.choice(fid_list)
+                if r_list[fid] == 1:
+                    continue
+                r_list[fid] = 1
+                distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, 5)
+                total_nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
+                nb_desc_list[cid] += total_nb_desc
+                count_desc_list[cid] += 1
+                database.append((total_nb_desc, fid, indices, distances))
 
-        return random_fid
+        # exploiting
+        for _ in range(100):
+            cluster_probabilities = np.zeros((len(cluster_indices),))
+            a1 = nb_desc_list / count_desc_list
+            non_zero_idx = np.nonzero(a1 > 2)
+            if non_zero_idx[0].shape[0] > 0:
+                base_prob = 1 / len(cluster_indices)
+                cluster_probabilities[non_zero_idx] = a1[non_zero_idx] * base_prob
+            prob_sum = np.sum(cluster_probabilities)
+
+            if prob_sum <= 0.0:
+                continue
+            sampling_prob = 0.7 * cluster_probabilities_based_on_feature_strengths + 0.3 * cluster_probabilities / prob_sum
+
+            cid = np.random.choice(cluster_indices, p=sampling_prob / np.sum(sampling_prob))
+            fid_list, _ = self.cid2kp[cid]
+            fid = np.random.choice(fid_list)
+
+            if r_list[fid] == 1:
+                continue
+            r_list[fid] = 1
+
+            distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, 5)
+            nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
+            database.append((nb_desc, fid, indices, distances))
+
+        return database
 
 
 class Feature:
