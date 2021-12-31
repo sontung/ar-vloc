@@ -10,7 +10,7 @@ from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial import KDTree
 from vis_utils import visualize_matching
 from pathlib import Path
-from probabilistic import refine_matching_pairs
+# from probabilistic import refine_matching_pairs
 
 
 class VocabNode:
