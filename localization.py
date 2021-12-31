@@ -71,11 +71,22 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2):
         v = (y-c2)/f
         image_points.append([u, v])
         object_points.append(xyz)
+    if len(object_points) < 3:
+        return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1))
     object_points = np.array(object_points)
     image_points = np.array(image_points)
     res = pnp.build.pnp_python_binding.pnp(object_points, image_points)
 
     # return in opencv format
+    r_mat, t_vec = res[:3, :3], res[:3, 3]
+    t_vec = t_vec.reshape((-1, 1))
+    return r_mat, t_vec
+
+
+def localization_dummy():
+    res = [[0.7379859646075337, 0.6592879079737894, 0.1439311308988863, 1.6655872955509596], [-0.36077757499164553, 0.5657190203241027, -0.7414860291513827, 6.330442917607147], [-0.5702773513172654, 0.49527915809478773, 0.6553489895708107, -1.6185029071736743], [0.0, 0.0, 0.0, 1.0]]
+
+    res = np.array(res)
     r_mat, t_vec = res[:3, :3], res[:3, 3]
     t_vec = t_vec.reshape((-1, 1))
     return r_mat, t_vec

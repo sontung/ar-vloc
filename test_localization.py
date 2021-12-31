@@ -8,7 +8,7 @@ from vis_utils import produce_cam_mesh
 from point3d import PointCloud
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
-from localization import localize_single_image, localize_single_image_lt_pnp
+from localization import localize_single_image, localize_single_image_lt_pnp, localization_dummy
 
 
 VISUALIZING_SFM_POSES = False
@@ -101,6 +101,9 @@ for im_idx in p2d2p3d:
 
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
     localization_results.append((res2, (1, 0, 0)))
+
+    res3 = localization_dummy()
+    localization_results.append((res3, (0, 0, 0)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)

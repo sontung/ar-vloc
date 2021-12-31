@@ -152,7 +152,7 @@ class FeatureCloud:
             return img
         return cid2prob, cluster_model.cluster_centers_, cid2kp
 
-    def sample(self, point3d_cloud):
+    def sample(self, point3d_cloud, top_k=5):
         self.cluster(nb_clusters=5)
         fid2cid = {}
         for cid in self.cid2kp:
@@ -182,7 +182,7 @@ class FeatureCloud:
                 if r_list[fid] == 1:
                     continue
                 r_list[fid] = 1
-                distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, 5)
+                distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, top_k)
                 total_nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
                 nb_desc_list[cid] += total_nb_desc
                 count_desc_list[cid] += 1
@@ -210,7 +210,7 @@ class FeatureCloud:
                 continue
             r_list[fid] = 1
 
-            distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, 5)
+            distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, top_k)
             nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
             database.append((nb_desc, fid, indices, distances))
 

@@ -179,9 +179,10 @@ class VocabTree:
         self.restart()
         result = []
 
-        database = features.sample(self.point_cloud)
+        database = features.sample(self.point_cloud, top_k=6)
         xyz_array = np.zeros((len(database), len(database[0][2]), 3))
         xy_array = np.zeros((len(database), len(database[0][2]), 2))
+        database = sorted(database, key=lambda du: du[0], reverse=True)
 
         for ind, (nb_desc, fid, indices, distances) in enumerate(database):
             for j, pid in enumerate(indices):
@@ -191,7 +192,7 @@ class VocabTree:
             np.save(f, xyz_array)
             np.save(f, xy_array)
 
-        refine_matching_pairs(xyz_array, xy_array)
+        # refine_matching_pairs(xyz_array, xy_array)
 
         print(f"Found {len(self.matches)} 2D-3D pairs. "
               f"Done in {round(time.time()-start_time, 3)}.")
