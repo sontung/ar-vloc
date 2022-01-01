@@ -189,7 +189,9 @@ class FeatureCloud:
                 database.append((total_nb_desc, fid, indices, distances))
 
         # exploiting
-        for _ in range(100):
+        while True:
+            if len(database) >= 128:
+                break
             cluster_probabilities = np.zeros((len(cluster_indices),))
             a1 = nb_desc_list / count_desc_list
             non_zero_idx = np.nonzero(a1 > 2)
