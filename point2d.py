@@ -152,7 +152,7 @@ class FeatureCloud:
             return img
         return cid2prob, cluster_model.cluster_centers_, cid2kp
 
-    def sample(self, point3d_cloud, top_k=5):
+    def sample(self, point3d_cloud, top_k=5, nb_samples=1000):
         self.cluster(nb_clusters=5)
         fid2cid = {}
         for cid in self.cid2kp:
@@ -190,7 +190,7 @@ class FeatureCloud:
 
         # exploiting
         while True:
-            if len(database) >= 128:
+            if len(database) >= nb_samples:
                 break
             cluster_probabilities = np.zeros((len(cluster_indices),))
             a1 = nb_desc_list / count_desc_list

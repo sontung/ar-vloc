@@ -179,7 +179,7 @@ class VocabTree:
         self.restart()
         result = []
 
-        database = features.sample(self.point_cloud, top_k=6)
+        database = features.sample(self.point_cloud, top_k=3, nb_samples=1000)
         xyz_array = np.zeros((len(database), len(database[0][2]), 3))
         xy_array = np.zeros((len(database), len(database[0][2]), 2))
         database = sorted(database, key=lambda du: du[0], reverse=True)

@@ -177,4 +177,9 @@ if __name__ == '__main__':
     with open('debug/test_refine.npy', 'rb') as afile:
         xyz_array = np.load(afile)
         xy_array = np.load(afile)
-    simulated_annealing(xyz_array, xy_array)
+    state = [5 for _ in range(xyz_array.shape[0])]
+    current_cost = evaluate(state, xyz_array, xy_array)
+    print(current_cost)
+    print(evaluate(state, xyz_array, xy_array))
+    # simulated_annealing(xyz_array, xy_array)
+

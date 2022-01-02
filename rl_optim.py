@@ -64,7 +64,6 @@ class ReplayMemory(object):
 with open('debug/test_refine.npy', 'rb') as afile:
     xyz_array = np.load(afile)
     xy_array = np.load(afile)
-print(xy_array.shape, xyz_array.shape)
 
 BATCH_SIZE = 128
 GAMMA = 0.999
@@ -93,20 +92,27 @@ memory = ReplayMemory(10000)
 steps_done = 0
 
 
-def select_action(state):
+def select_action(state_):
     global steps_done
     sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-                    math.exp(-1. * steps_done / EPS_DECAY)
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
             # t.max(1) will return largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1)[1].view(1, 1)
+            return policy_net(state_).max(1)[1].view(1, 1)
     else:
         return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
+
+
+def exploit(state_):
+    with torch.no_grad():
+        # t.max(1) will return largest column value of each row.
+        # second column on max result is index of where max element was
+        # found, so we pick action with the larger expected reward.
+        return policy_net(state_).max(1)[1].view(1, 1)
 
 
 def reward_function(s, s_cost, action_, d1, d2):
@@ -123,7 +129,7 @@ def reward_function(s, s_cost, action_, d1, d2):
     return new_s, new_cost, reward_, terminate_, reward_ > 0
 
 
-def evaluate(s, d1, d2):
+def evaluate(s, d1, d2, return_mat=False):
     d11 = d1[list(range(len(s))), s, :]
     d21 = d2[list(range(len(s))), s, :]
     mat = pnp.build.pnp_python_binding.pnp(d11, d21)
@@ -133,6 +139,8 @@ def evaluate(s, d1, d2):
     xy = xy[:, :3] / xy[:, 2].reshape((-1, 1))
     xy = xy[:, :2]
     diff = np.sum(np.abs(xy - d21))/d11.shape[0]/2
+    if return_mat:
+        return mat, diff
     return diff
 
 
@@ -211,10 +219,18 @@ best_cost = None
 
 for i_episode in range(num_episodes):
     # Initialize the environment and state
-    state = [random.choice(actions) for _ in range(xyz_array.shape[0])]
+    if best_state is None:
+        state = [random.choice(actions) for _ in range(xyz_array.shape[0])]
+    else:
+        state = best_state
     current_cost = evaluate(state, xyz_array, xy_array)
-    state_pt = list2tensor(state)
 
+    if best_cost is None or current_cost < best_cost:
+        best_state = state
+        best_cost = current_cost
+
+    state_pt = list2tensor(state)
+    stuck = 0
     for t in count():
         # Select and perform an action
         action = select_action(state_pt)
@@ -222,18 +238,18 @@ for i_episode in range(num_episodes):
                                                                       xyz_array, xy_array)
 
         # tracking the best state
-        if best_cost is None or best_cost > current_cost:
-            best_state = state
-            best_cost = current_cost
+        if next_cost < best_cost:
+            best_state = next_state
+            best_cost = next_cost
 
         # statistics
         reward_tracks.insert(0, reward)
         if len(reward_tracks) > 1000:
             reward_tracks.pop()
         if t % 100 == 0:
-            print(f"Episode {i_episode} iter {t}: reward={round(reward, 3)} "
+            print(f"Episode {i_episode} iter {t}: "
                   f"avg. reward={round(np.mean(reward_tracks), 3)} "
-                  f"best cost={round(best_cost, 3)}")
+                  f"best cost={round(best_cost, 3)} stuck={stuck}")
 
         reward = torch.tensor([reward], device=device)
 
@@ -248,17 +264,27 @@ for i_episode in range(num_episodes):
 
         # Move to the next state
         if better:
+            stuck = 0
             state = next_state
             state_pt = next_state_pt
             current_cost = next_cost
+        else:
+            stuck += 1
 
         # Perform one step of the optimization (on the policy network)
         optimize_model()
         if done:
             episode_durations.append(t + 1)
             break
+        if stuck > 1000:
+            steps_done = 0
+        if t > 5000:
+            break
+
     # Update the target network, copying all weights and biases in DQN
     if i_episode % TARGET_UPDATE == 0:
         target_net.load_state_dict(policy_net.state_dict())
-
+mat, d = evaluate(best_state, xyz_array, xy_array, return_mat=True)
+print(mat.tolist())
+print(best_cost, d)
 print('Complete')
