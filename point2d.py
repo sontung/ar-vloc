@@ -120,7 +120,8 @@ class FeatureCloud:
     def cluster(self, nb_clusters=5, debug=False):
         data = [[self.points[du].xy[0],
                  self.points[du].xy[1],
-                 self.points[du].strength] for du in range(len(self.points))]
+                 self.points[du].strength[0],
+                 self.points[du].strength[1]] for du in range(len(self.points))]
         cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
         clusters = cluster_model.fit_predict(data)
         cid2res = {idx: cluster_model.cluster_centers_[idx, 2] for idx in range(nb_clusters)}
@@ -136,11 +137,12 @@ class FeatureCloud:
             prob_list /= np.sum(prob_list)
             cid2kp[cid] = (kp_list, prob_list)
         self.cid2prob, self.cluster_centers_, self.cid2kp = cid2prob, cluster_model.cluster_centers_, cid2kp
+
         if debug:
             cluster2color = {du3: np.random.random((3,)) * 255.0 for du3 in range(nb_clusters)}
-            # for c in cluster2color:
-            #     if c != 2:
-            #         cluster2color[c] = (0, 0, 0)
+            for c in cluster2color:
+                if c not in [1, 2]:
+                    cluster2color[c] = (0, 0, 0)
             img = np.copy(self.image)
             cid2prob2 = cid2prob.copy()
             while len(cid2prob2) > 0:
@@ -148,7 +150,7 @@ class FeatureCloud:
                 del cid2prob2[cid]
                 for feature_ind in cid2kp[cid][0]:
                     x, y = list(map(int, self.points[feature_ind].xy))
-                    cv2.circle(img, (x, y), 5, cluster2color[clusters[feature_ind]], -1)
+                    cv2.circle(img, (x, y), 20, cluster2color[clusters[feature_ind]], -1)
             return img
         return cid2prob, cluster_model.cluster_centers_, cid2kp
 

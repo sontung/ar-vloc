@@ -14,8 +14,7 @@ from point3d import PointCloud
 from colmap_io import read_points3D_coordinates, read_images
 from feature_matching import build_descriptors_2d
 from vocab_tree import VocabTree
-from hardnet import build_descriptors_2d as build_descriptors_2d_hardnet
-from hardnet import load_2d_queries_generic as load_2d_queries_generic_hardnet
+from scipy.spatial import KDTree
 
 
 query_images_folder = "Test line small"
@@ -48,17 +47,24 @@ point2d_cloud.rank_feature_strengths()
 
 img = np.copy(im_list[0])
 
-# draw sift features
-for j in range(coordinates[0].shape[0]):
-    x, y = map(int, coordinates[0][j])
-    cv2.circle(img, (x, y), 5, (255, 0, 0), -1)
-
 # draw d2 features
 img2 = np.copy(im_list[0])
 keypoints = extract_using_d2_net(img2)
 for x, y, _ in keypoints:
     x, y = map(int, (x, y))
     cv2.circle(img2, (x, y), 5, (255, 0, 0), -1)
+
+# draw sift features
+tree = KDTree(keypoints[:, :2])
+for j in range(coordinates[0].shape[0]):
+    distance, idx = tree.query(coordinates[0][j], 1)
+    if distance < 4:
+        print(coordinates[0][j], keypoints[idx])
+        x, y = map(int, coordinates[0][j])
+        cv2.circle(img, (x, y), 5, (255, 0, 0), -1)
+        x, y = map(int, keypoints[idx, :2])
+        cv2.circle(img, (x, y), 5, (0, 255, 0), -1)
+
 
 img2 = cv2.resize(img2, (img2.shape[1]//4, img2.shape[0]//4))
 img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))

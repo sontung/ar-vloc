@@ -1,5 +1,7 @@
-import os
 import sys
+sys.path.append("d2-net")
+from extract_features import extract_using_d2_net
+import os
 import random
 import torch
 import pickle
@@ -9,9 +11,10 @@ import pyheif
 import exifread
 import numpy as np
 import cv2
-from scipy.spatial import KDTree
 from sklearn.cluster import MiniBatchKMeans
 from pathlib import Path
+from scipy.spatial import KDTree
+
 MATCHING_BENCHMARK = True
 
 
@@ -52,7 +55,9 @@ def load_2d_queries_generic(folder):
                 continue
             else:
                 im = cv2.imread(im_name)
-            coord, desc, response = compute_kp_descriptors_opencv(im, return_response=True, nb_keypoints=None)
+            coord, desc, response = compute_kp_descriptors_opencv_with_d2_detector(im,
+                                                                                   return_response=True,
+                                                                                   nb_keypoints=None)
             coord = np.array(coord)
             coordinates.append(coord)
             descriptors.append(desc)
@@ -177,27 +182,39 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
     return coords, des
 
 
-if __name__ == '__main__':
-    query_images_folder = "Test line small"
-    desc_list, coord_list, im_name_list, _, image_list, _ = load_2d_queries_generic(query_images_folder)
-    kp, des, img = compute_kp_descriptors_opencv(image_list[0], debug=True)
-    sift = cv2.SIFT_create(edgeThreshold=10,
-                           nOctaveLayers=4,
-                           contrastThreshold=0.06)
-    kp = sift.detect(img, None)
-    kp = sorted(kp, key=lambda du: du.response)
-    # img = cv2.drawKeypoints(img, kp[:100], img, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    for k in kp[:100]:
-        (x, y) = map(int, k.pt)
-        cv2.circle(img, (x, y), 30, (128, 128, 0), -1)
-    for k in kp[-100:]:
-        (x, y) = map(int, k.pt)
-        cv2.circle(img, (x, y), 30, (0, 128, 128), -1)
-    im2 = Image.fromarray(img)
-    im2.thumbnail((900, 900))
-    im2 = np.array(im2)
+def compute_kp_descriptors_opencv_with_d2_detector(img, nb_keypoints=None, root_sift=True, return_response=False):
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if nb_keypoints is not None:
+        sift = cv2.SIFT_create(edgeThreshold=10,
+                               nOctaveLayers=4,
+                               contrastThreshold=0.02,
+                               nfeatures=nb_keypoints)
+    else:
+        sift = cv2.SIFT_create(edgeThreshold=10,
+                               nOctaveLayers=4,
+                               contrastThreshold=0.02)
+    kp_list, des = sift.detectAndCompute(img, None)
+    des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
 
-    cv2.imshow("t", im2)
-    cv2.waitKey()
-    cv2.destroyAllWindows()
+    if root_sift:
+        des /= (np.linalg.norm(des, axis=1, ord=1, keepdims=True) + 1e-7)
+        des = np.sqrt(des)
 
+    keypoints, responses = extract_using_d2_net(img)
+    keypoints = keypoints[:, :2]
+    tree = KDTree(keypoints)
+
+    coords = []
+    new_des = []
+    response_list = []
+    for idx, kp in enumerate(kp_list):
+        coord = list(kp.pt)
+        distance, idx2 = tree.query(coord, 1)
+        if distance < 4:
+            coords.append(coord)
+            new_des.append(des[idx])
+            response_list.append((responses[idx2], kp.response))
+
+    if return_response:
+        return coords, des, response_list
+    return coords, des
