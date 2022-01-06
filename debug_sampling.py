@@ -48,6 +48,18 @@ for j in range(coordinates[0].shape[0]):
 point2d_cloud.nearby_feature(0, 2)
 point2d_cloud.rank_feature_strengths()
 
+
+fid_list = point2d_cloud.sort_by_feature_strength()
+for fid in fid_list:
+    print(point2d_cloud[fid].strength)
+    img = np.copy(im_list[0])
+    x, y = map(int, point2d_cloud[fid].xy)
+    cv2.circle(img, (x, y), 50, (0, 0, 255), -1)
+    img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
+    cv2.imshow("t", img)
+    cv2.waitKey()
+    cv2.destroyAllWindows()
+
 NB_CLUSTERS = 5
 image_ori = point2d_cloud.cluster(nb_clusters=NB_CLUSTERS, debug=True)
 down_scale = 5

@@ -56,6 +56,11 @@ class FeatureCloud:
             return res, dis
         return res
 
+    def sort_by_feature_strength(self, idx=0):
+        indices = list(range(len(self.points)))
+        indices = sorted(indices, key=lambda du: self.points[du].strength[idx], reverse=True)
+        return indices
+
     def add_point(self, index, desc, xy, response):
         a_point = Feature(index, desc, xy, response)
         self.points.append(a_point)
