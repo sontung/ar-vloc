@@ -36,7 +36,6 @@ def evaluate(state_, d1, d2):
     xy = project(state_, d1, d2)
     diff = np.sum(np.square(xy - d21), axis=1)
     inliers = np.sum(diff < 0.1)
-    # err = np.sum(np.abs(xy-d21))/2/d1.shape[0]
     return inliers
 
 
@@ -131,6 +130,11 @@ if __name__ == '__main__':
     print(e)
     e = project_raw(xyz_array2, xy_array2)
     print(e)
+    print(evaluate([0 for _ in range(xyz_array.shape[0])], xyz_array, xy_array))
+    print(evaluate([1 for _ in range(xyz_array.shape[0])], xyz_array, xy_array))
+    print(evaluate([2 for _ in range(xyz_array.shape[0])], xyz_array, xy_array))
+    print(evaluate([3 for _ in range(xyz_array.shape[0])], xyz_array, xy_array))
+    print(evaluate([4 for _ in range(xyz_array.shape[0])], xyz_array, xy_array))
 
     # simulated_annealing(xyz_array, xy_array)
 

@@ -13,6 +13,11 @@ d1 = np.array(d1)
 d2 = np.array(d2)
 d1 = d1.reshape((33, -1, 3))
 d2 = d2.reshape((33, -1, 2))
+
+# with open('debug/test_refine.npy', 'rb') as afile:
+#     xyz_array = np.load(afile)
+#     xy_array = np.load(afile)
+
 nb_possibilities = d1.shape[1]
 keys = []
 for a in range(nb_possibilities):
