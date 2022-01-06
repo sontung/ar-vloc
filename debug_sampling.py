@@ -50,15 +50,15 @@ point2d_cloud.rank_feature_strengths()
 
 
 fid_list = point2d_cloud.sort_by_feature_strength()
-for fid in fid_list:
-    print(point2d_cloud[fid].strength)
-    img = np.copy(im_list[0])
+img = np.copy(im_list[0])
+
+for fid in fid_list[:200]:
     x, y = map(int, point2d_cloud[fid].xy)
     cv2.circle(img, (x, y), 50, (0, 0, 255), -1)
-    img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
-    cv2.imshow("t", img)
-    cv2.waitKey()
-    cv2.destroyAllWindows()
+img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
+cv2.imshow("t", img)
+cv2.waitKey()
+cv2.destroyAllWindows()
 
 NB_CLUSTERS = 5
 image_ori = point2d_cloud.cluster(nb_clusters=NB_CLUSTERS, debug=True)
@@ -101,8 +101,8 @@ database = []
 # exploring
 for _ in range(2):
     for cid in cluster_indices:
-        fid_list, _ = point2d_cloud.cid2kp[cid]
-        fid = np.random.choice(fid_list)
+        fid_list, f_prob = point2d_cloud.cid2kp[cid]
+        fid = np.random.choice(fid_list, p=f_prob/np.sum(f_prob))
         if r_list[fid] == 1:
             continue
         r_list[fid] = 1
@@ -127,12 +127,10 @@ for _ in range(100):
     if prob_sum <= 0.0:
         continue
     sampling_prob = 0.7*cluster_probabilities_based_on_feature_strengths + 0.3*cluster_probabilities/prob_sum
-    print(sampling_prob/np.sum(sampling_prob),
-          cluster_probabilities/prob_sum)
     cid = np.random.choice(cluster_indices, p=sampling_prob/np.sum(sampling_prob))
     cid_tracks[cid] += 1
-    fid_list, _ = point2d_cloud.cid2kp[cid]
-    fid = np.random.choice(fid_list)
+    fid_list, f_prob = point2d_cloud.cid2kp[cid]
+    fid = np.random.choice(fid_list, p=f_prob / np.sum(f_prob))
 
     if r_list[fid] == 1:
         continue

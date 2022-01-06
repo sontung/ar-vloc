@@ -21,11 +21,10 @@ class FeatureCloud:
         self.desc_tree = None
         self.xy_tree = None
         self.level2features = {}
-        self.cid2prob = None
+        self.cid2prob = None  # prob to sample cluster
         self.cluster_centers_ = None
-        self.cid2kp = None
-        self.cid_list = None
-        self.cid_prob = None
+        self.cid2kp = None  # kp belongs to this cluster and prob to sample features from this cluster
+        self.cid2fprob = None  # prob to sample a kp for each cluster
 
     def __getitem__(self, item):
         return self.points[item]
@@ -122,6 +121,17 @@ class FeatureCloud:
         res = self.desc_tree.query(query_desc, 2)
         return res[1][0], res[0][0], res[0][0] / res[0][1]
 
+    def compute_top_n_prob(self, cid2kp, nb_clusters):
+        top_k = 10
+        cid2res = {}
+        for cid in cid2kp:
+            kp_list = cid2kp[cid]
+            feature_strengths = [self.points[kp].strength[0] for kp in kp_list]
+            feature_strengths = sorted(feature_strengths, reverse=True)
+            feature_strengths = feature_strengths[:top_k+1]
+            cid2res[cid] = np.mean(feature_strengths)
+        return cid2res
+
     def cluster(self, nb_clusters=5, debug=False):
         data = [[self.points[du].xy[0],
                  self.points[du].xy[1],
@@ -133,20 +143,23 @@ class FeatureCloud:
         cid2kp = {idx: [] for idx in range(nb_clusters)}
         for kp, cid in enumerate(clusters):
             cid2kp[cid].append(kp)
+        cid2res = self.compute_top_n_prob(cid2kp, nb_clusters)
         cid2prob = sampling_utils.combine([
             sampling_utils.rank_by_response(cid2res)
         ])
         for cid in cid2kp:
             kp_list = cid2kp[cid]
-            prob_list = np.array([self.points[kp].strength for kp in kp_list])
+            prob_list = np.array([self.points[kp].strength[0] for kp in kp_list])
             prob_list /= np.sum(prob_list)
-            cid2kp[cid] = (kp_list, prob_list)
+            prob_list2 = np.array([self.points[kp].strength[1] for kp in kp_list])
+            prob_list2 /= np.sum(prob_list2)
+            cid2kp[cid] = (kp_list, (prob_list+prob_list2)*0.5)
         self.cid2prob, self.cluster_centers_, self.cid2kp = cid2prob, cluster_model.cluster_centers_, cid2kp
 
         if debug:
             cluster2color = {du3: np.random.random((3,)) * 255.0 for du3 in range(nb_clusters)}
             for c in cluster2color:
-                if c not in [1, 2]:
+                if c not in [1, 2, 3]:
                     cluster2color[c] = (0, 0, 0)
             img = np.copy(self.image)
             cid2prob2 = cid2prob.copy()
@@ -158,6 +171,27 @@ class FeatureCloud:
                     cv2.circle(img, (x, y), 20, cluster2color[clusters[feature_ind]], -1)
             return img
         return cid2prob, cluster_model.cluster_centers_, cid2kp
+
+    def sample_by_feature_strengths(self, point3d_cloud, top_k=5, nb_samples=100):
+        feature_indices = list(range(len(self)))
+        feature_indices = sorted(feature_indices, key=lambda du: self[du].strength[0])
+        r_list = np.zeros((len(feature_indices),))
+        database = []
+        while True:
+            if len(database) >= nb_samples:
+                break
+
+            fid = feature_indices.pop()
+
+            if r_list[fid] == 1:
+                continue
+            r_list[fid] = 1
+
+            distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, top_k)
+            nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
+            database.append((nb_desc, fid, indices, distances))
+
+        return database
 
     def sample(self, point3d_cloud, top_k=5, nb_samples=1000):
         self.cluster(nb_clusters=5)
@@ -173,7 +207,6 @@ class FeatureCloud:
             self.cid2kp)
         for c in self.cid2prob:
             cluster_probabilities_based_on_feature_strengths[c] = self.cid2prob[c]
-        print(cluster_probabilities_based_on_feature_strengths)
 
         feature_probabilities = np.array([1 / len(feature_indices) for _ in range(len(feature_indices))])
         nb_desc_list = np.zeros_like(cluster_probabilities)

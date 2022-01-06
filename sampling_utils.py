@@ -22,11 +22,9 @@ def rank_by_response(cid2res):
     for res in cid2res.values():
         total_res += res
     result = {}
-    total_prob = 0
     for cid in cid2res:
         prob = cid2res[cid]/total_res
         result[cid] = prob
-        total_prob += prob
     return result
 
 

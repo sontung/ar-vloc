@@ -17,7 +17,7 @@ def project(state_, d1, d2):
     return xy
 
 
-def prject_raw(d11, d21):
+def project_raw(d11, d21):
     mat = pnp.build.pnp_python_binding.pnp(d11, d21)
     d13 = np.hstack([d11, np.ones((d11.shape[0], 1))])
     xy = mat[None, :, :] @ d13[:, :, None]
@@ -125,11 +125,11 @@ if __name__ == '__main__':
     print(xyz_array.shape)
     xyz_array2 = xyz_array.reshape((-1, 3))
     xy_array2 = xy_array.reshape((-1, 2))
-    e = prject_raw(xyz_array2, xy_array2)
+    e = project_raw(xyz_array2, xy_array2)
     print(e)
-    e = prject_raw(xyz_array2, xy_array2)
+    e = project_raw(xyz_array2, xy_array2)
     print(e)
-    e = prject_raw(xyz_array2, xy_array2)
+    e = project_raw(xyz_array2, xy_array2)
     print(e)
 
     # simulated_annealing(xyz_array, xy_array)
