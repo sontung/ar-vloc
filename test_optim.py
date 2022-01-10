@@ -78,17 +78,25 @@ print(f"pnp with correct data diff={np.sum(np.square(ext_mat-res))}")
 # some noises
 new_d1 = []
 new_d2 = []
+new_d21 = []
+
 for i in range(d2.shape[0]):
     u, v = d2[i]
     x, y, z = d1[i]
     new_d2.append([u, v])
+    new_d21.append([u, v, 1])
+
     new_d1.append([x, y, z])
     for _ in range(3):
         new_d2.append([u, v])
         new_d1.append([random.random()*5-5 for _ in range(3)])
-print(new_d1)
-print(new_d2)
+
 new_d1 = np.array(new_d1)
 new_d2 = np.array(new_d2)
+new_d21 = np.array(new_d21)
+np.savetxt("debug/object.txt", new_d1)
+np.savetxt("debug/image.txt", new_d21)
+
 res2 = pnp.build.pnp_python_binding.pnp(new_d1, new_d2)
 print(f"pnp with noisy data diff={np.sum(np.square(ext_mat-res2))}")
+

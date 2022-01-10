@@ -58,6 +58,12 @@ def load_2d_queries_generic(folder):
             coord, desc, response = compute_kp_descriptors_opencv_with_d2_detector(im,
                                                                                    return_response=True,
                                                                                    nb_keypoints=None)
+
+            # coord, desc, response = compute_kp_descriptors_opencv(im,
+            #                                                       return_response=True,
+            #                                                       nb_keypoints=None)
+
+            assert len(coord) == len(desc) == len(response)
             coord = np.array(coord)
             coordinates.append(coord)
             descriptors.append(desc)
@@ -65,6 +71,7 @@ def load_2d_queries_generic(folder):
             im_list.append(im)
             response_list.append(response)
             name_list.append(name)
+
         with open(f"{folder}/queries.pkl", 'wb') as handle:
             pickle.dump([descriptors, coordinates, name_list, md_list, im_list, response_list],
                         handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -177,7 +184,7 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
     for kp in kp_list:
         coords.append(list(kp.pt))
     if return_response:
-        response_list = [kp.response for kp in kp_list]
+        response_list = [(kp.response, 1.0) for kp in kp_list]
         return coords, des, response_list
     return coords, des
 
@@ -216,5 +223,5 @@ def compute_kp_descriptors_opencv_with_d2_detector(img, nb_keypoints=None, root_
             response_list.append((responses[idx2], kp.response))
 
     if return_response:
-        return coords, des, response_list
-    return coords, des
+        return coords, new_des, response_list
+    return coords, new_des

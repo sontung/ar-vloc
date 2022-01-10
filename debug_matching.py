@@ -1,3 +1,5 @@
+import sys
+
 import cv2
 import numpy as np
 from feature_matching import load_2d_queries_generic
@@ -18,7 +20,6 @@ def draw_circle(event, x, y, flags, param):
         mouseX, mouseY = x*down_scale, y*down_scale
 
 
-USING_HARDNET = False
 query_images_folder = "Test line small"
 sfm_images_dir = "sfm_ws_hblab/images.txt"
 sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
@@ -26,14 +27,8 @@ sfm_images_folder = "sfm_ws_hblab/images"
 image2pose = read_images(sfm_images_dir)
 point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
 
-if USING_HARDNET:
-    using_ps = True
-    read_data = build_descriptors_2d_hardnet(image2pose,
-                                             sfm_images_folder,
-                                             using_ps=using_ps)
-    point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = read_data
-else:
-    point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d(image2pose, sfm_images_folder)
+
+point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d(image2pose, sfm_images_folder)
 
 point3d_cloud = PointCloud(point3did2descs, debug=True)
 for i in range(len(point3d_id_list)):
@@ -44,11 +39,7 @@ for i in range(len(point3d_id_list)):
 
 point3d_cloud.commit(image2pose)
 vocab_tree = VocabTree(point3d_cloud)
-if USING_HARDNET:
-    read_queries = load_2d_queries_generic_hardnet(query_images_folder, using_ps=using_ps)
-    descriptors, coordinates, im_names, md_list, im_list, response_list = read_queries
-else:
-    descriptors, coordinates, im_names, md_list, im_list, response_list = load_2d_queries_generic(query_images_folder)
+descriptors, coordinates, im_names, md_list, im_list, response_list = load_2d_queries_generic(query_images_folder)
 point2d_cloud = FeatureCloud(im_list[0])
 
 for j in range(coordinates[0].shape[0]):
@@ -67,7 +58,7 @@ image = image_ori.copy()
 MODE = None
 RESULT = {}
 RESULT_NO_RATIO = {}
-INTERACTIVE = True
+INTERACTIVE = False
 
 if INTERACTIVE:
     while True:
@@ -136,17 +127,40 @@ if INTERACTIVE:
 
     cv2.destroyAllWindows()
 else:
-    _, ind = point2d_cloud.xy_tree.query([mouseX, mouseY], 1)
-    fx, fy = point2d_cloud[ind].xy
 
-    fx, fy = map(int, (fx // down_scale, fy // down_scale))
-    cv2.circle(image, (fx, fy), 5, (128, 128, 0), 5)
-    cv2.circle(image, (mouseX//down_scale, mouseY//down_scale), 5, (255, 0, 0), 5)
+    # x, y = 372, 934
+    # _, ind = point2d_cloud.xy_tree.query([x, y], 1)
+    # fx, fy = point2d_cloud[ind].xy
+    # print(fx, fy)
+    #
+    # fx, fy = map(int, (fx // down_scale, fy // down_scale))
+    # cv2.circle(image, (fx, fy), 5, (128, 128, 0), 5)
+    # cv2.circle(image, (mouseX // down_scale, mouseY // down_scale), 5, (255, 0, 0), 5)
+    # cv2.imshow("image", image)
+    # # cv2.waitKey()
+    # point_ind, dist, _, ratio = point3d_cloud.matching_2d_to_3d_brute_force_no_ratio_test(point2d_cloud[ind].desc)
+    # images = visualize_matching_helper(np.copy(im_list[0]), point2d_cloud[ind],
+    #                                    point3d_cloud[point_ind], sfm_images_folder)
+    # cv2.imshow("t", images)
+    # cv2.waitKey()
+    # cv2.destroyWindow("t")
+    # sys.exit()
 
-    cv2.imshow("image", image)
-    point_ind, dist, _ = point3d_cloud.matching_2d_to_3d_brute_force(point2d_cloud[ind].desc,
-                                                                     returning_index=True)
-    if point_ind is not None:
-        visualize_matching([(point2d_cloud[ind], None, dist)],
-                           [(point2d_cloud[ind], point3d_cloud[point_ind], dist)],
-                           im_list[0], sfm_images_folder)
+    database = point2d_cloud.sample_by_feature_strengths(point3d_cloud)
+    for nb_desc, ind, indices, distances in database:
+        fx, fy = point2d_cloud[ind].xy
+
+        fx, fy = map(int, (fx // down_scale, fy // down_scale))
+        cv2.circle(image, (fx, fy), 5, (128, 128, 0), 5)
+        cv2.circle(image, (mouseX//down_scale, mouseY//down_scale), 5, (255, 0, 0), 5)
+        cv2.imshow("image", image)
+        # cv2.waitKey()
+        distances, indices = point3d_cloud.desc_tree.query(point2d_cloud[ind].desc, 5)
+        for point_ind in indices:
+            point_ind = point3d_cloud.point_indices_for_desc_tree[point_ind]
+            images = visualize_matching_helper(np.copy(im_list[0]), point2d_cloud[ind],
+                                               point3d_cloud[point_ind], sfm_images_folder)
+            cv2.imshow("t", images)
+            cv2.waitKey()
+            cv2.destroyWindow("t")
+        print("done")
