@@ -16,21 +16,26 @@ for du in res_line.split(" "):
         continue
     else:
         numbers.append(n)
-res_mat = np.identity(4).astype(np.float64)
-res_mat[0, 3] = numbers[0]
-res_mat[1, 3] = numbers[1]
-res_mat[2, 3] = numbers[2]
-res_mat[:3, 0] = numbers[3:6]
-res_mat[:3, 1] = numbers[6:9]
-res_mat[:3, 2] = numbers[9:12]
+trans_mat = np.identity(4).astype(np.float64)
+trans_mat[0, 3] = -numbers[0]
+trans_mat[1, 3] = -numbers[1]
+trans_mat[2, 3] = -numbers[2]
+rot_mat = np.identity(4).astype(np.float64)
+rot_mat[:3, 0] = numbers[3:6]
+rot_mat[:3, 1] = numbers[6:9]
+rot_mat[:3, 2] = numbers[9:12]
+res_mat = rot_mat@trans_mat
+
+print(res_mat)
+
 image_mat = np.loadtxt("debug/image.txt")
 object_mat = np.loadtxt("debug/object.txt")
-for xyz in object_mat:
-    xyz2 = res_mat[:3, :3]@(xyz-numbers[:3])
+
+for idx, xyz in enumerate(object_mat):
+    xyz2 = rot_mat[:3, :3]@(xyz-numbers[:3])
 
     xyz = np.hstack([xyz, 1])
     xyz = res_mat@xyz
-    print(xyz[:3]-xyz2)
 
     u, v, w = xyz[:3]
     u /= w
@@ -40,4 +45,5 @@ for xyz in object_mat:
     test = test[:, :2]
     test = np.square(test)
     test = np.sum(test, axis=1)
-    # print(np.min(test))
+    if np.min(test) < 0.1:
+        print(idx)
