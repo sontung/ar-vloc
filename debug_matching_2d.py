@@ -22,8 +22,8 @@ sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
 sfm_images_folder = "sfm_ws_hblab/images"
 
 
-def sift_matching(_img1, _img2):
-    _img1 = cv2.cvtColor(_img1, cv2.COLOR_RGB2BGR)
+def sift_matching(_img1, _img2, pre_specified=False):
+    _img2 = cv2.cvtColor(_img2, cv2.COLOR_RGB2BGR)
 
     _img1_show = np.copy(_img1)
     _img2_show = np.copy(_img2)
@@ -34,27 +34,47 @@ def sift_matching(_img1, _img2):
 
     sift = cv2.SIFT_create(edgeThreshold=10,
                            nOctaveLayers=4,
-                           contrastThreshold=0.02, nfeatures=8000)
+                           contrastThreshold=0.02, nfeatures=5000)
     _kp_list1, _des1 = sift.detectAndCompute(_img1, None)
+    _kp_list2, _des2 = sift.detectAndCompute(_img2, None)
+
     _des1 /= (np.linalg.norm(_des1, axis=1, ord=2, keepdims=True) + 1e-7)
     _des1 /= (np.linalg.norm(_des1, axis=1, ord=1, keepdims=True) + 1e-7)
     _des1 = np.sqrt(_des1)
-
-    _kp_list2, _des2 = sift.detectAndCompute(_img2, None)
     _des2 /= (np.linalg.norm(_des2, axis=1, ord=2, keepdims=True) + 1e-7)
     _des2 /= (np.linalg.norm(_des2, axis=1, ord=1, keepdims=True) + 1e-7)
     _des2 = np.sqrt(_des2)
 
     _tree = KDTree(_des2)
-    for _idx, _kp in enumerate(tqdm(_kp_list1)):
-        dis, ind_list2 = _tree.query(_des1[_idx], 2)
-        if dis[0] < dis[1]*0.7:
-            color = (random.random()*255, random.random()*255, random.random()*255)
-            x1, y1 = map(int, list(_kp.pt))
-            x2, y2 = map(int, list(_kp_list2[ind_list2[0]].pt))
-            cv2.circle(im_show, (x1, y1), 20, color, -1)
-            cv2.circle(im_show, (x2+_img2_show.shape[1], y2), 20, color, -1)
-            cv2.line(im_show, (x1, y1), (x2+_img2_show.shape[1], y2), color, 5)
+
+    if pre_specified:
+        specified_f = [372.2635803222656, 934.55908203125]
+        tree_xy = KDTree([du.pt for du in _kp_list1])
+        _, indices = tree_xy.query(specified_f, 10)
+        prespecified_list = [(idx, _kp_list1[idx]) for idx in indices]
+
+        for _idx, _kp in prespecified_list:
+            dis, ind_list2 = _tree.query(_des1[_idx], 2)
+            for idx2 in ind_list2:
+                color = (random.random()*255, random.random()*255, random.random()*255)
+                x1, y1 = map(int, list(_kp.pt))
+                x2, y2 = map(int, list(_kp_list2[idx2].pt))
+                cv2.circle(im_show, (x1, y1), 20, color, -1)
+                cv2.circle(im_show, (x2+_img2_show.shape[1], y2), 20, color, -1)
+                cv2.line(im_show, (x1, y1), (x2+_img2_show.shape[1], y2), color, 5)
+    else:
+        matches = []
+        for _idx, _kp in enumerate(tqdm(_kp_list1)):
+            dis, ind_list2 = _tree.query(_des1[_idx], 2)
+            if dis[0] < dis[1]*0.7:
+                color = (random.random()*255, random.random()*255, random.random()*255)
+                x1, y1 = map(int, list(_kp.pt))
+                x2, y2 = map(int, list(_kp_list2[ind_list2[0]].pt))
+                matches.append((x1, y1, x2, y2))
+                cv2.circle(im_show, (x1, y1), 20, color, -1)
+                cv2.circle(im_show, (x2+_img2_show.shape[1], y2), 20, color, -1)
+                cv2.line(im_show, (x1, y1), (x2+_img2_show.shape[1], y2), color, 5)
+        print(matches)
     im_show = cv2.resize(im_show, (im_show.shape[1] // 4, im_show.shape[0] // 4))
     cv2.imshow("t", im_show)
     cv2.waitKey()
@@ -102,7 +122,8 @@ def debug_one_by_one():
 
 
 if __name__ == '__main__':
-    im1 = imageio.imread("/home/sontung/work/ar-vloc/sfm_ws_hblab/images/IMG_0722.jpg")
+    im1 = imageio.imread("/home/sontung/work/ar-vloc/sfm_ws_hblab/images/IMG_0682.jpg")
     descriptors, coordinates, im_names, md_list, im_list, response_list = load_2d_queries_generic(query_images_folder)
     im2 = np.copy(im_list[0])
-    sift_matching(im1, im2)
+    cv2.imwrite("debug/test.jpg", im2)
+    sift_matching(im2, im1)

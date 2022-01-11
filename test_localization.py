@@ -89,6 +89,7 @@ for im_idx in p2d2p3d:
     cx = metadata["cx"]
     cy = metadata["cy"]
     k = 0.06
+    print(f, cx, cy)
     camera_matrix = np.array([[f, 0, cx],
                               [0, f, cy],
                               [0, 0, 1]])
