@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import open3d as o3d
 import time
@@ -25,7 +27,6 @@ point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
 points_3d_list = []
 point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d(image2pose,
                                                                                                    sfm_images_folder)
-
 point3d_cloud = PointCloud(point3did2descs)
 for i in range(len(point3d_id_list)):
     point3d_id = point3d_id_list[i]
@@ -33,6 +34,8 @@ for i in range(len(point3d_id_list)):
     xyzrgb = point3did2xyzrgb[point3d_id]
     point3d_cloud.add_point(point3d_id, point3d_desc, p3d_desc_list_multiple[i], xyzrgb[:3], xyzrgb[3:])
 point3d_cloud.commit(image2pose)
+point3d_cloud.cluster(image2pose)
+sys.exit()
 point3d_cloud.build_desc_tree()
 vocab_tree = VocabTree(point3d_cloud)
 vocab_tree.load_matching_pairs(query_images_folder)
@@ -97,7 +100,7 @@ for im_idx in p2d2p3d:
     res = localize_single_image(p2d2p3d[im_idx][0], camera_matrix, distortion_coefficients)
     localization_results.append((res, (0, 1, 0)))
 
-    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)
+    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)  # brute force result
     localization_results.append((res2, (0, 0, 1)))
 
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)

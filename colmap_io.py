@@ -64,6 +64,10 @@ def read_cameras(cam_dir="sfm_ws_hblab/cameras.txt"):
 
 
 def read_images(in_dir="sfm_models/images.txt"):
+    """
+    this returns a dict:
+    data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
+    """
     sys.stdin = open(in_dir, "r")
     lines = sys.stdin.readlines()
     data = {}

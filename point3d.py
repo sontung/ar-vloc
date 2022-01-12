@@ -1,4 +1,5 @@
 import sys
+from sklearn.cluster import MiniBatchKMeans
 
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
@@ -36,6 +37,50 @@ class PointCloud:
         self.desc_tree = None
         self.debug = debug
         self.vocab, self.cluster_model = None, None
+        self.pose_cluster_to_points = {}
+
+    def cluster(self, image2pose):
+        self.cluster_by_pose(image2pose)
+        self.cluster_by_position()
+
+    def cluster_by_pose(self, image2pose):
+        # cluster by poses
+        pose_arr = []
+        for image_id in image2pose:
+            pose = image2pose[image_id][2]
+            pose_arr.append(pose)
+        if len(pose_arr) < 10:
+            nb_clusters = 5
+        else:
+            nb_clusters = 10
+        cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
+        pose_arr = np.vstack(pose_arr)
+        labels = cluster_model.fit_predict(pose_arr)
+        for du in range(nb_clusters):
+            self.pose_cluster_to_points[du] = []
+        for image_ind, image in enumerate(list(image2pose.keys())):
+            data = image2pose[image]
+            cam_pose_ind = labels[image_ind]
+            for x, y, pid in data[1]:
+                if pid > 0 and pid in self.id2point:
+                    index = self.id2point[pid]
+                    self.pose_cluster_to_points[cam_pose_ind].append(index)
+
+    def cluster_by_position(self):
+        # cluster by positions
+        for cid in self.pose_cluster_to_points:
+            position_arr = []
+            index_arr = self.pose_cluster_to_points[cid]
+            for pid in index_arr:
+                position_arr.append(self.points[pid].xyzrgb)
+            position_arr = np.vstack(position_arr)
+            nb_clusters = 20
+            position_cluster_to_points = {pos_cid: [] for pos_cid in range(nb_clusters)}
+            cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
+            labels = cluster_model.fit_predict(position_arr)
+            for ind, pos_cid in enumerate(labels):
+                position_cluster_to_points[pos_cid].append(index_arr[ind])
+            self.pose_cluster_to_points[cid] = [index_arr, position_cluster_to_points]
 
     def build_visibility_map(self, image2pose):
         for map_id, image in enumerate(list(image2pose.keys())):
@@ -203,6 +248,7 @@ class Point3D:
         self.desc = descriptor
         self.xyz = xyz
         self.rgb = rgb
+        self.xyzrgb = [xyz[0], xyz[1], xyz[2], rgb[0], rgb[1], rgb[2]]
         self.visual_word = None
         self.visibility = {}
         self.visibility_graph_index = None

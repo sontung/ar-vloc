@@ -85,8 +85,6 @@ def process_results():
     return r_mat, t_vec
 
 
-
-
 if __name__ == '__main__':
-    # produce_data()
-    process_results()
+    produce_data()
+    # process_results()
