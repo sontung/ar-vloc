@@ -5,6 +5,7 @@ import sys
 import pnp.build.pnp_python_binding
 import kmeans1d
 import sklearn.cluster
+from test_gosma import process_results
 
 
 def localize_shared_intrinsics(p2d2p3d, coord_list, point3did2xyzrgb, camera_matrix, distortion_coefficients):
@@ -84,9 +85,4 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2):
 
 
 def localization_dummy():
-    res = [[0.0760717424987773, -0.97334872594338, 0.21634543604522682, 210.92648014280388], [0.8582190384370891, 0.1743755803028441, 0.48275587936157227, 334.59974607073184], [-0.5076151810745205, 0.14894769114842296, 0.8486114618859659, -2.5560678089577804], [0.0, 0.0, 0.0, 1.0]]
-    
-    res = np.array(res)
-    r_mat, t_vec = res[:3, :3], res[:3, 3]
-    t_vec = t_vec.reshape((-1, 1))
-    return r_mat, t_vec
+    return process_results()

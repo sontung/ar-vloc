@@ -172,11 +172,12 @@ class FeatureCloud:
             return img
         return cid2prob, cluster_model.cluster_centers_, cid2kp
 
-    def sample_by_feature_strengths(self, point3d_cloud, top_k=5, nb_samples=100):
+    def sample_by_feature_strengths(self, point3d_cloud, top_k=5, nb_samples=100, visibility_filtering=True):
         feature_indices = list(range(len(self)))
         feature_indices = sorted(feature_indices, key=lambda du: self[du].strength[0])
         r_list = np.zeros((len(feature_indices),))
         database = []
+        all_points = []
         while True:
             if len(database) >= nb_samples:
                 break
@@ -190,7 +191,27 @@ class FeatureCloud:
             distances, indices = point3d_cloud.top_k_nearest_desc(self[fid].desc, top_k)
             nb_desc = np.sum([len(point3d_cloud[point_ind].multi_desc_list) for point_ind in indices])
             database.append((nb_desc, fid, indices, distances))
+            all_points.extend(indices)
 
+        if visibility_filtering:
+            count = {}
+            for pid in all_points:
+                gid = point3d_cloud[pid].visibility_graph_index
+                if gid not in count:
+                    count[gid] = 1
+                else:
+                    count[gid] += 1
+            max_count = max(count.values())
+            filter_database = []
+            for nb_desc, fid, indices, distances in database:
+                failed = True
+                for pid in indices:
+                    gid = point3d_cloud[pid].visibility_graph_index
+                    if count[gid] == max_count:
+                        failed = False
+                if not failed:
+                    filter_database.append((nb_desc, fid, indices, distances))
+            return filter_database
         return database
 
     def sample(self, point3d_cloud, top_k=5, nb_samples=1000):
