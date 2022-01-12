@@ -80,7 +80,8 @@ class PointCloud:
             labels = cluster_model.fit_predict(position_arr)
             for ind, pos_cid in enumerate(labels):
                 position_cluster_to_points[pos_cid].append(index_arr[ind])
-            self.pose_cluster_to_points[cid] = [index_arr, position_cluster_to_points]
+            prob_arr = np.ones((len(position_cluster_to_points),))*1/len(position_cluster_to_points)
+            self.pose_cluster_to_points[cid] = [index_arr, position_cluster_to_points, prob_arr]
 
     def build_visibility_map(self, image2pose):
         for map_id, image in enumerate(list(image2pose.keys())):
@@ -178,7 +179,6 @@ class PointCloud:
         positive, ratio = ratio_test(res)
         return index, res[0][0], res[0][1], ratio
 
-    # @profile
     def matching_2d_to_3d_brute_force(self, query_desc, returning_index=False):
         """
         brute forcing match for a single 2D point
@@ -239,6 +239,9 @@ class PointCloud:
             if len(result) >= 100:
                 break
         return result, count, samples
+
+    def sample(self):
+        pose_cluster_prob_arr = np.ones((len(self.pose_cluster_to_points),))*1.0/len(self.pose_cluster_to_points)
 
 
 class Point3D:
