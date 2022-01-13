@@ -1,6 +1,6 @@
 import sys
 from sklearn.cluster import MiniBatchKMeans
-
+from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 import time
@@ -240,8 +240,75 @@ class PointCloud:
                 break
         return result, count, samples
 
-    def sample(self):
+    def sample(self, point2d_cloud):
+        visited_arr = np.zeros((len(self.points),))
+        database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
+        self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
+
+    def sample_matching_helper(self, pid, point2d_cloud):
+        register = None
+        smallest_ratio = 2.0
+        for desc in self.points[pid].multi_desc_list:
+            fid, dis, ratio = point2d_cloud.matching_3d_to_2d_brute_force(desc)
+            if ratio < smallest_ratio:
+                smallest_ratio = ratio
+            if fid is not None:
+                register = (fid, dis, ratio)
+                break
+        return register, smallest_ratio
+
+    def sample_explore(self, point2d_cloud, visited_arr):
+        database = []
         pose_cluster_prob_arr = np.ones((len(self.pose_cluster_to_points),))*1.0/len(self.pose_cluster_to_points)
+        print("Start with", pose_cluster_prob_arr.tolist())
+        for pose_cluster_id in self.pose_cluster_to_points:
+            _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
+            assert len(prob_arr) == len(position_cluster_to_points)
+            for position_cluster_id in position_cluster_to_points:
+                pid_list = position_cluster_to_points[position_cluster_id]
+                for _ in range(5):
+                    pid = np.random.choice(pid_list)
+                    if visited_arr[pid] == 0:
+                        register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)
+                        prob_arr[position_cluster_id] += 1 - ratio_s
+                        pose_cluster_prob_arr[pose_cluster_id] += 1 - ratio_s
+                        visited_arr[pid] = 1
+
+                        if register is not None:
+                            fid, dis, ratio = register
+                            assert ratio == ratio_s
+                            database.append((pid, fid, dis, ratio))
+            self.pose_cluster_to_points[pose_cluster_id][2] = prob_arr/np.sum(prob_arr)
+        pose_cluster_prob_arr /= np.sum(pose_cluster_prob_arr)
+        print("After exploring", pose_cluster_prob_arr.tolist())
+        return database, pose_cluster_prob_arr
+
+    def sample_exploit(self, pose_cluster_prob_arr, database, visited_arr, point2d_cloud):
+        pose_cluster_list = list(range(len(self.pose_cluster_to_points)))
+        for _ in tqdm(range(1000), desc="Exploiting"):
+            if len(database) > 100:
+                break
+            pose_cluster_id = np.random.choice(pose_cluster_list, p=pose_cluster_prob_arr)
+            _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
+            position_cluster_id = np.random.choice(list(range(len(position_cluster_to_points))), p=prob_arr)
+            pid_list = position_cluster_to_points[position_cluster_id]
+            pid = np.random.choice(pid_list)
+            if visited_arr[pid] == 0:
+                register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)
+                prob_arr[position_cluster_id] += 1 - ratio_s
+                pose_cluster_prob_arr[pose_cluster_id] += 1 - ratio_s
+                visited_arr[pid] = 1
+
+                if register is not None:
+                    fid, dis, ratio = register
+                    assert ratio == ratio_s
+                    database.append((pid, fid, dis, ratio))
+
+            # normalize
+            self.pose_cluster_to_points[pose_cluster_id][2] = prob_arr / np.sum(prob_arr)
+            pose_cluster_prob_arr /= np.sum(pose_cluster_prob_arr)
+        print(f"Found {len(database)} matches.")
+        print(pose_cluster_prob_arr.tolist())
 
 
 class Point3D:

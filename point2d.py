@@ -107,10 +107,13 @@ class FeatureCloud:
             self.desc_tree = KDTree(self.point_desc_list)
         res = self.desc_tree.query(query_desc, 2)
         if res[0][1] > 0.0:
-            if res[0][0] / res[0][1] < 0.7:  # ratio test
+            ratio = res[0][0] / res[0][1]
+            if ratio < 0.7:
                 index = res[1][0]
-                return index, res[0][0]
-        return None, res[0][0]
+                return index, res[0][0], ratio
+            else:
+                return None, res[0][0], ratio
+        return None, res[0][0], 1.0
 
     def matching_3d_to_2d_brute_force_no_ratio_test(self, query_desc):
         """

@@ -35,7 +35,6 @@ for i in range(len(point3d_id_list)):
     point3d_cloud.add_point(point3d_id, point3d_desc, p3d_desc_list_multiple[i], xyzrgb[:3], xyzrgb[3:])
 point3d_cloud.commit(image2pose)
 point3d_cloud.cluster(image2pose)
-sys.exit()
 point3d_cloud.build_desc_tree()
 vocab_tree = VocabTree(point3d_cloud)
 vocab_tree.load_matching_pairs(query_images_folder)
@@ -65,6 +64,8 @@ for i in range(len(desc_list)):
     for j in range(coord_list[i].shape[0]):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
+
+    point3d_cloud.sample(point2d_cloud)
 
     res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
     res_exp = vocab_tree.search_experimental(point2d_cloud)
