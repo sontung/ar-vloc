@@ -13,6 +13,8 @@ piazza_del_popolo/*
 debug/*
 trash_code/*
 *.lprof
+colmap_sift/*.txt
+colmap_sift/*.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
