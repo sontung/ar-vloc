@@ -144,7 +144,6 @@ class COLMAPDatabase(sqlite3.Connection):
     def connect(database_path):
         return sqlite3.connect(database_path, factory=COLMAPDatabase)
 
-
     def __init__(self, *args, **kwargs):
         super(COLMAPDatabase, self).__init__(*args, **kwargs)
 
@@ -228,8 +227,8 @@ class COLMAPDatabase(sqlite3.Connection):
         self.execute(
             "INSERT INTO two_view_geometries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (pair_id,) + matches.shape + (array_to_blob(matches), config,
-             array_to_blob(F), array_to_blob(E), array_to_blob(H),
-             array_to_blob(qvec), array_to_blob(tvec)))
+                                          array_to_blob(F), array_to_blob(E), array_to_blob(H),
+                                          array_to_blob(qvec), array_to_blob(tvec)))
 
 
 def example_usage():
@@ -243,7 +242,26 @@ def example_usage():
     db = COLMAPDatabase.connect(args.database_path)
 
     # Read and check keypoints.
+    keypoints = dict(
+        (image_id, blob_to_array(data, np.float32, (-1, 2)))
+        for image_id, data in db.execute(
+            "SELECT image_id, data FROM keypoints"))
+    id2name = dict((image_id, name)
+                   for image_id, name in db.execute(
+        "SELECT image_id, name FROM images"))
+    desc = dict(
+        (image_id, blob_to_array(data, np.uint8, (-1, 2)))
+        for image_id, data in db.execute(
+            "SELECT image_id, data FROM descriptors"))
 
+    db.close()
+
+
+def extract_colmap_sift(database_path):
+    # Open the database.
+    db = COLMAPDatabase.connect(database_path)
+
+    # Read and check keypoints.
     keypoints = dict(
         (image_id, blob_to_array(data, np.float32, (-1, 2)))
         for image_id, data in db.execute(
@@ -254,10 +272,12 @@ def example_usage():
         for image_id, data in db.execute(
             "SELECT image_id, data FROM descriptors"))
 
-    print(keypoints[8].shape, desc[8].shape)
-    print(desc)
-
+    id2name = dict(
+        (image_id, name)
+        for image_id, name in db.execute(
+            "SELECT image_id, name FROM images"))
     db.close()
+    return keypoints, desc, id2name
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import cv2
 from sklearn.cluster import MiniBatchKMeans
 from pathlib import Path
 from scipy.spatial import KDTree
+from colmap_db_read import extract_colmap_sift
 
 MATCHING_BENCHMARK = True
 
@@ -92,6 +93,27 @@ def load_2d_queries_opencv(folder="test_images"):
     return descriptors, coordinates, im_names
 
 
+def load_2d_queries_using_colmap_sift(folder, db_path="/home/sontung/work/ar-vloc/colmap_sift/test_small.db"):
+    im_names = os.listdir(folder)
+    descriptors = []
+    coordinates = []
+    md_list = []
+    im_list = []
+    response_list = []
+    name_list = []
+    id2kp, id2desc, id2name = extract_colmap_sift(db_path)
+    name2id = {v: k for k, v in id2name.items()}
+    for name in tqdm(im_names, desc="Reading query images"):
+        if "jpg" not in name:
+            continue
+        db_id = name2id[name]
+        kp = id2kp[db_id]
+        desc = id2desc[db_id]
+        coordinates.append(kp)
+        descriptors.append(desc)
+    return descriptors, coordinates
+
+
 def build_descriptors_2d(images, images_folder="sfm_models/images"):
     point3did2descs = {}
     matching_ratio = []
@@ -143,6 +165,53 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
             pickle.dump([p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs],
                         handle, protocol=pickle.HIGHEST_PROTOCOL)
         print(f"Saved SFM model to {images_folder}")
+    return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
+
+
+def build_descriptors_2d_using_colmap_sift(images,
+                                           db_path="/home/sontung/work/ar-vloc/sfm_ws_hblab/database.db"):
+    point3did2descs = {}
+    matching_ratio = []
+
+    id2kp, id2desc, id2name = extract_colmap_sift(db_path)
+    name2id = {v: k for k, v in id2name.items()}
+    for image_id in tqdm(images, desc="Loading descriptors of SfM model"):
+        image_name = images[image_id][0]
+        db_id = name2id[image_name]
+        coord, desc = id2kp[db_id], id2desc[db_id]
+
+        tree = KDTree(coord)
+        nb_points = 0
+        nb_3d_points = 0
+        points2d_meaningful = images[image_id][1]
+
+        for x, y, p3d_id in points2d_meaningful:
+            if p3d_id > 0:
+                dis, idx = tree.query([x, y], 1)
+                nb_3d_points += 1
+                if dis < 1:
+                    nb_points += 1
+                    if p3d_id not in point3did2descs:
+                        point3did2descs[p3d_id] = [[image_id, desc[idx]]]
+                    else:
+                        point3did2descs[p3d_id].append([image_id, desc[idx]])
+
+        matching_ratio.append(nb_points/nb_3d_points)
+    print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
+          f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
+    p3d_id_list = []
+    p3d_desc_list = []
+    p3d_desc_list_multiple = []
+    mean_diff = []
+    for p3d_id in point3did2descs:
+        p3d_id_list.append(p3d_id)
+        desc_list = [du[1] for du in point3did2descs[p3d_id]]
+        p3d_desc_list_multiple.append(desc_list)
+        desc = np.mean(desc_list, axis=0)
+        if len(desc_list) > 1:
+            mean_diff.extend([np.sqrt(np.sum(np.square(desc-du))) for du in desc_list])
+        p3d_desc_list.append(desc)
+    print(f"Mean var. = {np.mean(mean_diff)}")
     return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
 
 
@@ -223,3 +292,9 @@ def compute_kp_descriptors_opencv_with_d2_detector(img, nb_keypoints=None, root_
     if return_response:
         return coords, new_des, response_list
     return coords, new_des
+
+
+if __name__ == '__main__':
+    query_images_folder = "Test line small"
+    desc_list, coord_list, im_name_list, metadata_list, image_list, response_list = load_2d_queries_using_colmap_sift(query_images_folder)
+

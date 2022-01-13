@@ -254,7 +254,7 @@ class PointCloud:
                 break
         return result, count, samples
 
-    def sample(self, point2d_cloud, image, debug=True):
+    def sample(self, point2d_cloud, image, debug=False):
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
@@ -276,20 +276,30 @@ class PointCloud:
             point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
             point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
-            vis = o3d.visualization.Visualizer()
-            vis.create_window(width=1920, height=1025)
-            vis.add_geometry(point_cloud)
-            vis.run()
-            vis.destroy_window()
-
             image = np.copy(image)
             for pid, fid, dis, ratio in database:
                 x, y = map(int, point2d_cloud[fid].xy)
                 cv2.circle(image, (x, y), 40, (255, 0, 0), -1)
             image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
             cv2.imshow("t", image)
+
+            vis = o3d.visualization.Visualizer()
+            vis.create_window(width=1920, height=1025)
+            vis.add_geometry(point_cloud)
+            vis.run()
             cv2.waitKey()
             cv2.destroyAllWindows()
+            vis.destroy_window()
+
+        xyz_array = np.zeros((len(database), 3))
+        xy_array = np.zeros((len(database), 2))
+        for ind, (pid, fid, dis, ratio) in enumerate(database):
+            xyz_array[ind] = self.points[pid].xyz
+            xy_array[ind] = point2d_cloud[fid].xy
+        with open('debug/test_refine.npy', 'wb') as f:
+            np.save(f, xyz_array)
+            np.save(f, xy_array)
+
         return results
 
     def sample_matching_helper(self, pid, point2d_cloud):
@@ -304,7 +314,7 @@ class PointCloud:
                 break
         return register, smallest_ratio
 
-    def sample_explore(self, point2d_cloud, visited_arr):
+    def sample_explore(self, point2d_cloud, visited_arr, visits_per_region=1):
         database = []
         pose_cluster_prob_arr = np.ones((len(self.pose_cluster_to_points),))*1.0/len(self.pose_cluster_to_points)
         print("Start with", pose_cluster_prob_arr.tolist())
@@ -313,7 +323,7 @@ class PointCloud:
             assert len(prob_arr) == len(position_cluster_to_points)
             for position_cluster_id in position_cluster_to_points:
                 pid_list, pid_prob_arr = position_cluster_to_points[position_cluster_id]
-                for _ in range(5):
+                for _ in range(visits_per_region):
                     pid = np.random.choice(pid_list, p=pid_prob_arr)
                     if visited_arr[pid] == 0:
                         register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)

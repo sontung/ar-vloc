@@ -18,7 +18,7 @@ def produce_data():
     xyz_array = np.reshape(xyz_array, (-1, 3))
 
     for ind in range(xy_array.shape[0]):
-        x1, y1 = xy_array[ind, 0, :]
+        x1, y1 = xy_array[ind, :]
         u = (x1 - c1) / f
         v = (y1 - c2) / f
         new_coords.append([u, v, 1])

@@ -4,7 +4,8 @@ import numpy as np
 import open3d as o3d
 import time
 import cv2
-from feature_matching import build_descriptors_2d, load_2d_queries_generic
+from feature_matching import build_descriptors_2d, load_2d_queries_generic, load_2d_queries_using_colmap_sift
+from feature_matching import build_descriptors_2d_using_colmap_sift
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
 from vis_utils import produce_cam_mesh
 from point3d import PointCloud
@@ -25,8 +26,7 @@ sfm_images_folder = "sfm_ws_hblab/images"
 image2pose = read_images(sfm_images_dir)
 point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
 points_3d_list = []
-point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d(image2pose,
-                                                                                                   sfm_images_folder)
+point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d_using_colmap_sift(image2pose)
 point3d_cloud = PointCloud(point3did2descs)
 for i in range(len(point3d_id_list)):
     point3d_id = point3d_id_list[i]
@@ -55,14 +55,15 @@ if VISUALIZING_POSES:
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
-desc_list, coord_list, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
+_, _, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
+desc_list, coord_list = load_2d_queries_using_colmap_sift(query_images_folder)
 p2d2p3d = {}
 for i in range(len(desc_list)):
     print(f"{im_name_list[i]}")
     start_time = time.time()
     point2d_cloud = FeatureCloud()
     for j in range(coord_list[i].shape[0]):
-        point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
+        point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], 0.0)
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
     res_exp = point3d_cloud.sample(point2d_cloud, image_list[i])

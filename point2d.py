@@ -105,10 +105,10 @@ class FeatureCloud:
         """
         if self.desc_tree is None:
             self.desc_tree = KDTree(self.point_desc_list)
-        distances, indices = self.desc_tree.query(query_desc, 5)
+        distances, indices = self.desc_tree.query(query_desc, 2)
         coord_first = self.points[indices[0]].xy
         chosen_idx = 1
-        for idx in range(1, 5):
+        for idx in range(1, 2):
             diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))/2
             if diff > 10:
                 chosen_idx = idx
