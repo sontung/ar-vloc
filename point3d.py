@@ -4,6 +4,7 @@ from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 import time
+import open3d as o3d
 import numpy as np
 
 
@@ -38,6 +39,7 @@ class PointCloud:
         self.debug = debug
         self.vocab, self.cluster_model = None, None
         self.pose_cluster_to_points = {}
+        self.pose_cluster_to_image = {}
 
     def cluster(self, image2pose):
         self.cluster_by_pose(image2pose)
@@ -58,13 +60,18 @@ class PointCloud:
         labels = cluster_model.fit_predict(pose_arr)
         for du in range(nb_clusters):
             self.pose_cluster_to_points[du] = []
+            self.pose_cluster_to_image[du] = []
         for image_ind, image in enumerate(list(image2pose.keys())):
             data = image2pose[image]
             cam_pose_ind = labels[image_ind]
+            self.pose_cluster_to_image[cam_pose_ind].append(data)
             for x, y, pid in data[1]:
                 if pid > 0 and pid in self.id2point:
                     index = self.id2point[pid]
                     self.pose_cluster_to_points[cam_pose_ind].append(index)
+        print("Pose clustering results:")
+        for cam_pose_ind in self.pose_cluster_to_image:
+            print(f" {cam_pose_ind} {[du3[0] for du3 in self.pose_cluster_to_image[cam_pose_ind]]}")
 
     def cluster_by_position(self):
         # cluster by positions
@@ -240,10 +247,34 @@ class PointCloud:
                 break
         return result, count, samples
 
-    def sample(self, point2d_cloud):
+    def sample(self, point2d_cloud, debug=True):
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
-        self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
+        database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
+        results = []
+        for pid, fid, dis, ratio in database:
+            results.append([point2d_cloud[fid], self.points[pid]])
+        if debug:
+            points_3d_list = []
+            pid_match_list = [du3[0] for du3 in database]
+            for pid in range(len(self.points)):
+                x, y, z = self.points[pid].xyz
+                r, g, b = 0, 0, 0
+                if pid in pid_match_list:
+                    r, g, b = 1, 0, 0
+                points_3d_list.append([x, y, z, r, g, b])
+            points_3d_list = np.vstack(points_3d_list)
+            point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
+            point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
+            point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+            point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+
+            vis = o3d.visualization.Visualizer()
+            vis.create_window(width=1920, height=1025)
+            vis.add_geometry(point_cloud)
+            vis.run()
+            vis.destroy_window()
+        return results
 
     def sample_matching_helper(self, pid, point2d_cloud):
         register = None
@@ -285,7 +316,7 @@ class PointCloud:
 
     def sample_exploit(self, pose_cluster_prob_arr, database, visited_arr, point2d_cloud):
         pose_cluster_list = list(range(len(self.pose_cluster_to_points)))
-        for _ in tqdm(range(1000), desc="Exploiting"):
+        for _ in tqdm(range(5000), desc="Exploiting"):
             if len(database) > 100:
                 break
             pose_cluster_id = np.random.choice(pose_cluster_list, p=pose_cluster_prob_arr)
@@ -295,11 +326,11 @@ class PointCloud:
             pid = np.random.choice(pid_list)
             if visited_arr[pid] == 0:
                 register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)
-                prob_arr[position_cluster_id] += 1 - ratio_s
-                pose_cluster_prob_arr[pose_cluster_id] += 1 - ratio_s
                 visited_arr[pid] = 1
 
                 if register is not None:
+                    prob_arr[position_cluster_id] += (1 - ratio_s) / 10
+                    pose_cluster_prob_arr[pose_cluster_id] += (1 - ratio_s) / 10
                     fid, dis, ratio = register
                     assert ratio == ratio_s
                     database.append((pid, fid, dis, ratio))
@@ -308,7 +339,10 @@ class PointCloud:
             self.pose_cluster_to_points[pose_cluster_id][2] = prob_arr / np.sum(prob_arr)
             pose_cluster_prob_arr /= np.sum(pose_cluster_prob_arr)
         print(f"Found {len(database)} matches.")
-        print(pose_cluster_prob_arr.tolist())
+        print("After exploit", pose_cluster_prob_arr.tolist())
+        du2 = np.argmax(pose_cluster_prob_arr)
+        print(pose_cluster_prob_arr[du2], du2, [du3[0] for du3 in self.pose_cluster_to_image[du2]])
+        return database
 
 
 class Point3D:

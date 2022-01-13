@@ -65,10 +65,10 @@ for i in range(len(desc_list)):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    point3d_cloud.sample(point2d_cloud)
+    res_exp = point3d_cloud.sample(point2d_cloud)
 
     res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
-    res_exp = vocab_tree.search_experimental(point2d_cloud)
+    # res_exp = vocab_tree.search_experimental(point2d_cloud)
 
     p2d2p3d[i] = [[], []]
 

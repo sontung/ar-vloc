@@ -105,15 +105,20 @@ class FeatureCloud:
         """
         if self.desc_tree is None:
             self.desc_tree = KDTree(self.point_desc_list)
-        res = self.desc_tree.query(query_desc, 2)
-        if res[0][1] > 0.0:
-            ratio = res[0][0] / res[0][1]
+        distances, indices = self.desc_tree.query(query_desc, 5)
+        coord_first = self.points[indices[0]].xy
+        chosen_idx = None
+        for idx in range(1, 5):
+            diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))
+            if diff > 10:
+                chosen_idx = idx
+        if chosen_idx is not None and distances[chosen_idx] > 0.0:
+            ratio = distances[0] / distances[chosen_idx]
             if ratio < 0.7:
-                index = res[1][0]
-                return index, res[0][0], ratio
+                return indices[0], distances[0], ratio
             else:
-                return None, res[0][0], ratio
-        return None, res[0][0], 1.0
+                return None, distances[0], ratio
+        return None, distances[0], 1.0
 
     def matching_3d_to_2d_brute_force_no_ratio_test(self, query_desc):
         """
