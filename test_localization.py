@@ -65,7 +65,7 @@ for i in range(len(desc_list)):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], response_list[i][j])
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    res_exp = point3d_cloud.sample(point2d_cloud)
+    res_exp = point3d_cloud.sample(point2d_cloud, image_list[i])
 
     res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
     # res_exp = vocab_tree.search_experimental(point2d_cloud)
@@ -105,7 +105,7 @@ for im_idx in p2d2p3d:
     localization_results.append((res2, (0, 0, 1)))
 
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
-    localization_results.append((res2, (1, 0, 0)))
+    localization_results.append((res2, (0.5, 0, 0)))
 
     res3 = localization_dummy()
     localization_results.append((res3, (0, 0, 0)))

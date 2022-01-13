@@ -4,6 +4,7 @@ from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 import time
+import cv2
 import open3d as o3d
 import numpy as np
 
@@ -87,6 +88,12 @@ class PointCloud:
             labels = cluster_model.fit_predict(position_arr)
             for ind, pos_cid in enumerate(labels):
                 position_cluster_to_points[pos_cid].append(index_arr[ind])
+            for pos_cid in position_cluster_to_points:
+                pid_list = position_cluster_to_points[pos_cid]
+                pid_degree_list = np.array([len(self.points[pid].multi_desc_list) for pid in pid_list])
+                pid_prob_arr = pid_degree_list.astype(np.float64)
+                pid_prob_arr /= np.sum(pid_prob_arr)
+                position_cluster_to_points[pos_cid] = (pid_list, pid_prob_arr)
             prob_arr = np.ones((len(position_cluster_to_points),))*1/len(position_cluster_to_points)
             self.pose_cluster_to_points[cid] = [index_arr, position_cluster_to_points, prob_arr]
 
@@ -247,7 +254,7 @@ class PointCloud:
                 break
         return result, count, samples
 
-    def sample(self, point2d_cloud, debug=True):
+    def sample(self, point2d_cloud, image, debug=True):
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
@@ -266,7 +273,7 @@ class PointCloud:
             points_3d_list = np.vstack(points_3d_list)
             point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
             point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
-            point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+            point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
             point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
             vis = o3d.visualization.Visualizer()
@@ -274,6 +281,15 @@ class PointCloud:
             vis.add_geometry(point_cloud)
             vis.run()
             vis.destroy_window()
+
+            image = np.copy(image)
+            for pid, fid, dis, ratio in database:
+                x, y = map(int, point2d_cloud[fid].xy)
+                cv2.circle(image, (x, y), 40, (255, 0, 0), -1)
+            image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
+            cv2.imshow("t", image)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
         return results
 
     def sample_matching_helper(self, pid, point2d_cloud):
@@ -296,9 +312,9 @@ class PointCloud:
             _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
             assert len(prob_arr) == len(position_cluster_to_points)
             for position_cluster_id in position_cluster_to_points:
-                pid_list = position_cluster_to_points[position_cluster_id]
+                pid_list, pid_prob_arr = position_cluster_to_points[position_cluster_id]
                 for _ in range(5):
-                    pid = np.random.choice(pid_list)
+                    pid = np.random.choice(pid_list, p=pid_prob_arr)
                     if visited_arr[pid] == 0:
                         register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)
                         prob_arr[position_cluster_id] += 1 - ratio_s
@@ -322,8 +338,9 @@ class PointCloud:
             pose_cluster_id = np.random.choice(pose_cluster_list, p=pose_cluster_prob_arr)
             _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
             position_cluster_id = np.random.choice(list(range(len(position_cluster_to_points))), p=prob_arr)
-            pid_list = position_cluster_to_points[position_cluster_id]
-            pid = np.random.choice(pid_list)
+            pid_list, pid_prob_arr = position_cluster_to_points[position_cluster_id]
+            pid_idx = np.random.choice(list(range(len(pid_list))), p=pid_prob_arr)
+            pid = pid_list[pid_idx]
             if visited_arr[pid] == 0:
                 register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)
                 visited_arr[pid] = 1
@@ -336,9 +353,19 @@ class PointCloud:
                     database.append((pid, fid, dis, ratio))
 
             # normalize
-            self.pose_cluster_to_points[pose_cluster_id][2] = prob_arr / np.sum(prob_arr)
+            pid_prob_arr[pid_idx] = 0
+            if np.sum(pid_prob_arr) > 0:
+                pid_prob_arr /= np.sum(pid_prob_arr)
+            else:
+                prob_arr[position_cluster_id] = 0
+            position_cluster_to_points[position_cluster_id] = pid_list, pid_prob_arr
+            self.pose_cluster_to_points[pose_cluster_id][1] = position_cluster_to_points
+            if np.sum(prob_arr) > 0:
+                self.pose_cluster_to_points[pose_cluster_id][2] = prob_arr / np.sum(prob_arr)
+            else:
+                pose_cluster_prob_arr[pose_cluster_id] = 0
             pose_cluster_prob_arr /= np.sum(pose_cluster_prob_arr)
-        print(f"Found {len(database)} matches.")
+        print(f"Found {len(database)} matches, after considering {int(np.sum(visited_arr))}.")
         print("After exploit", pose_cluster_prob_arr.tolist())
         du2 = np.argmax(pose_cluster_prob_arr)
         print(pose_cluster_prob_arr[du2], du2, [du3[0] for du3 in self.pose_cluster_to_image[du2]])

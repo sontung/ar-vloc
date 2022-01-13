@@ -108,7 +108,6 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
             coord, desc = compute_kp_descriptors_opencv(im)
 
             tree = KDTree(coord)
-            total_dis = 0
             nb_points = 0
             nb_3d_points = 0
             points2d_meaningful = images[image_id][1]
@@ -118,7 +117,6 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
                     dis, idx = tree.query([x, y], 1)
                     nb_3d_points += 1
                     if dis < 2:
-                        total_dis += dis
                         nb_points += 1
                         if p3d_id not in point3did2descs:
                             point3did2descs[p3d_id] = [[image_id, desc[idx]]]

@@ -107,12 +107,14 @@ class FeatureCloud:
             self.desc_tree = KDTree(self.point_desc_list)
         distances, indices = self.desc_tree.query(query_desc, 5)
         coord_first = self.points[indices[0]].xy
-        chosen_idx = None
+        chosen_idx = 1
         for idx in range(1, 5):
-            diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))
+            diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))/2
             if diff > 10:
                 chosen_idx = idx
-        if chosen_idx is not None and distances[chosen_idx] > 0.0:
+                break
+
+        if distances[chosen_idx] > 0.0:
             ratio = distances[0] / distances[chosen_idx]
             if ratio < 0.7:
                 return indices[0], distances[0], ratio
