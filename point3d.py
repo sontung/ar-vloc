@@ -254,7 +254,7 @@ class PointCloud:
                 break
         return result, count, samples
 
-    def sample(self, point2d_cloud, image, debug=False):
+    def sample(self, point2d_cloud, image_ori, debug=True):
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
@@ -276,7 +276,7 @@ class PointCloud:
             point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
             point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
-            image = np.copy(image)
+            image = np.copy(image_ori)
             for pid, fid, dis, ratio in database:
                 x, y = map(int, point2d_cloud[fid].xy)
                 cv2.circle(image, (x, y), 40, (255, 0, 0), -1)
@@ -290,6 +290,22 @@ class PointCloud:
             cv2.waitKey()
             cv2.destroyAllWindows()
             vis.destroy_window()
+
+            from vis_utils import visualize_matching, visualize_matching_helper
+            for pid, fid, dis, ratio in database:
+                image = np.copy(image_ori)
+                fx, fy = point2d_cloud[fid].xy
+
+                fx, fy = map(int, (fx, fy))
+                cv2.circle(image, (fx, fy), 50, (128, 128, 0), -1)
+                image = cv2.resize(image, (image.shape[1]//4, image.shape[0]//4))
+                cv2.imshow("image", image)
+                cv2.waitKey()
+                images = visualize_matching_helper(np.copy(image), point2d_cloud[fid],
+                                                   self.points[pid], "sfm_ws_hblab/images")
+                cv2.imshow("t", images)
+                cv2.waitKey()
+                cv2.destroyWindow("t")
 
         xyz_array = np.zeros((len(database), 3))
         xy_array = np.zeros((len(database), 2))
@@ -343,7 +359,7 @@ class PointCloud:
     def sample_exploit(self, pose_cluster_prob_arr, database, visited_arr, point2d_cloud):
         pose_cluster_list = list(range(len(self.pose_cluster_to_points)))
         for _ in tqdm(range(5000), desc="Exploiting"):
-            if len(database) > 100:
+            if len(database) > 500:
                 break
             pose_cluster_id = np.random.choice(pose_cluster_list, p=pose_cluster_prob_arr)
             _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
@@ -379,6 +395,7 @@ class PointCloud:
         print("After exploit", pose_cluster_prob_arr.tolist())
         du2 = np.argmax(pose_cluster_prob_arr)
         print(pose_cluster_prob_arr[du2], du2, [du3[0] for du3 in self.pose_cluster_to_image[du2]])
+        print(f"Mean ratio={np.mean([du[-1] for du in database])}")
         return database
 
 

@@ -99,7 +99,7 @@ for im_idx in p2d2p3d:
                               [0, f, cy],
                               [0, 0, 1]])
     distortion_coefficients = np.array([k, 0, 0, 0])
-    res = localize_single_image(p2d2p3d[im_idx][0], camera_matrix, distortion_coefficients)
+    res = localize_single_image(p2d2p3d[im_idx][1], camera_matrix, distortion_coefficients)
     localization_results.append((res, (0, 1, 0)))
 
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)  # brute force result
@@ -108,8 +108,8 @@ for im_idx in p2d2p3d:
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
     localization_results.append((res2, (0.5, 0, 0)))
 
-    res3 = localization_dummy()
-    localization_results.append((res3, (0, 0, 0)))
+    # res3 = localization_dummy()
+    # localization_results.append((res3, (0, 0, 0)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)

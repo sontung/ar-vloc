@@ -149,7 +149,6 @@ else:
     database = point2d_cloud.sample_by_feature_strengths(point3d_cloud)
     for nb_desc, ind, indices, distances in database:
         fx, fy = point2d_cloud[ind].xy
-        print(fx, fy)
 
         fx, fy = map(int, (fx // down_scale, fy // down_scale))
         cv2.circle(image, (fx, fy), 5, (128, 128, 0), 5)

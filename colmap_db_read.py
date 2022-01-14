@@ -263,12 +263,12 @@ def extract_colmap_sift(database_path):
 
     # Read and check keypoints.
     keypoints = dict(
-        (image_id, blob_to_array(data, np.float32, (-1, 2)))
+        (image_id, blob_to_array(data, np.float32, (-1, 6)))
         for image_id, data in db.execute(
             "SELECT image_id, data FROM keypoints"))
 
     desc = dict(
-        (image_id, blob_to_array(data, np.uint8, (-1, 2)))
+        (image_id, blob_to_array(data, np.uint8, (-1, 128)))
         for image_id, data in db.execute(
             "SELECT image_id, data FROM descriptors"))
 
@@ -276,6 +276,8 @@ def extract_colmap_sift(database_path):
         (image_id, name)
         for image_id, name in db.execute(
             "SELECT image_id, name FROM images"))
+    for im in keypoints:
+        keypoints[im] = keypoints[im][:, :2]
     db.close()
     return keypoints, desc, id2name
 

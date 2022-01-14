@@ -97,10 +97,6 @@ def load_2d_queries_using_colmap_sift(folder, db_path="/home/sontung/work/ar-vlo
     im_names = os.listdir(folder)
     descriptors = []
     coordinates = []
-    md_list = []
-    im_list = []
-    response_list = []
-    name_list = []
     id2kp, id2desc, id2name = extract_colmap_sift(db_path)
     name2id = {v: k for k, v in id2name.items()}
     for name in tqdm(im_names, desc="Reading query images"):
@@ -179,6 +175,7 @@ def build_descriptors_2d_using_colmap_sift(images,
         image_name = images[image_id][0]
         db_id = name2id[image_name]
         coord, desc = id2kp[db_id], id2desc[db_id]
+        assert coord.shape[0] == desc.shape[0]
 
         tree = KDTree(coord)
         nb_points = 0
@@ -296,5 +293,6 @@ def compute_kp_descriptors_opencv_with_d2_detector(img, nb_keypoints=None, root_
 
 if __name__ == '__main__':
     query_images_folder = "Test line small"
-    desc_list, coord_list, im_name_list, metadata_list, image_list, response_list = load_2d_queries_using_colmap_sift(query_images_folder)
+    desc_list, coord_list = load_2d_queries_using_colmap_sift(query_images_folder)
+    print(desc_list[0].shape, coord_list[0].shape)
 

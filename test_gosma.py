@@ -28,7 +28,7 @@ def produce_data():
 
 
 def process_results():
-    res_line = "9.234939575e+00  7.089663148e-01 -2.337848663e+00  6.520420313e-01  2.970860600e-01 -6.975536942e-01 -1.082430407e-01  9.470853806e-01  3.021801114e-01  7.504163384e-01 -1.215288118e-01  6.496969461e-01 8.223325759e-02 1.534432200e-01 2.972210000e-04 1"
+    res_line = " 9.424966812e+00 -2.315961838e+00  3.042958736e+00  2.553896308e-01  2.012642920e-01 -9.456579089e-01  5.124756694e-02 -9.795361757e-01 -1.946344078e-01 -9.654790759e-01  1.244932413e-03 -2.604776621e-01 1.505673379e-01 4.534555366e+01 6.775730000e-04 1"
     numbers = []
     for du in res_line.split(" "):
         try:
@@ -66,18 +66,32 @@ def process_results():
         test = np.square(test)
         test = np.sum(test, axis=1)
         results.append([idx, np.min(test), np.argmin(test)])
-
     object_points = []
     image_points = []
-    for ind in range(0, len(results), 5):
-        sub_res = results[ind: ind+5]
-        assert len(sub_res) == 5
-        pid, _, fid = min(sub_res, key=lambda du: du[1])
-        object_points.append(object_mat[pid])
-        image_points.append(image_mat[fid, :2])
+
+    for pid, err, fid in results:
+        if err < 0.01:
+            object_points.append(object_mat[pid])
+            image_points.append(image_mat[fid, :2])
+
+    # for ind in range(0, len(results), 5):
+    #     sub_res = results[ind: ind+5]
+    #     assert len(sub_res) == 5
+    #     pid, _, fid = min(sub_res, key=lambda du: du[1])
+    #     object_points.append(object_mat[pid])
+    #     image_points.append(image_mat[fid, :2])
     object_points = np.array(object_points)
     image_points = np.array(image_points)
     res = pnp.build.pnp_python_binding.pnp(object_points, image_points)
+
+    # print(object_points)
+    # print(image_points)
+    # print(res)
+    # for xyz in object_points:
+    #     xyz2 = np.array([xyz[0], xyz[1], xyz[2], 1])
+    #     xyz2 = res @ xyz2
+    #     xyz2 = xyz2[:3]/xyz2[2]
+    #     print(xyz2)
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
@@ -86,5 +100,5 @@ def process_results():
 
 
 if __name__ == '__main__':
-    produce_data()
-    # process_results()
+    # produce_data()
+    process_results()
