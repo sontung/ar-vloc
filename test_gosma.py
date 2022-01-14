@@ -18,7 +18,7 @@ def produce_data():
     xyz_array = np.reshape(xyz_array, (-1, 3))
 
     for ind in range(xy_array.shape[0]):
-        x1, y1 = xy_array[ind, :]
+        x1, y1 = xy_array[ind, 0, :]
         u = (x1 - c1) / f
         v = (y1 - c2) / f
         new_coords.append([u, v, 1])
@@ -28,7 +28,7 @@ def produce_data():
 
 
 def process_results():
-    res_line = " 9.424966812e+00 -2.315961838e+00  3.042958736e+00  2.553896308e-01  2.012642920e-01 -9.456579089e-01  5.124756694e-02 -9.795361757e-01 -1.946344078e-01 -9.654790759e-01  1.244932413e-03 -2.604776621e-01 1.505673379e-01 4.534555366e+01 6.775730000e-04 1"
+    res_line=" 1.057692528e+00  2.600996494e+00 -1.983216882e+00  9.487524033e-01 -2.550672293e-01  1.865730733e-01  3.142693043e-01  6.994546652e-01 -6.418706775e-01  3.322076797e-02  6.676105857e-01  7.437691092e-01 5.651721358e-02 3.023140400e-01 2.349190000e-04 1"
     numbers = []
     for du in res_line.split(" "):
         try:
@@ -69,33 +69,25 @@ def process_results():
     object_points = []
     image_points = []
 
-    for pid, err, fid in results:
-        if err < 0.01:
-            object_points.append(object_mat[pid])
-            image_points.append(image_mat[fid, :2])
+    # for pid, err, fid in results:
+    #     if err < 0.01:
+    #         object_points.append(object_mat[pid])
+    #         image_points.append(image_mat[fid, :2])
 
-    # for ind in range(0, len(results), 5):
-    #     sub_res = results[ind: ind+5]
-    #     assert len(sub_res) == 5
-    #     pid, _, fid = min(sub_res, key=lambda du: du[1])
-    #     object_points.append(object_mat[pid])
-    #     image_points.append(image_mat[fid, :2])
+    for ind in range(0, len(results), 5):
+        sub_res = results[ind: ind+5]
+        assert len(sub_res) == 5
+        pid, _, fid = min(sub_res, key=lambda du: du[1])
+        object_points.append(object_mat[pid])
+        image_points.append(image_mat[fid, :2])
     object_points = np.array(object_points)
     image_points = np.array(image_points)
     res = pnp.build.pnp_python_binding.pnp(object_points, image_points)
 
-    # print(object_points)
-    # print(image_points)
-    # print(res)
-    # for xyz in object_points:
-    #     xyz2 = np.array([xyz[0], xyz[1], xyz[2], 1])
-    #     xyz2 = res @ xyz2
-    #     xyz2 = xyz2[:3]/xyz2[2]
-    #     print(xyz2)
-
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
     t_vec = t_vec.reshape((-1, 1))
+    print(t_vec)
     return r_mat, t_vec
 
 

@@ -60,10 +60,6 @@ def load_2d_queries_generic(folder):
                                                                                    return_response=True,
                                                                                    nb_keypoints=None)
 
-            # coord, desc, response = compute_kp_descriptors_opencv(im,
-            #                                                       return_response=True,
-            #                                                       nb_keypoints=None)
-
             assert len(coord) == len(desc) == len(response)
             coord = np.array(coord)
             coordinates.append(coord)
@@ -105,6 +101,7 @@ def load_2d_queries_using_colmap_sift(folder, db_path="/home/sontung/work/ar-vlo
         db_id = name2id[name]
         kp = id2kp[db_id]
         desc = id2desc[db_id]
+        desc = produce_root_sift(desc)
         coordinates.append(kp)
         descriptors.append(desc)
     return descriptors, coordinates
@@ -175,6 +172,7 @@ def build_descriptors_2d_using_colmap_sift(images,
         image_name = images[image_id][0]
         db_id = name2id[image_name]
         coord, desc = id2kp[db_id], id2desc[db_id]
+        desc = produce_root_sift(desc)
         assert coord.shape[0] == desc.shape[0]
 
         tree = KDTree(coord)
@@ -210,6 +208,14 @@ def build_descriptors_2d_using_colmap_sift(images,
         p3d_desc_list.append(desc)
     print(f"Mean var. = {np.mean(mean_diff)}")
     return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
+
+
+def produce_root_sift(des):
+    des = des.astype(np.float64)
+    des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
+    des /= (np.linalg.norm(des, axis=1, ord=1, keepdims=True) + 1e-7)
+    des = np.sqrt(des)
+    return des
 
 
 def build_vocabulary_of_descriptors(p3d_id_list, p3d_desc_list, nb_clusters=None):
@@ -289,6 +295,24 @@ def compute_kp_descriptors_opencv_with_d2_detector(img, nb_keypoints=None, root_
     if return_response:
         return coords, new_des, response_list
     return coords, new_des
+
+
+def filter_using_d2_detector(img, desc_list, kp_list):
+    keypoints, responses = extract_using_d2_net(img)
+    keypoints = keypoints[:, :2]
+    tree = KDTree(keypoints)
+
+    coords = []
+    new_des = []
+    response_list = []
+    for idx, kp in enumerate(kp_list):
+        distance, idx2 = tree.query(kp, 1)
+        if distance < 4:
+            coords.append(kp)
+            new_des.append(desc_list[idx])
+            response_list.append(responses[idx2])
+    print(f"reduce from {desc_list.shape[0]} to {len(new_des)}")
+    return coords, new_des, response_list
 
 
 if __name__ == '__main__':

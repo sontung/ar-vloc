@@ -4,6 +4,7 @@ from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 import time
+import kmeans1d
 import cv2
 import open3d as o3d
 import numpy as np
@@ -254,7 +255,7 @@ class PointCloud:
                 break
         return result, count, samples
 
-    def sample(self, point2d_cloud, image_ori, debug=True):
+    def sample(self, point2d_cloud, image_ori, debug=False):
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
@@ -291,7 +292,7 @@ class PointCloud:
             cv2.destroyAllWindows()
             vis.destroy_window()
 
-            from vis_utils import visualize_matching, visualize_matching_helper
+            from vis_utils import visualize_matching_helper
             for pid, fid, dis, ratio in database:
                 image = np.copy(image_ori)
                 fx, fy = point2d_cloud[fid].xy
@@ -309,6 +310,7 @@ class PointCloud:
 
         xyz_array = np.zeros((len(database), 3))
         xy_array = np.zeros((len(database), 2))
+        print("Found this pid list:", sorted([du[0] for du in database]))
         for ind, (pid, fid, dis, ratio) in enumerate(database):
             xyz_array[ind] = self.points[pid].xyz
             xy_array[ind] = point2d_cloud[fid].xy
@@ -358,10 +360,13 @@ class PointCloud:
 
     def sample_exploit(self, pose_cluster_prob_arr, database, visited_arr, point2d_cloud):
         pose_cluster_list = list(range(len(self.pose_cluster_to_points)))
+        counter = {pose_id: 0 for pose_id in pose_cluster_list}
+        # while np.sum(pose_cluster_prob_arr) > 0:
         for _ in tqdm(range(5000), desc="Exploiting"):
             if len(database) > 500:
                 break
             pose_cluster_id = np.random.choice(pose_cluster_list, p=pose_cluster_prob_arr)
+            counter[pose_cluster_id] += 1
             _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
             position_cluster_id = np.random.choice(list(range(len(position_cluster_to_points))), p=prob_arr)
             pid_list, pid_prob_arr = position_cluster_to_points[position_cluster_id]
@@ -393,8 +398,12 @@ class PointCloud:
             pose_cluster_prob_arr /= np.sum(pose_cluster_prob_arr)
         print(f"Found {len(database)} matches, after considering {int(np.sum(visited_arr))}.")
         print("After exploit", pose_cluster_prob_arr.tolist())
+        print("Sampling times", counter)
         du2 = np.argmax(pose_cluster_prob_arr)
         print(pose_cluster_prob_arr[du2], du2, [du3[0] for du3 in self.pose_cluster_to_image[du2]])
+        for idx, du in enumerate(pose_cluster_prob_arr):
+            if du > 0.1:
+                print(idx, du, [du3[0] for du3 in self.pose_cluster_to_image[idx]])
         print(f"Mean ratio={np.mean([du[-1] for du in database])}")
         return database
 

@@ -5,7 +5,7 @@ import open3d as o3d
 import time
 import cv2
 from feature_matching import build_descriptors_2d, load_2d_queries_generic, load_2d_queries_using_colmap_sift
-from feature_matching import build_descriptors_2d_using_colmap_sift
+from feature_matching import build_descriptors_2d_using_colmap_sift, filter_using_d2_detector
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
 from vis_utils import produce_cam_mesh
 from point3d import PointCloud
@@ -57,6 +57,7 @@ if VISUALIZING_POSES:
 
 _, _, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
 desc_list, coord_list = load_2d_queries_using_colmap_sift(query_images_folder)
+
 p2d2p3d = {}
 for i in range(len(desc_list)):
     print(f"{im_name_list[i]}")
@@ -66,10 +67,17 @@ for i in range(len(desc_list)):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], 0.0)
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    res_exp = point3d_cloud.sample(point2d_cloud, image_list[i])
-
+    # res_exp = point3d_cloud.sample(point2d_cloud, image_list[i])
     res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
-    # res_exp = vocab_tree.search_experimental(point2d_cloud)
+
+    coord_list2, desc_list2, response_list2 = filter_using_d2_detector(image_list[0], desc_list[0], coord_list[0])
+    coord_list2 = np.array([coord_list2])
+    desc_list2 = [desc_list2]
+    point2d_cloud = FeatureCloud()
+    for j in range(coord_list2[i].shape[0]):
+        point2d_cloud.add_point(j, desc_list2[i][j], coord_list2[i][j], response_list2[j])
+    point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
+    res_exp = vocab_tree.search_experimental(point2d_cloud)
 
     p2d2p3d[i] = [[], []]
 
@@ -99,8 +107,8 @@ for im_idx in p2d2p3d:
                               [0, f, cy],
                               [0, 0, 1]])
     distortion_coefficients = np.array([k, 0, 0, 0])
-    res = localize_single_image(p2d2p3d[im_idx][1], camera_matrix, distortion_coefficients)
-    localization_results.append((res, (0, 1, 0)))
+    # res = localize_single_image(p2d2p3d[im_idx][1], camera_matrix, distortion_coefficients)
+    # localization_results.append((res, (0, 1, 0)))
 
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)  # brute force result
     localization_results.append((res2, (0, 0, 1)))
@@ -108,8 +116,8 @@ for im_idx in p2d2p3d:
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
     localization_results.append((res2, (0.5, 0, 0)))
 
-    # res3 = localization_dummy()
-    # localization_results.append((res3, (0, 0, 0)))
+    res3 = localization_dummy()
+    localization_results.append((res3, (0, 0, 0)))
 
 vis = o3d.visualization.Visualizer()
 vis.create_window(width=1920, height=1025)

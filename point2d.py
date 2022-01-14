@@ -109,13 +109,10 @@ class FeatureCloud:
         coord_first = self.points[indices[0]].xy
         chosen_idx = 1
         for idx in range(1, 5):
-            diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))/2
+            diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))
             if diff > 10:
                 chosen_idx = idx
                 break
-
-        # if distances[0] == 0.0:
-        #     print(query_desc, self.points[indices[0]].desc, print(self.point_desc_list[indices[0]]))
 
         if distances[chosen_idx] > 0.0:
             ratio = distances[0] / distances[chosen_idx]
@@ -187,7 +184,7 @@ class FeatureCloud:
 
     def sample_by_feature_strengths(self, point3d_cloud, top_k=5, nb_samples=100, visibility_filtering=True):
         feature_indices = list(range(len(self)))
-        feature_indices = sorted(feature_indices, key=lambda du: self[du].strength[0])
+        feature_indices = sorted(feature_indices, key=lambda du: self[du].strength)
         r_list = np.zeros((len(feature_indices),))
         database = []
         all_points = []
