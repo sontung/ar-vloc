@@ -1,8 +1,8 @@
 # Visual localization for augmented reality
 
-1. run colmap
-2. run `python colmap_read.py`
+## to do list
+1. normalizing quat and trans before clustering
 
-# build LT-pnp
+## build LT-pnp
 
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`

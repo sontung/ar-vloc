@@ -73,7 +73,7 @@ class PointCloud:
                     self.pose_cluster_to_points[cam_pose_ind].append(index)
         print("Pose clustering results:")
         for cam_pose_ind in self.pose_cluster_to_image:
-            print(f" {cam_pose_ind} {[du3[0] for du3 in self.pose_cluster_to_image[cam_pose_ind]]}")
+            print(f" {cam_pose_ind} {len(self.pose_cluster_to_points[cam_pose_ind])} {[du3[0] for du3 in self.pose_cluster_to_image[cam_pose_ind]]}")
 
     def cluster_by_position(self):
         # cluster by positions
@@ -332,11 +332,11 @@ class PointCloud:
                 break
         return register, smallest_ratio
 
-    def sample_explore(self, point2d_cloud, visited_arr, visits_per_region=1):
+    def sample_explore(self, point2d_cloud, visited_arr, visits_per_region=5):
         database = []
         pose_cluster_prob_arr = np.ones((len(self.pose_cluster_to_points),))*1.0/len(self.pose_cluster_to_points)
         print("Start with", pose_cluster_prob_arr.tolist())
-        for pose_cluster_id in self.pose_cluster_to_points:
+        for pose_cluster_id in tqdm(self.pose_cluster_to_points, desc="Exploring"):
             _, position_cluster_to_points, prob_arr = self.pose_cluster_to_points[pose_cluster_id]
             assert len(prob_arr) == len(position_cluster_to_points)
             for position_cluster_id in position_cluster_to_points:
@@ -345,17 +345,19 @@ class PointCloud:
                     pid = np.random.choice(pid_list, p=pid_prob_arr)
                     if visited_arr[pid] == 0:
                         register, ratio_s = self.sample_matching_helper(pid, point2d_cloud)
-                        prob_arr[position_cluster_id] += 1 - ratio_s
-                        pose_cluster_prob_arr[pose_cluster_id] += 1 - ratio_s
                         visited_arr[pid] = 1
 
                         if register is not None:
+                            prob_arr[position_cluster_id] += (1 - ratio_s) / 10
+                            pose_cluster_prob_arr[pose_cluster_id] += (1 - ratio_s) / 10
                             fid, dis, ratio = register
                             assert ratio == ratio_s
                             database.append((pid, fid, dis, ratio))
+
             self.pose_cluster_to_points[pose_cluster_id][2] = prob_arr/np.sum(prob_arr)
         pose_cluster_prob_arr /= np.sum(pose_cluster_prob_arr)
         print("After exploring", pose_cluster_prob_arr.tolist())
+        print("Found", len(database))
         return database, pose_cluster_prob_arr
 
     def sample_exploit(self, pose_cluster_prob_arr, database, visited_arr, point2d_cloud):
