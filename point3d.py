@@ -42,6 +42,11 @@ class PointCloud:
         self.vocab, self.cluster_model = None, None
         self.pose_cluster_to_points = {}
         self.pose_cluster_to_image = {}
+        self.image2points = {}
+        self.point2images = {}
+        self.point2co_visible_points = {}
+        self.visibility_trees = []
+        self.visibility_matrix = None
 
     def cluster(self, image2pose):
         self.cluster_by_pose(image2pose)
@@ -125,6 +130,36 @@ class PointCloud:
                 self.visibility_graph[graph_id] = (KDTree(xyz_list), data)
         print(f"Done building visibility graph of size {len(self.visibility_graph)}")
 
+    def build_visibility_matrix(self, image2pose):
+        for pid in range(len(self.points)):
+            self.point2images[pid] = []
+        for map_id, image in enumerate(list(image2pose.keys())):
+            data = image2pose[image]
+            self.image2points[map_id] = []
+            for x, y, pid in data[1]:
+                if pid > 0 and pid in self.id2point:
+                    index = self.id2point[pid]
+                    self.image2points[map_id].append(index)
+                    self.point2images[index].append(map_id)
+        for pid in range(len(self.points)):
+            if pid not in self.point2co_visible_points:
+                pid_list = self.access_visibility_matrix(pid)
+                xyz_list = [self.point_xyz_list[du] for du in pid_list]
+                tree = KDTree(xyz_list)
+                self.visibility_trees.append(tree)
+                self.point2co_visible_points[pid] = (len(self.visibility_trees)-1, pid_list)
+                for pid2 in pid_list:
+                    self.point2co_visible_points[pid2] = (len(self.visibility_trees) - 1, pid_list)
+        assert len(self.point2co_visible_points) == len(self.points)
+        print(f"Done building {len(self.visibility_trees)} visibility trees.")
+
+    def access_visibility_matrix(self, pid):
+        images = self.point2images[pid]
+        pid_list = []
+        for im_id in images:
+            pid_list.extend(self.image2points[im_id])
+        return list(set(pid_list))
+
     def __len__(self):
         return len(self.points)
 
@@ -170,9 +205,10 @@ class PointCloud:
         return indices
 
     def xyz_nearest_and_covisible(self, point_index, nb_neighbors=5):
-        tree, data = self.visibility_graph[self.points[point_index].visibility_graph_index]
-        _, indices = tree.query(self.points[point_index].xyz, nb_neighbors)
-        return [data[du] for du in indices]
+        tree_idx, pid_list = self.point2co_visible_points[point_index]
+        distances, _ = self.visibility_trees[tree_idx].query(self.points[point_index].xyz, nb_neighbors)
+        indices = self.visibility_trees[tree_idx].query_ball_point(self.points[point_index].xyz, distances[-1])
+        return [pid_list[du] for du in indices]
 
     def top_k_nearest_desc(self, query_desc, nb_neighbors):
         if self.desc_tree is None:
@@ -310,7 +346,7 @@ class PointCloud:
 
         xyz_array = np.zeros((len(database), 3))
         xy_array = np.zeros((len(database), 2))
-        print("Found this pid list:", sorted([du[0] for du in database]))
+        print("Found this pid list:", sorted([du[:2] for du in database]))
         for ind, (pid, fid, dis, ratio) in enumerate(database):
             xyz_array[ind] = self.points[pid].xyz
             xy_array[ind] = point2d_cloud[fid].xy

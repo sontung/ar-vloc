@@ -2,6 +2,11 @@
 
 ## to do list
 1. normalizing quat and trans before clustering
+2. enforcing smoothness to recover more matches
+   1. if one match is found,
+   2. split covisible neighbors of the point into a multi-grid
+   3. do the same for the neighbors of the feature
+   4. check if we can find any extra matches
 
 ## build LT-pnp
 

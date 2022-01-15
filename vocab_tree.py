@@ -173,30 +173,31 @@ class VocabTree:
         self.ratio_map.clear()
         self.matching_results = []
 
-    # @profile
     def search_experimental(self, features):
         start_time = time.time()
         self.restart()
         result = []
 
         # database = features.sample(self.point_cloud, top_k=3, nb_samples=1000)
-        database = features.sample_by_feature_strengths(self.point_cloud, top_k=5, nb_samples=200)
+        # database = features.sample_by_feature_strengths(self.point_cloud, top_k=5, nb_samples=200)
+        database = features.sample_by_feature_strength_with_ratio_test(self.point_cloud)
+        for pid, fid, _ in database:
+            result.append([features[fid], self.point_cloud[pid]])
 
-        xyz_array = np.zeros((len(database), len(database[0][2]), 3))
-        xy_array = np.zeros((len(database), len(database[0][2]), 2))
-        database = sorted(database, key=lambda du: du[0], reverse=True)
-
-        for ind, (nb_desc, fid, indices, distances) in enumerate(database):
-            for j, pid in enumerate(indices):
-                xyz_array[ind, j] = self.point_cloud[pid].xyz
-                xy_array[ind, j] = features[fid].xy
-        with open('debug/test_refine.npy', 'wb') as f:
-            np.save(f, xyz_array)
-            np.save(f, xy_array)
-
+        # xyz_array = np.zeros((len(database), len(database[0][2]), 3))
+        # xy_array = np.zeros((len(database), len(database[0][2]), 2))
+        # database = sorted(database, key=lambda du: du[0], reverse=True)
+        #
+        # for ind, (nb_desc, fid, indices, distances) in enumerate(database):
+        #     for j, pid in enumerate(indices):
+        #         xyz_array[ind, j] = self.point_cloud[pid].xyz
+        #         xy_array[ind, j] = features[fid].xy
+        # with open('debug/test_refine.npy', 'wb') as f:
+        #     np.save(f, xyz_array)
+        #     np.save(f, xy_array)
         # refine_matching_pairs(xyz_array, xy_array)
 
-        print(f"Found {len(self.matches)} 2D-3D pairs. "
+        print(f"Found {len(database)} 2D-3D pairs. "
               f"Done in {round(time.time()-start_time, 3)}.")
 
         return result

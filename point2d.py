@@ -32,28 +32,12 @@ class FeatureCloud:
     def __len__(self):
         return len(self.points)
 
-    def nearby_feature(self, ind, nb_neighbors=20, max_distance=50, min_distance=4,
-                       strict_lower_bound=False, return_distances=False):
+    def nearby_feature(self, ind, nb_neighbors=20):
         if self.xy_tree is None:
             self.xy_tree = KDTree(self.point_xy_list)
-        distances, indices = self.xy_tree.query(self.point_xy_list[ind], nb_neighbors,
-                                                distance_upper_bound=max_distance)
-        if nb_neighbors == 1:
-            return [indices]
-        res = []
-        dis = []
-        for i in range(len(distances)):
-            if not strict_lower_bound:
-                if min_distance <= distances[i] <= max_distance:
-                    res.append(indices[i])
-                    dis.append(distances[i])
-            else:
-                if min_distance < distances[i] <= max_distance:
-                    res.append(indices[i])
-                    dis.append(distances[i])
-        if return_distances:
-            return res, dis
-        return res
+        distances, _ = self.xy_tree.query(self.points[ind].xy, nb_neighbors)
+        indices = self.xy_tree.query_ball_point(self.points[ind].xy, distances[-1])
+        return indices
 
     def sort_by_feature_strength(self, idx=0):
         indices = list(range(len(self.points)))
@@ -105,10 +89,10 @@ class FeatureCloud:
         """
         if self.desc_tree is None:
             self.desc_tree = KDTree(self.point_desc_list)
-        distances, indices = self.desc_tree.query(query_desc, 2)
+        distances, indices = self.desc_tree.query(query_desc, 5)
         coord_first = self.points[indices[0]].xy
         chosen_idx = 1
-        for idx in range(1, 2):
+        for idx in range(1, 5):
             diff = np.sqrt(np.sum(np.square(coord_first - self.points[indices[idx]].xy)))
             if diff > 10:
                 chosen_idx = idx
@@ -222,6 +206,26 @@ class FeatureCloud:
                 if not failed:
                     filter_database.append((nb_desc, fid, indices, distances))
             return filter_database
+        return database
+
+    def sample_by_feature_strength_with_ratio_test(self, point3d_cloud, nb_samples=100):
+        feature_indices = list(range(len(self)))
+        feature_indices = sorted(feature_indices, key=lambda du: self[du].strength)
+        r_list = np.zeros((len(feature_indices),))
+        database = []
+        while True:
+            if len(database) >= nb_samples or len(feature_indices) == 0:
+                break
+
+            fid = feature_indices.pop()
+
+            if r_list[fid] == 1:
+                continue
+            r_list[fid] = 1
+
+            pid, d1, d2, ratio = point3d_cloud.matching_2d_to_3d_brute_force(self[fid].desc, returning_index=True)
+            if pid is not None:
+                database.append((pid, fid, d1))
         return database
 
     def sample(self, point3d_cloud, top_k=5, nb_samples=1000):
