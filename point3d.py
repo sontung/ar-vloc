@@ -291,10 +291,27 @@ class PointCloud:
                 break
         return result, count, samples
 
+    def search_neighborhood(self, database, point2d_cloud):
+        ori_len = len(database)
+        for pid, fid, dis, ratio in database:
+            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=20)
+            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=20)
+            for pid2 in pid_neighbors:
+                for desc in self.points[pid].multi_desc_list:
+                    fid2, dis, ratio = point2d_cloud.matching_3d_to_2d_brute_force_no_ratio_test(desc)
+                    if fid2 in fid_neighbors:
+                        database.append((pid2, fid2, dis, ratio))
+                        break
+            if len(database) > 100:
+                break
+        print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
+        return database
+
     def sample(self, point2d_cloud, image_ori, debug=False):
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
+        database = self.search_neighborhood(database, point2d_cloud)
         results = []
         for pid, fid, dis, ratio in database:
             results.append([point2d_cloud[fid], self.points[pid]])

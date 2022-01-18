@@ -12,7 +12,7 @@ from point3d import PointCloud
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
 from localization import localize_single_image, localize_single_image_lt_pnp, localization_dummy
-
+from optimizer import exhaustive_search
 
 database = [(3242, 9124), (4004, 9173), (4021, 9035), (4288, 7432), (4523, 9173), (4533, 9124)]
 
@@ -74,6 +74,8 @@ for i in range(len(desc_list)):
         point_cloud_vis = [point3d_cloud[pid].xyzrgb]
         pid_neighbors = point3d_cloud.xyz_nearest_and_covisible(pid, nb_neighbors=20)
         fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=20)
+        exhaustive_search(pid_neighbors, fid_neighbors)
+        sys.exit()
 
         # viz 3d neighbors
         for pid2 in pid_neighbors:

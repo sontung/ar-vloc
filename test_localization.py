@@ -36,6 +36,8 @@ for i in range(len(point3d_id_list)):
 point3d_cloud.commit(image2pose)
 point3d_cloud.cluster(image2pose)
 point3d_cloud.build_desc_tree()
+point3d_cloud.build_visibility_matrix(image2pose)
+
 vocab_tree = VocabTree(point3d_cloud)
 vocab_tree.load_matching_pairs(query_images_folder)
 
@@ -114,8 +116,8 @@ for im_idx in p2d2p3d:
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)  # brute force result
     localization_results.append((res2, (0, 0, 1)))
 
-    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
-    localization_results.append((res2, (0.5, 0, 0)))
+    # res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
+    # localization_results.append((res2, (0.5, 0, 0)))
 
     # res3 = localization_dummy()
     # localization_results.append((res3, (0, 0, 0)))
