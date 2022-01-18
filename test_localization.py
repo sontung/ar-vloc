@@ -72,15 +72,15 @@ for i in range(len(desc_list)):
     res_exp = point3d_cloud.sample(point2d_cloud, image_list[i])
     res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
 
-    coord_list2, desc_list2, response_list2 = filter_using_d2_detector(image_list[0], desc_list[0], coord_list[0])
-    coord_list2 = np.array([coord_list2])
-    desc_list2 = [desc_list2]
-    point2d_cloud = FeatureCloud()
-    for j in range(coord_list2[i].shape[0]):
-        point2d_cloud.add_point(j, desc_list2[i][j], coord_list2[i][j], response_list2[j])
-    point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
-    res_exp2 = vocab_tree.search_experimental(point2d_cloud)
-    res_exp.extend(res_exp2)
+    # coord_list2, desc_list2, response_list2 = filter_using_d2_detector(image_list[0], desc_list[0], coord_list[0])
+    # coord_list2 = np.array([coord_list2])
+    # desc_list2 = [desc_list2]
+    # point2d_cloud = FeatureCloud()
+    # for j in range(coord_list2[i].shape[0]):
+    #     point2d_cloud.add_point(j, desc_list2[i][j], coord_list2[i][j], response_list2[j])
+    # point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
+    # res_exp2 = vocab_tree.search_experimental(point2d_cloud)
+    # res_exp.extend(res_exp2)
 
     p2d2p3d[i] = [[], []]
 
@@ -116,8 +116,8 @@ for im_idx in p2d2p3d:
     res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)  # brute force result
     localization_results.append((res2, (0, 0, 1)))
 
-    # res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
-    # localization_results.append((res2, (0.5, 0, 0)))
+    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
+    localization_results.append((res2, (0.5, 0, 0)))
 
     # res3 = localization_dummy()
     # localization_results.append((res3, (0, 0, 0)))

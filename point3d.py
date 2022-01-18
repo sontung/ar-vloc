@@ -24,6 +24,36 @@ def ratio_test(results):
             return False, 10
 
 
+def enforce_consistency(database):
+    matches = {}
+    matches_reverse = {}
+    for p_id, f_id, dist, ratio in database:
+        candidates = [(f_id, p_id, dist)]
+
+        if f_id in matches:
+            p_id2, dist2 = matches[f_id]
+            pair2 = (f_id, p_id2, dist2)
+            candidates.append(pair2)
+            del matches[f_id]
+            del matches_reverse[p_id2]
+
+        if p_id in matches_reverse:
+            f_id2, dist2 = matches_reverse[p_id]
+            pair2 = (f_id2, p_id, dist2)
+            candidates.append(pair2)
+            del matches[f_id2]
+            del matches_reverse[p_id]
+        f_id, p_id, dist = min(candidates, key=lambda du: du[-1])
+        matches[f_id] = (p_id, dist)
+        matches_reverse[p_id] = (f_id, dist)
+    new_database = []
+    for p_id in matches_reverse:
+        f_id, dist = matches_reverse[p_id]
+        new_database.append((p_id, f_id, dist, 0))
+    print(f"After enforcing uniqueness constraint, reducing from {len(database)} to {len(new_database)}")
+    return database
+
+
 class PointCloud:
     def __init__(self, multiple_desc_map, debug=False):
         self.points = []
@@ -293,15 +323,17 @@ class PointCloud:
 
     def search_neighborhood(self, database, point2d_cloud):
         ori_len = len(database)
-        for pid, fid, dis, ratio in database:
-            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=20)
-            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=20)
+        ori_database = database[:]
+        for pid, fid, dis, ratio in tqdm(ori_database, desc="Neighborhood searching"):
+            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=40)
+            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=40)
             for pid2 in pid_neighbors:
-                for desc in self.points[pid].multi_desc_list:
-                    fid2, dis, ratio = point2d_cloud.matching_3d_to_2d_brute_force_no_ratio_test(desc)
-                    if fid2 in fid_neighbors:
-                        database.append((pid2, fid2, dis, ratio))
-                        break
+                if pid != pid2:
+                    for desc in self.points[pid2].multi_desc_list:
+                        fid2, dis, ratio = point2d_cloud.matching_3d_to_2d_brute_force_no_ratio_test(desc)
+                        if fid2 in fid_neighbors and fid2 != fid:
+                            database.append((pid2, fid2, dis, ratio))
+                            break
             if len(database) > 100:
                 break
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
@@ -312,6 +344,7 @@ class PointCloud:
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
         database = self.search_neighborhood(database, point2d_cloud)
+        database = enforce_consistency(database)
         results = []
         for pid, fid, dis, ratio in database:
             results.append([point2d_cloud[fid], self.points[pid]])
