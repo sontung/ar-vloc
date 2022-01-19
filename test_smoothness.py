@@ -74,13 +74,12 @@ for i in range(len(desc_list)):
         point_cloud_vis = [point3d_cloud[pid].xyzrgb]
         pid_neighbors = point3d_cloud.xyz_nearest_and_covisible(pid, nb_neighbors=7)
         fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=7)
+        correct_pairs = [(pid_neighbors.index(pid), fid_neighbors.index(fid))]
         pid_desc_list = np.vstack([point3d_cloud[pid2].desc for pid2 in pid_neighbors])
         fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
         pid_coord_list = np.vstack([point3d_cloud[pid2].xyz for pid2 in pid_neighbors])
         fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
-
-        exhaustive_search(pid_desc_list, fid_desc_list,
-                          pid_coord_list, fid_coord_list)
+        exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
         sys.exit()
 
         # viz 3d neighbors

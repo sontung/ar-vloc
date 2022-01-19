@@ -3,6 +3,7 @@ from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
+from optimizer import exhaustive_search
 import time
 import kmeans1d
 import cv2
@@ -325,15 +326,22 @@ class PointCloud:
         ori_len = len(database)
         ori_database = database[:]
         for pid, fid, dis, ratio in tqdm(ori_database, desc="Neighborhood searching"):
-            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=40)
-            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=40)
-            for pid2 in pid_neighbors:
-                if pid != pid2:
-                    for desc in self.points[pid2].multi_desc_list:
-                        fid2, dis, ratio = point2d_cloud.matching_3d_to_2d_brute_force_no_ratio_test(desc)
-                        if fid2 in fid_neighbors and fid2 != fid:
-                            database.append((pid2, fid2, dis, ratio))
-                            break
+            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=8)
+            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=8)
+            correct_pairs = [(pid_neighbors.index(pid), fid_neighbors.index(fid))]
+            pid_desc_list = np.vstack([self[pid2].desc for pid2 in pid_neighbors])
+            fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
+            pid_coord_list = np.vstack([self[pid2].xyz for pid2 in pid_neighbors])
+            fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
+
+            solution = exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
+            if solution is None or solution[2] <= 3:
+                continue
+            labels = solution[0]
+            tqdm.write(f"{solution[0]}, {solution[1]}, {solution[2]}")
+            for u, v in enumerate(labels):
+                if v >= 0:
+                    database.append((pid_neighbors[u], fid_neighbors[v], 0, 0))
             if len(database) > 100:
                 break
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
