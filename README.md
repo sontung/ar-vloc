@@ -24,5 +24,6 @@
 3. `ninja -C build install`
 
 ## run QAP-DD
-1. `qap_dd_greedy_gen --verbose --max-batches 1000 --batch-size 1 --generate 1 /home/sontung/work/ar-vloc/qap/input.dd proposals.txt`
-2. `qap_dd_fusion --solver qpbo-i --output fused.txt /home/sontung/work/ar-vloc/qap/input.dd proposals.txt`
+
+1. `qap_dd_greedy_gen --verbose --max-batches 1000 --batch-size 1 --generate 1 /home/sontung/work/ar-vloc/qap/input.dd /home/sontung/work/ar-vloc/qap/proposal.txt`
+2. `qap_dd_fusion --solver qpbo-i --output /home/sontung/work/ar-vloc/qap/fused.txt /home/sontung/work/ar-vloc/qap/input.dd /home/sontung/work/ar-vloc/qap/proposal.txt`
