@@ -1,7 +1,10 @@
 import numpy as np
 import itertools
+import thinqpbo as tq
+
 import pnp.build.pnp_python_binding
 from sklearn.cluster import MiniBatchKMeans
+from scipy.spatial.distance import cosine
 from tqdm import tqdm
 
 
@@ -48,6 +51,10 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, 
         for v in range(dim_y):
             edge_map.append((u, v))
             unary_cost_mat[u, v] = np.sum(np.square(pid_desc_list[u] - fid_desc_list[v]))
+    if correct_pairs is not None:
+        for u, v in correct_pairs:
+            unary_cost_mat[u, :] = 10000
+            unary_cost_mat[u, v] = 0
     pairwise_cost_mat = {}
     choices = list(range(len(edge_map)))
     del choices[0]
@@ -55,12 +62,76 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, 
         for edge_id2 in choices:
             u1, v1 = edge_map[edge_id2]
             if u1 in n0[u0] and v1 in n1[v0]:
-                pairwise_cost_mat[(edge_id, edge_id2)] = 0
+                cost = compute_pairwise_edge_cost(pid_coord_list[u0], fid_coord_list[v0],
+                                                  pid_coord_list[u1], fid_coord_list[v1])
+                pairwise_cost_mat[(edge_id, edge_id2)] = cost
         if len(choices) > 0:
             del choices[0]
     for (edge_id, edge_id2) in pairwise_cost_mat:
         assert (edge_id2, edge_id) not in pairwise_cost_mat
-    print(len(pairwise_cost_mat))
+    write_to_dd(unary_cost_mat, pairwise_cost_mat, n0, n1)
+
+
+def compute_pairwise_edge_cost(u1, v1, u2, v2):
+    v1 = np.array([v1[0], v1[1], 1.0])
+    v2 = np.array([v2[0], v2[1], 1.0])
+    vec1 = v1-u1
+    vec2 = v2-u2
+    return cosine(vec1, vec2)
+
+
+def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors):
+    """
+    c comment line
+    p <N0> <N1> <A> <E>     // # points in the left image, # points in the right image, # assignments, # edges
+    a <a> <i0> <i1> <cost>  // specify assignment
+    e <a> <b> <cost>        // specify edge
+
+    i0 <id> {xi} {yi}       // optional - specify coordinate of a point in the left image
+    i1 <id> {xi} {yi}       // optional - specify coordinate of a point in the left image
+    n0 <i> <j>              // optional - specify that points <i> and <j> in the left image are neighbors
+    n1 <i> <j>              // optional - specify that points <i> and <j> in the right image are neighbors
+    """
+    a_file = open("input.dd", "w")
+    dim_x, dim_y = unary_cost_mat.shape
+    print(f"p {dim_x} {dim_y} {dim_x*dim_y} {len(pairwise_cost_mat)}", file=a_file)
+    assignment_id = 0
+    for u in range(dim_x):
+        for v in range(dim_y):
+            print(f"a {assignment_id} {u} {v} {unary_cost_mat[u, v]}", file=a_file)
+            assignment_id += 1
+    for (edge_id, edge_id2) in pairwise_cost_mat:
+        print(f"e {edge_id} {edge_id2} {pairwise_cost_mat[(edge_id, edge_id2)]}", file=a_file)
+    for u in pid_neighbors:
+        neighbors = pid_neighbors[u]
+        for v in neighbors:
+            print(f"n0 {u} {v}", file=a_file)
+    for u in fid_neighbors:
+        neighbors = fid_neighbors[u]
+        for v in neighbors:
+            print(f"n1 {u} {v}", file=a_file)
+    a_file.close()
+    return
+
+
+def qpbo_solve():
+    graph = tq.QPBODouble()
+    nodes_to_add = 2
+
+    # Add two nodes.
+    first_node_id = graph.add_node(nodes_to_add)
+
+    # Add edges.
+    graph.add_unary_term(0, 0, 5)  # E1(0) = 5, s     --5->   n(0)
+    graph.add_unary_term(0, 1, 0)  # E0(0) = 1, n(0)  --1->   t
+    graph.add_unary_term(1, 5, 0)  # E0(1) = 5, n(1)  --5->   t
+    graph.add_pairwise_term(0, 1, 0, 7, 0, 4)  # E01(0,1) = 7, n(0)  --7->   n(1)
+    # E11(0,1) = 4, Not possible with standard Maxflow
+
+    # Find maxflow/cut graph.
+    graph.solve()
+    graph.compute_weak_persistencies()
+    twice_energy = graph.compute_twice_energy()
 
 
 def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):

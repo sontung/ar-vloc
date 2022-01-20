@@ -12,6 +12,17 @@
    1. compute assignment costs
    2. cluster into k groups
    3. edge cost within this group
-## build LT-pnp
+   4. normalize all costs
 
+## build LT-pnp
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`
+
+## compile QAP-DD
+0. `mkdir build && conda activate env`
+1. `meson setup build --python.platlibdir='/home/sontung/anaconda3/envs/env/lib/python3.9/site-packages/' --python.purelibdir='/home/sontung/anaconda3/envs/env/lib/python3.9/site-packages/'`
+2. `ninja -C build`
+3. `ninja -C build install`
+
+## run QAP-DD
+1. `qap_dd_greedy_gen --verbose --max-batches 1000 --batch-size 1 --generate 1 /home/sontung/work/ar-vloc/qap/input.dd proposals.txt`
+2. `qap_dd_fusion --solver qpbo-i --output fused.txt /home/sontung/work/ar-vloc/qap/input.dd proposals.txt`

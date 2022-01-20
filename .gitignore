@@ -15,6 +15,7 @@ trash_code/*
 *.lprof
 colmap_sift/*.txt
 colmap_sift/*.db
+qap/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
