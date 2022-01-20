@@ -79,7 +79,6 @@ for i in range(len(desc_list)):
         fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
         pid_coord_list = np.vstack([point3d_cloud[pid2].xyz for pid2 in pid_neighbors])
         fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
-        exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
         sys.exit()
 
         # viz 3d neighbors
