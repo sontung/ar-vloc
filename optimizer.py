@@ -12,6 +12,8 @@ from tqdm import tqdm
 
 def prepare_neighbor_information(coord_list):
     nb_clusters = coord_list.shape[0] // 10
+    if coord_list.shape[0] < 10:
+        nb_clusters = 1
     cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
     labels = cluster_model.fit_predict(coord_list)
     label2index = {label: [] for label in range(nb_clusters)}
@@ -59,7 +61,6 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     if correct_pairs is not None:
         for u, v in correct_pairs:
-            print(f"setting correct pair {u, v}")
             unary_cost_mat[u, :] = 100
             unary_cost_mat[u, v] = -100
 
@@ -115,15 +116,21 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2):
     return cosine(vec1, vec2)
 
 
-def run_qap(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs):
+def run_qap(pid_list, fid_list, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs):
     prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
     print("Running qap command")
-    process = subprocess.Popen(["./run_qap.sh"], shell=True)
+    process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
     process.wait()
     print(" done")
     labels = read_output(pid_coord_list, fid_coord_list)
-    cost = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
-    print(f" inlier cost={cost}")
+
+    cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
+    solutions = []
+    for idx in range(len(object_points)):
+        u, v = object_points[idx], image_points[idx]
+        solutions.append((pid_list[u], fid_list[v]))
+    print(f" inlier cost={cost}, return {len(solutions)} matches")
+    return solutions
 
 
 def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors, name="qap/input.dd"):
@@ -164,8 +171,13 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
     object_points = []
     image_points = []
     object_points_homo = []
+    object_indices = []
+    image_indices = []
+
     for u, v in enumerate(solution):
         if v is not None:
+            object_indices.append(u)
+            image_indices.append(v)
             xyz = pid_coord_list[u]
             xy = fid_coord_list[v]
             x, y = xy
@@ -178,6 +190,9 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
     object_points = np.array(object_points)
     object_points_homo = np.array(object_points_homo)
     image_points = np.array(image_points)
+    object_indices = np.array(object_indices)
+    image_indices = np.array(image_indices)
+
     mat = pnp.build.pnp_python_binding.pnp(object_points, image_points)
 
     xy = mat[None, :, :] @ object_points_homo[:, :, None]
@@ -186,7 +201,8 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
     xy = xy[:, :2]
     diff = np.sum(np.square(xy - image_points), axis=1)
     inliers = np.sum(diff < 0.1)
-    return inliers
+    object_indices, image_indices = object_indices[diff < 0.1], image_indices[diff < 0.1]
+    return inliers, object_indices, image_indices
 
 
 def compute_unary_cost(solution, unary_cost_mat):

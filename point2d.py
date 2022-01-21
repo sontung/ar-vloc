@@ -97,7 +97,6 @@ class FeatureCloud:
             if diff > 10:
                 chosen_idx = idx
                 break
-
         if distances[chosen_idx] > 0.0:
             ratio = distances[0] / distances[chosen_idx]
             if ratio < 0.7:

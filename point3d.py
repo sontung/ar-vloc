@@ -3,7 +3,7 @@ from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
-from optimizer import exhaustive_search
+from optimizer import exhaustive_search, run_qap
 import time
 import kmeans1d
 import cv2
@@ -25,7 +25,42 @@ def ratio_test(results):
             return False, 10
 
 
-def enforce_consistency(database):
+def enforce_consistency_ratio_test(database):
+    matches = {}
+    matches_reverse = {}
+    new_database = []
+
+    for p_id, f_id, dist, ratio in database:
+        candidates = [(f_id, p_id, dist)]
+        if ratio is not None:
+            if f_id in matches:
+                p_id2, dist2 = matches[f_id]
+                pair2 = (f_id, p_id2, dist2)
+                candidates.append(pair2)
+                del matches[f_id]
+                del matches_reverse[p_id2]
+
+            if p_id in matches_reverse:
+                f_id2, dist2 = matches_reverse[p_id]
+                pair2 = (f_id2, p_id, dist2)
+                candidates.append(pair2)
+                del matches[f_id2]
+                del matches_reverse[p_id]
+            f_id, p_id, dist = min(candidates, key=lambda du: du[-1])
+            matches[f_id] = (p_id, dist)
+            matches_reverse[p_id] = (f_id, dist)
+        else:
+            if f_id not in matches and p_id not in matches_reverse:
+                new_database.append((p_id, f_id, dist, 0))
+    for p_id in matches_reverse:
+        f_id, dist = matches_reverse[p_id]
+        new_database.append((p_id, f_id, dist, 0))
+    print(f"After enforcing uniqueness constraint using ratio test, "
+          f"reducing from {len(database)} to {len(new_database)}")
+    return new_database
+
+
+def enforce_consistency_distance(database):
     matches = {}
     matches_reverse = {}
     for p_id, f_id, dist, ratio in database:
@@ -51,8 +86,9 @@ def enforce_consistency(database):
     for p_id in matches_reverse:
         f_id, dist = matches_reverse[p_id]
         new_database.append((p_id, f_id, dist, 0))
-    print(f"After enforcing uniqueness constraint, reducing from {len(database)} to {len(new_database)}")
-    return database
+    print(f"After enforcing uniqueness constraint using distance, "
+          f"reducing from {len(database)} to {len(new_database)}")
+    return new_database
 
 
 class PointCloud:
@@ -322,28 +358,31 @@ class PointCloud:
                 break
         return result, count, samples
 
+    def compute_feature_difference(self, query_desc, pid):
+        smallest_dis = None
+        for desc in self.points[pid].multi_desc_list:
+            dis = np.sqrt(np.sum(np.square(query_desc - desc)))
+            if smallest_dis is None or dis < smallest_dis:
+                smallest_dis = dis
+        return smallest_dis
+
     def search_neighborhood(self, database, point2d_cloud):
         ori_len = len(database)
         ori_database = database[:]
-        for pid, fid, dis, ratio in tqdm(ori_database, desc="Neighborhood searching"):
-            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=8)
-            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=8)
+        for pid, fid, dis, ratio in ori_database:
+            pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=10)
+            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=50)
             correct_pairs = [(pid_neighbors.index(pid), fid_neighbors.index(fid))]
             pid_desc_list = np.vstack([self[pid2].desc for pid2 in pid_neighbors])
             fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
             pid_coord_list = np.vstack([self[pid2].xyz for pid2 in pid_neighbors])
             fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
 
-            solution = exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
-            if solution is None or solution[2] <= 3:
-                continue
-            labels = solution[0]
-            tqdm.write(f"{solution[0]}, {solution[1]}, {solution[2]}")
-            for u, v in enumerate(labels):
-                if v >= 0:
-                    database.append((pid_neighbors[u], fid_neighbors[v], 0, 0))
-            if len(database) > 100:
-                break
+            solution = run_qap(pid_neighbors, fid_neighbors, pid_desc_list,
+                               fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
+            for u, v in solution:
+                dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
+                database.append((u, v, dis, None))
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
         return database
 
@@ -351,8 +390,9 @@ class PointCloud:
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
-        # database = self.search_neighborhood(database, point2d_cloud)
-        database = enforce_consistency(database)
+        database = self.search_neighborhood(database, point2d_cloud)
+        database = enforce_consistency_ratio_test(database)
+        database = enforce_consistency_distance(database)
         results = []
         for pid, fid, dis, ratio in database:
             results.append([point2d_cloud[fid], self.points[pid]])
@@ -442,8 +482,8 @@ class PointCloud:
                         visited_arr[pid] = 1
 
                         if register is not None:
-                            prob_arr[position_cluster_id] += (1 - ratio_s) / 10
-                            pose_cluster_prob_arr[pose_cluster_id] += (1 - ratio_s) / 10
+                            prob_arr[position_cluster_id] += 0.01
+                            pose_cluster_prob_arr[pose_cluster_id] += 0.01
                             fid, dis, ratio = register
                             assert ratio == ratio_s
                             database.append((pid, fid, dis, ratio))
@@ -473,8 +513,8 @@ class PointCloud:
                 visited_arr[pid] = 1
 
                 if register is not None:
-                    prob_arr[position_cluster_id] += (1 - ratio_s) / 10
-                    pose_cluster_prob_arr[pose_cluster_id] += (1 - ratio_s) / 10
+                    prob_arr[position_cluster_id] += 0.01
+                    pose_cluster_prob_arr[pose_cluster_id] += 0.01
                     fid, dis, ratio = register
                     assert ratio == ratio_s
                     database.append((pid, fid, dis, ratio))
