@@ -12,7 +12,7 @@ from point3d import PointCloud
 from point2d import FeatureCloud
 from vocab_tree import VocabTree
 from localization import localize_single_image, localize_single_image_lt_pnp, localization_dummy
-from optimizer import exhaustive_search, prepare_input
+from optimizer import exhaustive_search, prepare_input, read_output, compute_smoothness_cost_pnp, run_qap
 
 database = [(3242, 9124), (4004, 9173), (4021, 9035), (4288, 7432), (4523, 9173), (4533, 9124)]
 
@@ -79,7 +79,7 @@ for i in range(len(desc_list)):
         fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
         pid_coord_list = np.vstack([point3d_cloud[pid2].xyz for pid2 in pid_neighbors])
         fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
-        prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
+        run_qap(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
         sys.exit()
 
         # viz 3d neighbors

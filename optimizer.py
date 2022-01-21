@@ -1,7 +1,9 @@
 import numpy as np
 import itertools
 import thinqpbo as tq
-
+import subprocess
+import pickle
+import json
 import pnp.build.pnp_python_binding
 from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial.distance import cosine
@@ -89,12 +91,39 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     write_to_dd(unary_cost_mat, pairwise_cost_mat, n0, n1)
 
 
+def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc/qap/fused.txt"):
+    a_file = open(name)
+    data = json.load(a_file)
+    a_file.close()
+    solution = data["labeling"]
+    res = []
+    for u, v in enumerate(solution):
+        if v is not None:
+            xyz = pid_coord_list[u]
+            xy = fid_coord_list[v]
+            res.append((xy, xyz))
+    with open("qap/extra.pkl", "wb") as a_file:
+        pickle.dump(res, a_file)
+    return data["labeling"]
+
+
 def compute_pairwise_edge_cost(u1, v1, u2, v2):
     v1 = np.array([v1[0], v1[1], 1.0])
     v2 = np.array([v2[0], v2[1], 1.0])
     vec1 = v1-u1
     vec2 = v2-u2
     return cosine(vec1, vec2)
+
+
+def run_qap(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs):
+    prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
+    print("Running qap command")
+    process = subprocess.Popen(["./run_qap.sh"], shell=True)
+    process.wait()
+    print(" done")
+    labels = read_output(pid_coord_list, fid_coord_list)
+    cost = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
+    print(f" inlier cost={cost}")
 
 
 def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors, name="qap/input.dd"):
@@ -128,27 +157,6 @@ def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors,
         for v in neighbors:
             print(f"n1 {u} {v}", file=a_file)
     a_file.close()
-    return
-
-
-def qpbo_solve():
-    graph = tq.QPBODouble()
-    nodes_to_add = 2
-
-    # Add two nodes.
-    first_node_id = graph.add_node(nodes_to_add)
-
-    # Add edges.
-    graph.add_unary_term(0, 0, 5)  # E1(0) = 5, s     --5->   n(0)
-    graph.add_unary_term(0, 1, 0)  # E0(0) = 1, n(0)  --1->   t
-    graph.add_unary_term(1, 5, 0)  # E0(1) = 5, n(1)  --5->   t
-    graph.add_pairwise_term(0, 1, 0, 7, 0, 4)  # E01(0,1) = 7, n(0)  --7->   n(1)
-    # E11(0,1) = 4, Not possible with standard Maxflow
-
-    # Find maxflow/cut graph.
-    graph.solve()
-    graph.compute_weak_persistencies()
-    twice_energy = graph.compute_twice_energy()
 
 
 def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
@@ -157,7 +165,7 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
     image_points = []
     object_points_homo = []
     for u, v in enumerate(solution):
-        if v >= 0:
+        if v is not None:
             xyz = pid_coord_list[u]
             xy = fid_coord_list[v]
             x, y = xy
@@ -218,12 +226,12 @@ def exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_li
 
 
 if __name__ == '__main__':
-
-    prepare_input(np.random.random((30, 128)),
-                  np.random.random((30, 128)),
-                  np.random.random((30, 3)),
-                  np.random.random((30, 2)),
-                  )
+    read_output()
+    # prepare_input(np.random.random((30, 128)),
+    #               np.random.random((30, 128)),
+    #               np.random.random((30, 3)),
+    #               np.random.random((30, 2)),
+    #               )
     # exhaustive_search([0, 1, 2, 3], [0, 1, 2, 3])
     # list1 = [0, 1, 2, 3, 4]
     # list2 = [0, 1, 2, 3, 4]

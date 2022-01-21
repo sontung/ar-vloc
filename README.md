@@ -13,6 +13,10 @@
    2. cluster into k groups
    3. edge cost within this group
    4. normalize all costs
+5. qap
+   1. inlier thresholded
+   2. consistency
+   3. visualize with non-qap
 
 ## build LT-pnp
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`

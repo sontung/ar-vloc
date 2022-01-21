@@ -1,5 +1,6 @@
+import pickle
 import sys
-
+import pickle
 import numpy as np
 import open3d as o3d
 import time
@@ -94,6 +95,11 @@ for i in range(len(desc_list)):
 
     for point2d, point3d in res_exp:
         p2d2p3d[i][1].append((point2d.xy, point3d.xyz))
+
+    with open("qap/extra.pkl", "rb") as a_file:
+        extra_matches = pickle.load(a_file)
+        for u, v in extra_matches:
+            p2d2p3d[i][1].append((u, v))
 
     print(f"Done in {time.time()-start_time}")
 

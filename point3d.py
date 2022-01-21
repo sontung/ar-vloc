@@ -351,7 +351,7 @@ class PointCloud:
         visited_arr = np.zeros((len(self.points),))
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
-        database = self.search_neighborhood(database, point2d_cloud)
+        # database = self.search_neighborhood(database, point2d_cloud)
         database = enforce_consistency(database)
         results = []
         for pid, fid, dis, ratio in database:
