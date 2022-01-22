@@ -17,6 +17,8 @@
    1. inlier thresholded
    2. consistency
    3. visualize with non-qap
+   4. fix edge cost zero (make sure that fid list is strictly unique in coordinates)
+   5. solve the whole neighborhood at once
 
 ## build LT-pnp
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`

@@ -82,9 +82,8 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
                     cost = compute_pairwise_edge_cost(pid_coord_list[u0], fid_coord_list[v0],
                                                        pid_coord_list[u1], fid_coord_list[v1])
                     if cost == 0.0:
-                        # print(f" [warning]: very small edge cost: cost={cost} indices={v0, v1}"
-                        #       f" coordinates={(fid_coord_list[v0][0], fid_coord_list[v0][1]), (fid_coord_list[v1][0], fid_coord_list[v1][1])}")
-                        continue
+                        print(f" [warning]: very small edge cost: cost={cost} indices={v0, v1}"
+                              f" coordinates={(fid_coord_list[v0][0], fid_coord_list[v0][1]), (fid_coord_list[v1][0], fid_coord_list[v1][1])}")
                     else:
                         pairwise_cost_mat[(edge_id, edge_id2)] = cost
         if len(choices) > 0:
@@ -141,7 +140,7 @@ def run_qap(pid_list, fid_list,
     labels = read_output(pid_coord_list, fid_coord_list)
 
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
-    if cost < 8:
+    if cost < 0.8*len(labels):
         return []
     solutions = []
     for idx in range(len(object_points)):

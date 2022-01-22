@@ -32,12 +32,33 @@ class FeatureCloud:
     def __len__(self):
         return len(self.points)
 
-    def nearby_feature(self, ind, nb_neighbors=20):
+    def nearby_feature(self, ori_ind, nb_neighbors=20):
         if self.xy_tree is None:
             self.xy_tree = KDTree(self.point_xy_list)
-        distances, _ = self.xy_tree.query(self.points[ind].xy, nb_neighbors)
-        indices = self.xy_tree.query_ball_point(self.points[ind].xy, distances[-1])
-        return indices
+        distances, _ = self.xy_tree.query(self.points[ori_ind].xy, nb_neighbors)
+        indices = self.xy_tree.query_ball_point(self.points[ori_ind].xy, distances[-1])
+        tracks = np.zeros((len(indices), len(indices)), dtype=np.float64) - 1
+        duplicate = []
+        new_indices = []
+        for u, ind in enumerate(indices):
+            for v, ind2 in enumerate(indices):
+                if u != v and tracks[u, v] < 0:
+                    xy = self.point_xy_list[ind]
+                    xy2 = self.point_xy_list[ind2]
+                    diff = np.sum(np.square(xy-xy2))
+                    tracks[u, v] = diff
+                    tracks[v, u] = diff
+                    if diff == 0:
+                        if ind == ori_ind:
+                            duplicate.append(v)
+                        else:
+                            duplicate.append(u)
+        for u, ind in enumerate(indices):
+            if u not in duplicate:
+                new_indices.append(ind)
+        assert ori_ind in new_indices
+        print(f"After removing non-unique features, reduce {len(indices)} -> {len(new_indices)}")
+        return new_indices
 
     def sort_by_feature_strength(self, idx=0):
         indices = list(range(len(self.points)))
