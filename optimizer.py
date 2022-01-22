@@ -34,7 +34,7 @@ def prepare_neighbor_information(coord_list):
 
 
 def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
-                  correct_pairs=None, only_neighbor=True):
+                  correct_pairs=None, only_neighbor=True, zero_pairwise_cost=False):
     """
     c comment line
     p <N0> <N1> <A> <E>     // # points in the left image, # points in the right image, # assignments, # edges
@@ -61,6 +61,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     if correct_pairs is not None:
         for u, v in correct_pairs:
+            print(f" setting correct pair {u} {v}")
             unary_cost_mat[u, :] = 100
             unary_cost_mat[u, v] = -100
 
@@ -68,7 +69,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     pairwise_cost_mat = {}
     choices = list(range(len(edge_map)))
     del choices[0]
-    for edge_id, (u0, v0) in enumerate(tqdm(edge_map, desc="Computing pairwise costs")):
+    for edge_id, (u0, v0) in enumerate(tqdm(edge_map, desc=" computing pairwise costs")):
         for edge_id2 in choices:
             u1, v1 = edge_map[edge_id2]
             if only_neighbor:
@@ -76,19 +77,26 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             else:
                 cond = True
             if cond:
-                cost = compute_pairwise_edge_cost(pid_coord_list[u0], fid_coord_list[v0],
-                                                  pid_coord_list[u1], fid_coord_list[v1])
+                cost = 0.0
+                if not zero_pairwise_cost:
+                    cost = compute_pairwise_edge_cost2(pid_coord_list[u0], fid_coord_list[v0],
+                                                      pid_coord_list[u1], fid_coord_list[v1])
                 pairwise_cost_mat[(edge_id, edge_id2)] = cost
         if len(choices) > 0:
             del choices[0]
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
     div = max_val - min_val
+    print(f" pairwise cost: max={max_val}, min={min_val}")
     for (edge_id, edge_id2) in pairwise_cost_mat:
         old_val = pairwise_cost_mat[(edge_id, edge_id2)]
-        pairwise_cost_mat[(edge_id, edge_id2)] = (old_val-min_val)/div
+        # if not zero_pairwise_cost:
+        #     pairwise_cost_mat[(edge_id, edge_id2)] = (old_val-min_val)/div
         assert (edge_id2, edge_id) not in pairwise_cost_mat
 
+    all_costs = list(pairwise_cost_mat.values())
+    max_val, min_val = np.max(all_costs), np.min(all_costs)
+    print(f" pairwise cost after normalized: max={max_val}, min={min_val}")
     write_to_dd(unary_cost_mat, pairwise_cost_mat, n0, n1)
 
 
@@ -113,10 +121,17 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2):
     v2 = np.array([v2[0], v2[1], 1.0])
     vec1 = v1-u1
     vec2 = v2-u2
-    return cosine(vec1, vec2)
+    return 1-cosine(vec1, vec2)
 
 
-def run_qap(pid_list, fid_list, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs):
+def compute_pairwise_edge_cost2(u1, v1, u2, v2):
+    return np.sqrt(np.sum(np.square(v1-v2)))
+
+
+def run_qap(pid_list, fid_list,
+            pid_desc_list, fid_desc_list,
+            pid_coord_list, fid_coord_list,
+            correct_pairs, debug=False):
     prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
     print("Running qap command")
     process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
@@ -125,11 +140,38 @@ def run_qap(pid_list, fid_list, pid_desc_list, fid_desc_list, pid_coord_list, fi
     labels = read_output(pid_coord_list, fid_coord_list)
 
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
+    if cost < 8:
+        return []
     solutions = []
     for idx in range(len(object_points)):
         u, v = object_points[idx], image_points[idx]
         solutions.append((pid_list[u], fid_list[v]))
     print(f" inlier cost={cost}, return {len(solutions)} matches")
+
+    if debug:
+        prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
+                      zero_pairwise_cost=True)
+        process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
+        process.wait()
+        labels_debug = read_output(pid_coord_list, fid_coord_list)
+        cost, object_points2, image_points2 = compute_smoothness_cost_pnp(labels_debug, pid_coord_list, fid_coord_list)
+
+        # agreement
+        assert len(labels_debug) == len(labels)
+        agree = 0
+        distances = []
+        for u, v in enumerate(labels_debug):
+            if v == labels[u]:
+                agree += 1
+            if labels[u] is not None:
+                coord1 = fid_coord_list[labels[u]]
+                coord2 = fid_coord_list[v]
+                distances.append(np.sum(np.abs(coord1-coord2))/coord2.shape[0])
+
+        print(f" debug mode:")
+        print(f"\t inlier cost={cost}")
+        print(f"\t agreement={agree/len(labels)}, mean distance={np.mean(distances)}")
+
     return solutions
 
 

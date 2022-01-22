@@ -371,7 +371,7 @@ class PointCloud:
         ori_database = database[:]
         for pid, fid, dis, ratio in ori_database:
             pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=10)
-            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=50)
+            fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=100)
             correct_pairs = [(pid_neighbors.index(pid), fid_neighbors.index(fid))]
             pid_desc_list = np.vstack([self[pid2].desc for pid2 in pid_neighbors])
             fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
@@ -391,8 +391,8 @@ class PointCloud:
         database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
         database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
         database = self.search_neighborhood(database, point2d_cloud)
-        database = enforce_consistency_ratio_test(database)
-        database = enforce_consistency_distance(database)
+        # database = enforce_consistency_ratio_test(database)
+        # database = enforce_consistency_distance(database)
         results = []
         for pid, fid, dis, ratio in database:
             results.append([point2d_cloud[fid], self.points[pid]])
