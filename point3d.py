@@ -4,6 +4,8 @@ from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 from optimizer import exhaustive_search, run_qap
+from vis_utils import visualize_matching_helper
+
 import time
 import kmeans1d
 import cv2
@@ -370,6 +372,7 @@ class PointCloud:
         ori_len = len(database)
         ori_database = database[:]
         for pid, fid, dis, ratio in ori_database:
+            print(f"Solving smoothness for {pid, fid}")
             pid_neighbors = self.xyz_nearest_and_covisible(pid, nb_neighbors=10)
             fid_neighbors = point2d_cloud.nearby_feature(fid, nb_neighbors=100)
             correct_pairs = [(pid_neighbors.index(pid), fid_neighbors.index(fid))]
@@ -386,10 +389,34 @@ class PointCloud:
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
         return database
 
-    def sample(self, point2d_cloud, image_ori, debug=False):
-        visited_arr = np.zeros((len(self.points),))
-        database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
-        database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
+    def sample(self, point2d_cloud, image_ori, debug=False, fixed_database=True):
+        if fixed_database:
+            database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702), (4021, 9035, 0.18678693412288302, 0.606487034384174), (4523, 9173, 0.173769433002931, 0.5529564433997507), (4533, 9124, 0.18860495123409068, 0.6202539604834014), (3242, 9124, 0.18090676986048645, 0.5661925920214619), (4001, 9207, 0.16749420519371688, 0.6066296138357196), (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
+            database = [du for du in database if du[0] not in [4523, 4533]]
+            vis = False
+            if vis:
+                for pid, fid, dis, ratio in database:
+                    print(pid, fid)
+                    image = np.copy(image_ori)
+                    fx, fy = point2d_cloud[fid].xy
+
+                    fx, fy = map(int, (fx, fy))
+                    cv2.circle(image, (fx, fy), 50, (128, 128, 0), -1)
+                    image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
+                    cv2.imshow("image", image)
+                    cv2.waitKey()
+                    images = visualize_matching_helper(np.copy(image), point2d_cloud[fid],
+                                                       self.points[pid], "sfm_ws_hblab/images")
+                    cv2.imshow("t", images)
+                    cv2.waitKey()
+                    cv2.destroyAllWindows()
+        else:
+            visited_arr = np.zeros((len(self.points),))
+            database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
+            database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
+            print(database)
+        print("Solve neighborhood smoothness with", [du[:2] for du in database])
+
         database = self.search_neighborhood(database, point2d_cloud)
         # database = enforce_consistency_ratio_test(database)
         # database = enforce_consistency_distance(database)
@@ -426,7 +453,6 @@ class PointCloud:
             cv2.destroyAllWindows()
             vis.destroy_window()
 
-            from vis_utils import visualize_matching_helper
             for pid, fid, dis, ratio in database:
                 image = np.copy(image_ori)
                 fx, fy = point2d_cloud[fid].xy

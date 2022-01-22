@@ -58,7 +58,6 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             unary_cost_mat[u, v] = -np.sum(np.square(pid_desc_list[u] - fid_desc_list[v]))
 
     # normalize unary cost
-    max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     if correct_pairs is not None:
         for u, v in correct_pairs:
             print(f" setting correct pair {u} {v}")
@@ -77,21 +76,23 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             else:
                 cond = True
             if cond:
-                cost = 0.0
-                if not zero_pairwise_cost:
-                    cost = compute_pairwise_edge_cost2(pid_coord_list[u0], fid_coord_list[v0],
-                                                      pid_coord_list[u1], fid_coord_list[v1])
-                pairwise_cost_mat[(edge_id, edge_id2)] = cost
+                if zero_pairwise_cost:
+                    pairwise_cost_mat[(edge_id, edge_id2)] = 1.0
+                else:
+                    cost = compute_pairwise_edge_cost(pid_coord_list[u0], fid_coord_list[v0],
+                                                       pid_coord_list[u1], fid_coord_list[v1])
+                    if cost == 0.0:
+                        # print(f" [warning]: very small edge cost: cost={cost} indices={v0, v1}"
+                        #       f" coordinates={(fid_coord_list[v0][0], fid_coord_list[v0][1]), (fid_coord_list[v1][0], fid_coord_list[v1][1])}")
+                        continue
+                    else:
+                        pairwise_cost_mat[(edge_id, edge_id2)] = cost
         if len(choices) > 0:
             del choices[0]
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
-    div = max_val - min_val
     print(f" pairwise cost: max={max_val}, min={min_val}")
     for (edge_id, edge_id2) in pairwise_cost_mat:
-        old_val = pairwise_cost_mat[(edge_id, edge_id2)]
-        # if not zero_pairwise_cost:
-        #     pairwise_cost_mat[(edge_id, edge_id2)] = (old_val-min_val)/div
         assert (edge_id2, edge_id) not in pairwise_cost_mat
 
     all_costs = list(pairwise_cost_mat.values())
@@ -133,7 +134,7 @@ def run_qap(pid_list, fid_list,
             pid_coord_list, fid_coord_list,
             correct_pairs, debug=False):
     prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
-    print("Running qap command")
+    print(" running qap command")
     process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
     process.wait()
     print(" done")
