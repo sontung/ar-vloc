@@ -32,32 +32,40 @@ class FeatureCloud:
     def __len__(self):
         return len(self.points)
 
+    def filter_duplicate_features(self, fid_list, must_fid_list):
+        """
+        Filter duplicate features based on coordinates.
+        """
+        tracks = np.zeros((len(fid_list), len(fid_list)), dtype=np.float64) - 1
+        duplicate = []
+        new_indices = []
+        for u, ind in enumerate(fid_list):
+            for v, ind2 in enumerate(fid_list):
+                if u != v and tracks[u, v] < 0:
+                    xy = self.point_xy_list[ind]
+                    xy2 = self.point_xy_list[ind2]
+                    diff = np.sum(np.square(xy - xy2))
+                    tracks[u, v] = diff
+                    tracks[v, u] = diff
+                    if diff == 0:
+                        if ind in must_fid_list:
+                            duplicate.append(v)
+                        else:
+                            duplicate.append(u)
+        for u, ind in enumerate(fid_list):
+            if u not in duplicate:
+                new_indices.append(ind)
+        for ori_ind in must_fid_list:
+            assert ori_ind in new_indices
+        print(f"After removing non-unique features, reduce {len(fid_list)} -> {len(new_indices)}")
+        return new_indices
+
     def nearby_feature(self, ori_ind, nb_neighbors=20):
         if self.xy_tree is None:
             self.xy_tree = KDTree(self.point_xy_list)
         distances, _ = self.xy_tree.query(self.points[ori_ind].xy, nb_neighbors)
         indices = self.xy_tree.query_ball_point(self.points[ori_ind].xy, distances[-1])
-        tracks = np.zeros((len(indices), len(indices)), dtype=np.float64) - 1
-        duplicate = []
-        new_indices = []
-        for u, ind in enumerate(indices):
-            for v, ind2 in enumerate(indices):
-                if u != v and tracks[u, v] < 0:
-                    xy = self.point_xy_list[ind]
-                    xy2 = self.point_xy_list[ind2]
-                    diff = np.sum(np.square(xy-xy2))
-                    tracks[u, v] = diff
-                    tracks[v, u] = diff
-                    if diff == 0:
-                        if ind == ori_ind:
-                            duplicate.append(v)
-                        else:
-                            duplicate.append(u)
-        for u, ind in enumerate(indices):
-            if u not in duplicate:
-                new_indices.append(ind)
-        assert ori_ind in new_indices
-        print(f"After removing non-unique features, reduce {len(indices)} -> {len(new_indices)}")
+        new_indices = self.filter_duplicate_features(indices, [ori_ind])
         return new_indices
 
     def sort_by_feature_strength(self, idx=0):

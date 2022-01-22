@@ -131,12 +131,15 @@ def compute_pairwise_edge_cost2(u1, v1, u2, v2):
 def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
-            correct_pairs, debug=False):
-    prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
-    print(" running qap command")
-    process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
-    process.wait()
-    print(" done")
+            correct_pairs, debug=False, qap_skip=True):
+    if not qap_skip:
+        prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
+        print(" running qap command")
+        process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
+        process.wait()
+        print(" done")
+    else:
+        print(" skipping qap optimization")
     labels = read_output(pid_coord_list, fid_coord_list)
 
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
