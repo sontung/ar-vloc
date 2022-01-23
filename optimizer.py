@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import itertools
 import thinqpbo as tq
@@ -10,10 +12,12 @@ from scipy.spatial.distance import cosine
 from tqdm import tqdm
 
 
-def prepare_neighbor_information(coord_list):
-    nb_clusters = coord_list.shape[0] // 10
-    if coord_list.shape[0] < 10:
-        nb_clusters = 1
+def prepare_neighbor_information(coord_list, nb_clusters=None):
+    if nb_clusters is None:
+        nb_clusters = coord_list.shape[0] // 10
+        if coord_list.shape[0] < 10:
+            nb_clusters = 1
+    print(f" clustering into {nb_clusters} clusters")
     cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
     labels = cluster_model.fit_predict(coord_list)
     label2index = {label: [] for label in range(nb_clusters)}
@@ -47,7 +51,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     n1 <i> <j>              // optional - specify that points <i> and <j> in the right image are neighbors
     """
     n0 = prepare_neighbor_information(pid_coord_list)
-    n1 = prepare_neighbor_information(fid_coord_list)
+    n1 = prepare_neighbor_information(fid_coord_list, nb_clusters=10)
     dim_x = pid_desc_list.shape[0]
     dim_y = fid_desc_list.shape[0]
     unary_cost_mat = np.zeros((dim_x, dim_y), np.float64)
@@ -55,9 +59,16 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     for u in range(dim_x):
         for v in range(dim_y):
             edge_map.append((u, v))
-            unary_cost_mat[u, v] = -np.sum(np.square(pid_desc_list[u] - fid_desc_list[v]))
+            unary_cost_mat[u, v] = np.sum(np.square(pid_desc_list[u] - fid_desc_list[v]))
 
     # normalize unary cost
+    max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
+    print(f" unary cost: max={max_val}, min={min_val}")
+    div = max_val-min_val
+    unary_cost_mat = (unary_cost_mat-min_val)/div+1
+    max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
+    print(f" unary cost after normalized: max={max_val}, min={min_val}")
+    unary_cost_mat = -unary_cost_mat
     if correct_pairs is not None:
         for u, v in correct_pairs:
             print(f" setting correct pair {u} {v}")
@@ -71,6 +82,8 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     for edge_id, (u0, v0) in enumerate(tqdm(edge_map, desc=" computing pairwise costs")):
         for edge_id2 in choices:
             u1, v1 = edge_map[edge_id2]
+            if u1 == u0 or v1 == v0:
+                continue
             if only_neighbor:
                 cond = u1 in n0[u0] and v1 in n1[v0]
             else:
@@ -80,7 +93,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
                     pairwise_cost_mat[(edge_id, edge_id2)] = 1.0
                 else:
                     cost = compute_pairwise_edge_cost(pid_coord_list[u0], fid_coord_list[v0],
-                                                       pid_coord_list[u1], fid_coord_list[v1])
+                                                      pid_coord_list[u1], fid_coord_list[v1])
                     if cost == 0.0:
                         print(f" [warning]: very small edge cost: cost={cost} indices={v0, v1}"
                               f" coordinates={(fid_coord_list[v0][0], fid_coord_list[v0][1]), (fid_coord_list[v1][0], fid_coord_list[v1][1])}")
@@ -90,9 +103,12 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             del choices[0]
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
+    div = max_val - min_val
+
     print(f" pairwise cost: max={max_val}, min={min_val}")
     for (edge_id, edge_id2) in pairwise_cost_mat:
-        assert (edge_id2, edge_id) not in pairwise_cost_mat
+        old_val = pairwise_cost_mat[(edge_id, edge_id2)]
+        pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div + 1
 
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
@@ -121,7 +137,8 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2):
     v2 = np.array([v2[0], v2[1], 1.0])
     vec1 = v1-u1
     vec2 = v2-u2
-    return 1-cosine(vec1, vec2)
+    return cosine(vec1, vec2)
+    # return np.sqrt(np.sum(np.square(v1-v2)))
 
 
 def compute_pairwise_edge_cost2(u1, v1, u2, v2):
@@ -131,7 +148,7 @@ def compute_pairwise_edge_cost2(u1, v1, u2, v2):
 def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
-            correct_pairs, debug=False, qap_skip=True):
+            correct_pairs, debug=False, qap_skip=False):
     if not qap_skip:
         prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
         print(" running qap command")
@@ -141,15 +158,19 @@ def run_qap(pid_list, fid_list,
     else:
         print(" skipping qap optimization")
     labels = read_output(pid_coord_list, fid_coord_list)
+    geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
 
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
-    if cost < 0.8*len(labels):
-        return []
+
     solutions = []
     for idx in range(len(object_points)):
         u, v = object_points[idx], image_points[idx]
         solutions.append((pid_list[u], fid_list[v]))
     print(f" inlier cost={cost}, return {len(solutions)} matches")
+    print(f" geom cost={geom_cost}")
+
+    if cost < 0.8*len(labels):
+        return []
 
     if debug:
         prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
@@ -157,6 +178,7 @@ def run_qap(pid_list, fid_list,
         process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
         process.wait()
         labels_debug = read_output(pid_coord_list, fid_coord_list)
+        geom_cost = compute_smoothness_cost_geometric(labels_debug, pid_coord_list, fid_coord_list)
         cost, object_points2, image_points2 = compute_smoothness_cost_pnp(labels_debug, pid_coord_list, fid_coord_list)
 
         # agreement
@@ -173,6 +195,7 @@ def run_qap(pid_list, fid_list,
 
         print(f" debug mode:")
         print(f"\t inlier cost={cost}")
+        print(f"\t geom cost={geom_cost}")
         print(f"\t agreement={agree/len(labels)}, mean distance={np.mean(distances)}")
 
     return solutions
@@ -211,6 +234,23 @@ def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors,
     a_file.close()
 
 
+def compute_smoothness_cost_geometric(solution, pid_coord_list, fid_coord_list):
+    object_points = []
+    image_points = []
+    for u, v in enumerate(solution):
+        if v is not None:
+            xyz = pid_coord_list[u]
+            xy = fid_coord_list[v]
+            image_points.append(xy)
+            object_points.append(xyz)
+    object_points = np.array(object_points)
+    image_points = np.array(image_points)
+    min_var_axis = min([0, 1, 2], key=lambda du: np.var(object_points[:, du]))
+    object_points_projected = object_points[:, [ax for ax in range(3) if ax != min_var_axis]]
+    diff = object_points_projected-image_points
+    return np.var(np.abs(diff))
+
+
 def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
     f, c1, c2 = 2600.0, 1134.0, 2016.0
     object_points = []
@@ -226,9 +266,9 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
             xyz = pid_coord_list[u]
             xy = fid_coord_list[v]
             x, y = xy
-            u = (x - c1) / f
-            v = (y - c2) / f
-            image_points.append([u, v])
+            u2 = (x - c1) / f
+            v2 = (y - c2) / f
+            image_points.append([u2, v2])
             object_points.append(xyz)
             x, y, z = xyz
             object_points_homo.append([x, y, z, 1.0])
