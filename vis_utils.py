@@ -121,6 +121,23 @@ def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
     return list2
 
 
+def visualize_all_point_images(point, sfm_image_folder):
+    visualized_list = []
+    for database_image in point.visibility:
+        x2, y2 = map(int, point.visibility[database_image])
+        image = cv2.imread(f"{sfm_image_folder}/{database_image}")
+        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+        visualized_list.insert(image, 0)
+    list2 = []
+    for im in visualized_list:
+        im2 = Image.fromarray(im)
+        im2.thumbnail((500, 500))
+        im2 = np.array(im2)
+        list2.append(im2)
+    list2 = np.hstack(list2)
+    return list2
+
+
 def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
     for ind in range(len(results)):
         # print(results[ind][0].xy, bf_results[ind][0].xy)

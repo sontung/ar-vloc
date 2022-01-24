@@ -427,6 +427,7 @@ class PointCloud:
                     cv2.imshow("t", images)
                     cv2.waitKey()
                     cv2.destroyAllWindows()
+            return database
         else:
             visited_arr = np.zeros((len(self.points),))
             database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
