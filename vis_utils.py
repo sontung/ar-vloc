@@ -127,7 +127,7 @@ def visualize_all_point_images(point, sfm_image_folder):
         x2, y2 = map(int, point.visibility[database_image])
         image = cv2.imread(f"{sfm_image_folder}/{database_image}")
         cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
-        visualized_list.insert(image, 0)
+        visualized_list.insert(0, image)
     list2 = []
     for im in visualized_list:
         im2 = Image.fromarray(im)

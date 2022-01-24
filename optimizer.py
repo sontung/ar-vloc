@@ -150,10 +150,16 @@ def run_qap(pid_list, fid_list,
             pid_coord_list, fid_coord_list,
             correct_pairs, debug=False, qap_skip=False, optimal_label=True):
     if optimal_label:
-        res = [(0, 213), (1, 98), (2, 85), (3, 31), (4, 88), (5, 218), (6, 32), (7, 220), (8, 191), (9, 237), (10, 180), (11, 188), (12, 101), (13, 114), (14, 14), (15, 7), (16, 186), (17, 221), (18, 50), (19, 26), (20, 173), (21, 231), (22, 171), (23, 25), (24, 39), (25, 162), (26, 91), (27, 109), (28, 102), (29, 169), (30, 73), (31, 137), (32, 29), (33, 58), (34, 156), (35, 75), (36, 205), (37, 190)]
+        res = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204), (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173), (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115), (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
+
+        solutions = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 5848), (4000, 9170), (4001, 8166), (4004, 9173), (3242, 9124), (4907, 7674), (3243, 4024), (3244, 9121), (4142, 7693), (4141, 4174), (5168, 7702), (4144, 453), (4018, 9119), (4019, 5896), (4017, 8935), (4021, 5940), (4022, 9090), (4535, 9207), (3251, 4267), (3527, 9175), (3400, 4164), (4167, 4117), (3282, 8486), (9810, 4190), (3544, 649), (4056, 8760), (4057, 5914), (3546, 7009), (4058, 8756), (3303, 928), (3306, 4307), (4205, 874), (4206, 6044), (8178, 385)]
         labels = [0 for _ in res]
-        for u, v in enumerate(res):
+        for u, v in res:
             labels[u] = v
+        for count, (pid, fid) in enumerate(solutions):
+            assert pid_list.index(pid) == res[count][0] and fid_list.index(fid) == res[count][1]
+            assert labels[count] == fid_list.index(fid)
+
         print(" using ground truth labels")
     else:
         if not qap_skip:
@@ -164,7 +170,7 @@ def run_qap(pid_list, fid_list,
             print(" done")
         else:
             print(" skipping qap optimization")
-    labels = read_output(pid_coord_list, fid_coord_list)
+        labels = read_output(pid_coord_list, fid_coord_list)
     geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
 
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)

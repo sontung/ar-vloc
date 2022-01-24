@@ -408,8 +408,8 @@ class PointCloud:
 
     def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):
         if fixed_database:
-            database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702), (4021, 9035, 0.18678693412288302, 0.606487034384174), (4523, 9173, 0.173769433002931, 0.5529564433997507), (4533, 9124, 0.18860495123409068, 0.6202539604834014), (3242, 9124, 0.18090676986048645, 0.5661925920214619), (4001, 9207, 0.16749420519371688, 0.6066296138357196), (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
-            database = [du for du in database if du[0] not in [4523, 4533]]
+            database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702), (4021, 9035, 0.18678693412288302, 0.606487034384174), (3242, 9124, 0.18090676986048645, 0.5661925920214619), (4001, 9207, 0.16749420519371688, 0.6066296138357196), (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
+
             vis = False
             if vis:
                 for pid, fid, dis, ratio in database:
@@ -427,7 +427,6 @@ class PointCloud:
                     cv2.imshow("t", images)
                     cv2.waitKey()
                     cv2.destroyAllWindows()
-            return database
         else:
             visited_arr = np.zeros((len(self.points),))
             database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)

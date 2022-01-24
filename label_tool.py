@@ -66,7 +66,7 @@ for i in range(len(desc_list)):
         point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], 0.0)
     point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
-    database = point3d_cloud.sample(point2d_cloud, image_list[i])
+    database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702), (4021, 9035, 0.18678693412288302, 0.606487034384174), (3242, 9124, 0.18090676986048645, 0.5661925920214619), (4001, 9207, 0.16749420519371688, 0.6066296138357196), (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
 
     ori_len = len(database)
     ori_database = database[:]
@@ -110,6 +110,7 @@ for i in range(len(desc_list)):
     image_ori = cv2.resize(image_ori, (image_ori.shape[1] // down_scale, image_ori.shape[0] // down_scale))
 
     result = []
+    result2 = []
     for index_pid in range(pid_coord_list.shape[0]):
         point_images = visualize_all_point_images(point3d_cloud[pid_neighbors[index_pid]], "sfm_ws_hblab/images")
         cv2.imshow("point", point_images)
@@ -136,6 +137,7 @@ for i in range(len(desc_list)):
                     fid_coord_list = np.delete(fid_coord_list, idx, 0)
                     fid_coord_tree = KDTree(fid_coord_list)
                     result.append((index_pid, index_fid))
+                    result2.append((pid_neighbors[index_pid], fid_neighbors[index_fid]))
 
                 image_ori = np.copy(image_list[i])
                 for idx in range(fid_coord_list.shape[0]):
@@ -149,6 +151,7 @@ for i in range(len(desc_list)):
                 RESULT = {}
                 break
         cv2.destroyWindow("point")
-print(result)
+    print(result)
+    print(result2)
 
 
