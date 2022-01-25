@@ -2,17 +2,7 @@
 
 ## to do list
 1. normalizing quat and trans before clustering
-2. enforcing smoothness to recover more matches
-   1. if one match is found,
-   2. split covisible neighbors of the point into a multi-grid
-   3. do the same for the neighbors of the feature
-   4. check if we can find any extra matches
 3. can SFM localize difficult image?
-4. combinatorics
-   1. compute assignment costs
-   2. cluster into k groups
-   3. edge cost within this group
-   4. normalize all costs
 5. qap
    1. inlier thresholded
    2. consistency
@@ -22,12 +12,12 @@
 
 ## experimental results
 
-|             | no pw     | pw using cosine | pw using euclidean | pw using 1-cosine |
-|-------------|-----------|-----------------|--------------------|-------------------|
-| distance    | 164.66    | 165.97          |                    | 175.66            |
-| accuracy    | 0.078     | 0.078           |                    | 0.078             |
-| geom. cost  | 68440.125 | 67327.11        |                    | 69330.03          |
-| inlier cost | 19        | 37              |                    | 22                |
+|             | no pw     | pw using cosine | pw using `np.var([v1, v2])` | pw using 1-cosine |
+|-------------|-----------|-----------------|-----------------------------|-------------------|
+| distance    | 164.66    | 165.97          | 146.5                       | 175.66            |
+| accuracy    | 0.078     | 0.078           | 0.078                       | 0.078             |
+| geom. cost  | 68440.125 | 67327.11        | 58809.8                     | 69330.03          |
+| inlier cost | 19        | 37              | 35                          | 22                |
 
 ## build LT-pnp
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`
