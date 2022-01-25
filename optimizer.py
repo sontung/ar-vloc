@@ -85,7 +85,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             if u1 == u0 or v1 == v0:
                 continue
             if only_neighbor:
-                cond = u1 in n0[u0] and v1 in n1[v0]
+                cond = u1 in n0[u0] #and v1 in n1[v0]
             else:
                 cond = True
             if cond:
