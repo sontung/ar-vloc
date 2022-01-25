@@ -108,7 +108,8 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     print(f" pairwise cost: max={max_val}, min={min_val}")
     for (edge_id, edge_id2) in pairwise_cost_mat:
         old_val = pairwise_cost_mat[(edge_id, edge_id2)]
-        pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div + 1
+        if not zero_pairwise_cost:
+            pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div + 1
 
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
@@ -133,12 +134,12 @@ def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc
 
 
 def compute_pairwise_edge_cost(u1, v1, u2, v2):
-    v1 = np.array([v1[0], v1[1], 1.0])
-    v2 = np.array([v2[0], v2[1], 1.0])
-    vec1 = v1-u1
-    vec2 = v2-u2
-    return cosine(vec1, vec2)
-    # return np.sqrt(np.sum(np.square(v1-v2)))
+    # v1 = np.array([v1[0], v1[1], 1.0])
+    # v2 = np.array([v2[0], v2[1], 1.0])
+    # vec1 = v1-u1
+    # vec2 = v2-u2
+    # return 1-cosine(vec1, vec2)
+    return np.var([v1, v2])
 
 
 def compute_pairwise_edge_cost2(u1, v1, u2, v2):
@@ -148,7 +149,7 @@ def compute_pairwise_edge_cost2(u1, v1, u2, v2):
 def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
-            correct_pairs, debug=False, qap_skip=False, optimal_label=True):
+            correct_pairs, debug=False, qap_skip=False, optimal_label=False):
     if optimal_label:
         res = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204), (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173), (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115), (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
 
@@ -171,16 +172,10 @@ def run_qap(pid_list, fid_list,
         else:
             print(" skipping qap optimization")
         labels = read_output(pid_coord_list, fid_coord_list)
-    geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
-
-    cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
-
-    solutions = []
-    for idx in range(len(object_points)):
-        u, v = object_points[idx], image_points[idx]
-        solutions.append((pid_list[u], fid_list[v]))
+    geom_cost, cost, solutions, acc, dis = evaluate(labels, pid_list, fid_list, pid_coord_list, fid_coord_list)
     print(f" inlier cost={cost}, return {len(solutions)} matches")
     print(f" geom cost={geom_cost}")
+    print(f" compared against GT: acc={acc} dis={dis}")
 
     if cost < 0.8*len(labels):
         return []
@@ -191,27 +186,52 @@ def run_qap(pid_list, fid_list,
         process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
         process.wait()
         labels_debug = read_output(pid_coord_list, fid_coord_list)
-        geom_cost = compute_smoothness_cost_geometric(labels_debug, pid_coord_list, fid_coord_list)
-        cost, object_points2, image_points2 = compute_smoothness_cost_pnp(labels_debug, pid_coord_list, fid_coord_list)
-
-        # agreement
-        assert len(labels_debug) == len(labels)
-        agree = 0
-        distances = []
-        for u, v in enumerate(labels_debug):
-            if v == labels[u]:
-                agree += 1
-            if labels[u] is not None:
-                coord1 = fid_coord_list[labels[u]]
-                coord2 = fid_coord_list[v]
-                distances.append(np.sum(np.abs(coord1-coord2))/coord2.shape[0])
+        geom_cost, cost, _, acc, dis = evaluate(labels_debug, pid_list, fid_list, pid_coord_list, fid_coord_list)
 
         print(f" debug mode:")
         print(f"\t inlier cost={cost}")
         print(f"\t geom cost={geom_cost}")
-        print(f"\t agreement={agree/len(labels)}, mean distance={np.mean(distances)}")
+        print(f"\t compared against GT: acc={acc} dis={dis}")
 
     return solutions
+
+
+def evaluate(labels, pid_list, fid_list,
+             pid_coord_list, fid_coord_list,):
+    geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
+    cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
+    solutions = []
+    for idx in range(len(object_points)):
+        u, v = object_points[idx], image_points[idx]
+        solutions.append((pid_list[u], fid_list[v]))
+
+    # compare against gt
+    res_gt = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204),
+              (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173),
+              (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115),
+              (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
+
+    solutions_gt = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 5848), (4000, 9170), (4001, 8166),
+                    (4004, 9173), (3242, 9124), (4907, 7674), (3243, 4024), (3244, 9121), (4142, 7693), (4141, 4174),
+                    (5168, 7702), (4144, 453), (4018, 9119), (4019, 5896), (4017, 8935), (4021, 5940), (4022, 9090),
+                    (4535, 9207), (3251, 4267), (3527, 9175), (3400, 4164), (4167, 4117), (3282, 8486), (9810, 4190),
+                    (3544, 649), (4056, 8760), (4057, 5914), (3546, 7009), (4058, 8756), (3303, 928), (3306, 4307),
+                    (4205, 874), (4206, 6044), (8178, 385)]
+    optimal_labels = [0 for _ in res_gt]
+    for u, v in res_gt:
+        optimal_labels[u] = v
+    agree = 0
+    distances = []
+    for u, v in enumerate(labels):
+        if v == optimal_labels[u]:
+            agree += 1
+        if optimal_labels[u] is not None and v is not None:
+            coord1 = fid_coord_list[optimal_labels[u]]
+            coord2 = fid_coord_list[v]
+            distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
+    acc = agree/len(labels)
+    mean_distance = np.mean(distances)
+    return geom_cost, cost, solutions, acc, mean_distance
 
 
 def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors, name="qap/input.dd"):

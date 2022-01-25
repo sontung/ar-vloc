@@ -406,7 +406,7 @@ class PointCloud:
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
         return database, only_neighborhood_database
 
-    def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):
+    def sample(self, point2d_cloud, image_ori, debug=False, fixed_database=True):
         if fixed_database:
             database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702), (4021, 9035, 0.18678693412288302, 0.606487034384174), (3242, 9124, 0.18090676986048645, 0.5661925920214619), (4001, 9207, 0.16749420519371688, 0.6066296138357196), (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
 

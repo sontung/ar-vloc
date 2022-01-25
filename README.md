@@ -20,6 +20,15 @@
    4. fix edge cost zero (make sure that fid list is strictly unique in coordinates)
    5. solve the whole neighborhood at once
 
+## experimental results
+
+|             | no pw     | pw using cosine | pw using euclidean | pw using 1-cosine |
+|-------------|-----------|-----------------|--------------------|-------------------|
+| distance    | 164.66    | 165.97          |                    | 175.66            |
+| accuracy    | 0.078     | 0.078           |                    | 0.078             |
+| geom. cost  | 68440.125 | 67327.11        |                    | 69330.03          |
+| inlier cost | 19        | 37              |                    | 22                |
+
 ## build LT-pnp
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`
 
