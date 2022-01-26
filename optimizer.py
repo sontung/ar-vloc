@@ -11,6 +11,7 @@ from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial.distance import cosine
 from tqdm import tqdm
 from scipy.spatial import KDTree
+from utils import angle_between
 
 
 def prepare_neighbor_information(coord_list, nb_neighbors=10):
@@ -29,7 +30,7 @@ def prepare_neighbor_information(coord_list, nb_neighbors=10):
     return res
 
 
-def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
+def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
                   correct_pairs=None, only_neighbor=True, zero_pairwise_cost=False):
     """
     c comment line
@@ -56,10 +57,10 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     # normalize unary cost
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     print(f" unary cost: max={max_val}, min={min_val}")
-    # div = max_val-min_val
-    # unary_cost_mat = (unary_cost_mat-min_val)/div+1
-    # max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
-    # print(f" unary cost after normalized: max={max_val}, min={min_val}")
+    div = max_val-min_val
+    unary_cost_mat = (unary_cost_mat-min_val)/div+1
+    max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
+    print(f" unary cost after normalized: max={max_val}, min={min_val}")
     unary_cost_mat = -unary_cost_mat
     if correct_pairs is not None:
         for u, v in correct_pairs:
@@ -77,7 +78,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             if u1 == u0 or v1 == v0:
                 continue
             if only_neighbor:
-                cond = u1 in n0[u0] #and v1 in n1[v0]
+                cond = u1 in n0[u0] and v1 in n1[v0]
             else:
                 cond = True
             if cond:
@@ -85,7 +86,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
                     pairwise_cost_mat[(edge_id, edge_id2)] = 1.0
                 else:
                     cost = compute_pairwise_edge_cost(pid_coord_list[u0], fid_coord_list[v0],
-                                                      pid_coord_list[u1], fid_coord_list[v1])
+                                                      pid_coord_list[u1], fid_coord_list[v1], min_var_axis)
                     if cost == 0.0:
                         print(f" [warning]: very small edge cost: cost={cost} indices={v0, v1}"
                               f" coordinates={(fid_coord_list[v0][0], fid_coord_list[v0][1]), (fid_coord_list[v1][0], fid_coord_list[v1][1])}")
@@ -100,8 +101,8 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     print(f" pairwise cost: max={max_val}, min={min_val}")
     for (edge_id, edge_id2) in pairwise_cost_mat:
         old_val = pairwise_cost_mat[(edge_id, edge_id2)]
-        # if not zero_pairwise_cost:
-        #     pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div*999 + 1
+        if not zero_pairwise_cost:
+            pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div + 1
 
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
@@ -126,12 +127,17 @@ def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc
     return data["labeling"]
 
 
-def compute_pairwise_edge_cost(u1, v1, u2, v2):
-    v1 = np.array([v1[0], v1[1], 1.0])
-    v2 = np.array([v2[0], v2[1], 1.0])
-    vec1 = v1-u1
-    vec2 = v2-u2
-    return cosine(vec1, vec2)
+def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
+    u1 = np.array([u1[du] for du in [0, 1, 2] if du != min_var_axis])
+    u2 = np.array([u2[du] for du in [0, 1, 2] if du != min_var_axis])
+
+    vec1 = u1-v1
+    vec2 = u2-v2
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    cost2 = np.abs(norm2-norm1)/(norm2+norm1)
+
+    return np.abs(angle_between(vec1, vec2))+cost2
     # return np.var([v1, v2])
 
 
@@ -142,7 +148,10 @@ def compute_pairwise_edge_cost2(u1, v1, u2, v2):
 def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
-            correct_pairs, debug=False, qap_skip=False, optimal_label=False):
+            point2d_cloud, point3d_cloud,
+            correct_pairs, debug=True, qap_skip=False, optimal_label=False):
+    pid_coord_var = np.var(pid_coord_list, axis=0)
+    min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
     if optimal_label:
         res = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204), (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173), (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115), (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
 
@@ -157,7 +166,7 @@ def run_qap(pid_list, fid_list,
         print(" using ground truth labels")
     else:
         if not qap_skip:
-            prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
+            prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
                           zero_pairwise_cost=False)
             print(" running qap command")
             process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
@@ -166,29 +175,48 @@ def run_qap(pid_list, fid_list,
         else:
             print(" skipping qap optimization")
         labels = read_output(pid_coord_list, fid_coord_list)
-    geom_cost, cost, solutions, acc, dis = evaluate(labels, pid_list, fid_list, pid_coord_list, fid_coord_list)
+    geom_cost, cost, solutions, acc, dis = evaluate(point2d_cloud, point3d_cloud, labels,
+                                                    pid_list, fid_list, pid_coord_list, fid_coord_list)
     print(f" inlier cost={cost}, return {len(solutions)} matches")
     print(f" geom cost={geom_cost}")
     print(f" compared against GT: acc={acc} dis={dis}")
 
     if debug:
-        prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
+        prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
                       zero_pairwise_cost=True)
         process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
         process.wait()
         labels_debug = read_output(pid_coord_list, fid_coord_list)
-        geom_cost, cost, _, acc, dis = evaluate(labels_debug, pid_list, fid_list, pid_coord_list, fid_coord_list)
+        geom_cost, cost, _, acc, dis = evaluate(point2d_cloud, point3d_cloud, labels_debug,
+                                                pid_list, fid_list, pid_coord_list, fid_coord_list)
 
         print(f" debug mode:")
         print(f"\t inlier cost={cost}")
         print(f"\t geom cost={geom_cost}")
         print(f"\t compared against GT: acc={acc} dis={dis}")
+        acc, dis = compare_two_labels(labels_debug, labels, fid_coord_list)
+        print(f"\t compared when w/ pw: acc={acc} dis={dis}")
 
     return solutions
 
 
-def evaluate(labels, pid_list, fid_list,
-             pid_coord_list, fid_coord_list, against_gt=False):
+def compare_two_labels(label1, label2, fid_coord_list):
+    agree = 0
+    distances = []
+    for u, v in enumerate(label1):
+        if v == label2[u]:
+            agree += 1
+        if label2[u] is not None and v is not None:
+            coord1 = fid_coord_list[label2[u]]
+            coord2 = fid_coord_list[v]
+            distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
+    acc = agree / len(label1)
+    mean_distance = np.mean(distances)
+    return acc, mean_distance
+
+
+def evaluate(point2d_cloud, point3d_cloud, labels, pid_list, fid_list,
+             pid_coord_list, fid_coord_list, against_gt=True):
     geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
     solutions = []
@@ -216,12 +244,14 @@ def evaluate(labels, pid_list, fid_list,
     acc = -1
     mean_distance = -1
     if against_gt:
-        for u, v in enumerate(labels):
-            if v == optimal_labels[u]:
+        solutions_pred = [(pid_list[u], fid_list[v]) for u, v in enumerate(labels) if v is not None]
+        pid2fid_gt = {x: y for x, y in solutions_gt}
+        for u, v in solutions_pred:
+            if v == pid2fid_gt[u]:
                 agree += 1
-            if optimal_labels[u] is not None and v is not None:
-                coord1 = fid_coord_list[optimal_labels[u]]
-                coord2 = fid_coord_list[v]
+            if pid2fid_gt[u] is not None and v is not None:
+                coord1 = point2d_cloud[pid2fid_gt[u]].xy
+                coord2 = point2d_cloud[v].xy
                 distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
         acc = agree/len(labels)
         mean_distance = np.mean(distances)

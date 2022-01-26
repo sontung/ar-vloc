@@ -396,7 +396,7 @@ class PointCloud:
 
         print(f"Solving smoothness for {len(pid_neighbors)} points and {len(fid_neighbors)} features")
         solution = run_qap(pid_neighbors, fid_neighbors, pid_desc_list,
-                           fid_desc_list, pid_coord_list, fid_coord_list, new_correct_pairs)
+                           fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud, self, new_correct_pairs)
         only_neighborhood_database = []
         for u, v in solution:
             dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
