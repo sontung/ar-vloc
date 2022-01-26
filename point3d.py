@@ -368,7 +368,7 @@ class PointCloud:
                 smallest_dis = dis
         return smallest_dis
 
-    def search_neighborhood(self, database, point2d_cloud):
+    def search_neighborhood(self, database, point2d_cloud, image_ori, debug=True):
         ori_len = len(database)
         ori_database = database[:]
         pid_neighbors = []
@@ -378,6 +378,7 @@ class PointCloud:
             pid_neighbors.extend(self.xyz_nearest_and_covisible(pid, nb_neighbors=10))
             fid_neighbors.extend(point2d_cloud.nearby_feature(fid, nb_neighbors=100))
             correct_pairs.append((pid, fid))
+            break
 
         # filter duplicate
         pid_neighbors = list(set(pid_neighbors))
@@ -404,6 +405,16 @@ class PointCloud:
                 only_neighborhood_database.append((u, v, dis, None))
 
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
+
+        if debug:
+            # show all the matched features
+            image = np.copy(image_ori)
+            for fid in fid_neighbors:
+                fx, fy = point2d_cloud[fid].xy
+                fx, fy = map(int, (fx, fy))
+                cv2.circle(image, (fx, fy), 20, (128, 128, 0), -1)
+            cv2.imwrite(f"debug/all_candidates.png", image)
+
         return database, only_neighborhood_database
 
     def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):
@@ -434,7 +445,7 @@ class PointCloud:
             print(database)
         print("Solve neighborhood smoothness with", [du[:2] for du in database])
 
-        database, only_neighborhood_database = self.search_neighborhood(database, point2d_cloud)
+        database, only_neighborhood_database = self.search_neighborhood(database, point2d_cloud, image_ori)
         # database = enforce_consistency_ratio_test(database)
         # database = enforce_consistency_distance(database)
         results = []

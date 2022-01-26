@@ -42,7 +42,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     n0 <i> <j>              // optional - specify that points <i> and <j> in the left image are neighbors
     n1 <i> <j>              // optional - specify that points <i> and <j> in the right image are neighbors
     """
-    n0 = prepare_neighbor_information(pid_coord_list, 20)
+    n0 = prepare_neighbor_information(pid_coord_list, 10)
     n1 = prepare_neighbor_information(fid_coord_list, 20)
     dim_x = pid_desc_list.shape[0]
     dim_y = fid_desc_list.shape[0]
@@ -56,10 +56,10 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     # normalize unary cost
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     print(f" unary cost: max={max_val}, min={min_val}")
-    div = max_val-min_val
-    unary_cost_mat = (unary_cost_mat-min_val)/div*999+1
-    max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
-    print(f" unary cost after normalized: max={max_val}, min={min_val}")
+    # div = max_val-min_val
+    # unary_cost_mat = (unary_cost_mat-min_val)/div+1
+    # max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
+    # print(f" unary cost after normalized: max={max_val}, min={min_val}")
     unary_cost_mat = -unary_cost_mat
     if correct_pairs is not None:
         for u, v in correct_pairs:
@@ -77,7 +77,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             if u1 == u0 or v1 == v0:
                 continue
             if only_neighbor:
-                cond = u1 in n0[u0] and v1 in n1[v0]
+                cond = u1 in n0[u0] #and v1 in n1[v0]
             else:
                 cond = True
             if cond:
@@ -100,8 +100,8 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     print(f" pairwise cost: max={max_val}, min={min_val}")
     for (edge_id, edge_id2) in pairwise_cost_mat:
         old_val = pairwise_cost_mat[(edge_id, edge_id2)]
-        if not zero_pairwise_cost:
-            pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div*999 + 1
+        # if not zero_pairwise_cost:
+        #     pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div*999 + 1
 
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
@@ -127,12 +127,12 @@ def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc
 
 
 def compute_pairwise_edge_cost(u1, v1, u2, v2):
-    # v1 = np.array([v1[0], v1[1], 1.0])
-    # v2 = np.array([v2[0], v2[1], 1.0])
-    # vec1 = v1-u1
-    # vec2 = v2-u2
-    # return 1-cosine(vec1, vec2)
-    return np.var([v1, v2])*np.var([u1, u2])
+    v1 = np.array([v1[0], v1[1], 1.0])
+    v2 = np.array([v2[0], v2[1], 1.0])
+    vec1 = v1-u1
+    vec2 = v2-u2
+    return cosine(vec1, vec2)
+    # return np.var([v1, v2])
 
 
 def compute_pairwise_edge_cost2(u1, v1, u2, v2):
@@ -157,7 +157,8 @@ def run_qap(pid_list, fid_list,
         print(" using ground truth labels")
     else:
         if not qap_skip:
-            prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs)
+            prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
+                          zero_pairwise_cost=False)
             print(" running qap command")
             process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
             process.wait()
@@ -169,9 +170,6 @@ def run_qap(pid_list, fid_list,
     print(f" inlier cost={cost}, return {len(solutions)} matches")
     print(f" geom cost={geom_cost}")
     print(f" compared against GT: acc={acc} dis={dis}")
-
-    # if cost < 0.8*len(labels):
-    #     return []
 
     if debug:
         prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
@@ -190,7 +188,7 @@ def run_qap(pid_list, fid_list,
 
 
 def evaluate(labels, pid_list, fid_list,
-             pid_coord_list, fid_coord_list,):
+             pid_coord_list, fid_coord_list, against_gt=False):
     geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
     cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
     solutions = []
@@ -215,15 +213,18 @@ def evaluate(labels, pid_list, fid_list,
         optimal_labels[u] = v
     agree = 0
     distances = []
-    for u, v in enumerate(labels):
-        if v == optimal_labels[u]:
-            agree += 1
-        if optimal_labels[u] is not None and v is not None:
-            coord1 = fid_coord_list[optimal_labels[u]]
-            coord2 = fid_coord_list[v]
-            distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
-    acc = agree/len(labels)
-    mean_distance = np.mean(distances)
+    acc = -1
+    mean_distance = -1
+    if against_gt:
+        for u, v in enumerate(labels):
+            if v == optimal_labels[u]:
+                agree += 1
+            if optimal_labels[u] is not None and v is not None:
+                coord1 = fid_coord_list[optimal_labels[u]]
+                coord2 = fid_coord_list[v]
+                distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
+        acc = agree/len(labels)
+        mean_distance = np.mean(distances)
     return geom_cost, cost, solutions, acc, mean_distance
 
 
@@ -304,6 +305,8 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
     object_indices = np.array(object_indices)
     image_indices = np.array(image_indices)
 
+    if object_points.shape[0] < 4:
+        return -1, [], []
     mat = pnp.build.pnp_python_binding.pnp(object_points, image_points)
 
     xy = mat[None, :, :] @ object_points_homo[:, :, None]
@@ -352,18 +355,3 @@ def exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_li
     return best_solution
 
 
-if __name__ == '__main__':
-    read_output()
-    # prepare_input(np.random.random((30, 128)),
-    #               np.random.random((30, 128)),
-    #               np.random.random((30, 3)),
-    #               np.random.random((30, 2)),
-    #               )
-    # exhaustive_search([0, 1, 2, 3], [0, 1, 2, 3])
-    # list1 = [0, 1, 2, 3, 4]
-    # list2 = [0, 1, 2, 3, 4]
-    # res = [list(zip(list2, x)) for x in itertools.permutations(list1, len(list2))]
-    # for c in res:
-    #     print([du[1] for du in c])
-    # print(len(res))
-    # print(len(list(itertools.permutations(list1, len(list2)))))
