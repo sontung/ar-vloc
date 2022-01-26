@@ -406,7 +406,7 @@ class PointCloud:
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches.")
         return database, only_neighborhood_database
 
-    def sample(self, point2d_cloud, image_ori, debug=False, fixed_database=True):
+    def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):
         if fixed_database:
             database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702), (4021, 9035, 0.18678693412288302, 0.606487034384174), (3242, 9124, 0.18090676986048645, 0.5661925920214619), (4001, 9207, 0.16749420519371688, 0.6066296138357196), (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
 
@@ -470,6 +470,15 @@ class PointCloud:
             # cv2.destroyAllWindows()
             # vis.destroy_window()
 
+            # show all the matched features
+            image = np.copy(image_ori)
+            for pid, fid, _, _ in only_neighborhood_database:
+                fx, fy = point2d_cloud[fid].xy
+                fx, fy = map(int, (fx, fy))
+                cv2.circle(image, (fx, fy), 20, (128, 128, 0), -1)
+            cv2.imwrite(f"debug/all_features.png", image)
+
+            # show all matched pairs
             for count, (pid, fid, _, _) in enumerate(tqdm(only_neighborhood_database,
                                                           desc="Visualizing for debugging")):
                 image = np.copy(image_ori)

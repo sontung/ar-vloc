@@ -10,28 +10,20 @@ import pnp.build.pnp_python_binding
 from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial.distance import cosine
 from tqdm import tqdm
+from scipy.spatial import KDTree
 
 
-def prepare_neighbor_information(coord_list, nb_clusters=None):
-    if nb_clusters is None:
-        nb_clusters = coord_list.shape[0] // 10
-        if coord_list.shape[0] < 10:
-            nb_clusters = 1
-    print(f" clustering into {nb_clusters} clusters")
-    cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
-    labels = cluster_model.fit_predict(coord_list)
-    label2index = {label: [] for label in range(nb_clusters)}
-    for index, label in enumerate(labels):
-        label2index[label].append(index)
-
+def prepare_neighbor_information(coord_list, nb_neighbors=10):
+    tree = KDTree(coord_list)
     res = {}
-    for label in label2index:
-        neighborhood = label2index[label]
+
+    for i in range(coord_list.shape[0]):
+        distances, _ = tree.query(coord_list[i], nb_neighbors)
+        neighborhood = tree.query_ball_point(coord_list[i], distances[-1])
+        res[i] = []
         for index in neighborhood:
-            res[index] = []
-            for index2 in neighborhood:
-                if index2 != index:
-                    res[index].append(index2)
+            if i != index:
+                res[i].append(index)
     for index in range(coord_list.shape[0]):
         assert index in res
     return res
@@ -50,8 +42,8 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     n0 <i> <j>              // optional - specify that points <i> and <j> in the left image are neighbors
     n1 <i> <j>              // optional - specify that points <i> and <j> in the right image are neighbors
     """
-    n0 = prepare_neighbor_information(pid_coord_list)
-    n1 = prepare_neighbor_information(fid_coord_list, nb_clusters=10)
+    n0 = prepare_neighbor_information(pid_coord_list, 20)
+    n1 = prepare_neighbor_information(fid_coord_list, 20)
     dim_x = pid_desc_list.shape[0]
     dim_y = fid_desc_list.shape[0]
     unary_cost_mat = np.zeros((dim_x, dim_y), np.float64)
@@ -65,7 +57,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     print(f" unary cost: max={max_val}, min={min_val}")
     div = max_val-min_val
-    unary_cost_mat = (unary_cost_mat-min_val)/div+1
+    unary_cost_mat = (unary_cost_mat-min_val)/div*999+1
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     print(f" unary cost after normalized: max={max_val}, min={min_val}")
     unary_cost_mat = -unary_cost_mat
@@ -85,7 +77,7 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
             if u1 == u0 or v1 == v0:
                 continue
             if only_neighbor:
-                cond = u1 in n0[u0] #and v1 in n1[v0]
+                cond = u1 in n0[u0] and v1 in n1[v0]
             else:
                 cond = True
             if cond:
@@ -109,11 +101,12 @@ def prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
     for (edge_id, edge_id2) in pairwise_cost_mat:
         old_val = pairwise_cost_mat[(edge_id, edge_id2)]
         if not zero_pairwise_cost:
-            pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div + 1
+            pairwise_cost_mat[(edge_id, edge_id2)] = (old_val - min_val) / div*999 + 1
 
     all_costs = list(pairwise_cost_mat.values())
     max_val, min_val = np.max(all_costs), np.min(all_costs)
     print(f" pairwise cost after normalized: max={max_val}, min={min_val}")
+    print(f" problem size: {unary_cost_mat.shape[0]*unary_cost_mat.shape[1]} nodes, {len(pairwise_cost_mat)} edges")
     write_to_dd(unary_cost_mat, pairwise_cost_mat, n0, n1)
 
 
@@ -139,7 +132,7 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2):
     # vec1 = v1-u1
     # vec2 = v2-u2
     # return 1-cosine(vec1, vec2)
-    return np.var([v1, v2])
+    return np.var([v1, v2])*np.var([u1, u2])
 
 
 def compute_pairwise_edge_cost2(u1, v1, u2, v2):
@@ -177,8 +170,8 @@ def run_qap(pid_list, fid_list,
     print(f" geom cost={geom_cost}")
     print(f" compared against GT: acc={acc} dis={dis}")
 
-    if cost < 0.8*len(labels):
-        return []
+    # if cost < 0.8*len(labels):
+    #     return []
 
     if debug:
         prepare_input(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
