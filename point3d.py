@@ -395,6 +395,8 @@ class PointCloud:
         fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
 
         print(f"Solving smoothness for {len(pid_neighbors)} points and {len(fid_neighbors)} features")
+        print(pid_neighbors)
+        print(fid_neighbors)
         solution = run_qap(pid_neighbors, fid_neighbors, pid_desc_list,
                            fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud, self, new_correct_pairs)
         only_neighborhood_database = []
