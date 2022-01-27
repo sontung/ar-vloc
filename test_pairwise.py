@@ -65,7 +65,7 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
     cost2 = np.abs(norm2-norm1)/(norm2+norm1)
     cost1 = np.abs(angle_between(vec1, vec2))
     # print(cost1, cost2)
-    return cost2
+    return cost1+cost2
 
 
 solutions_gt = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 5848), (4000, 9170), (4001, 8166),
@@ -83,23 +83,77 @@ fid_list = [7687, 4107, 526, 7702, 7734, 7743, 577, 7745, 579, 4164, 7748, 4174,
             425, 4011, 4020, 4024, 4028, 9150, 4031, 455, 4053, 9173, 4062, 4070, 8168, 8181, 504, 505, 7674, 4092]
 
 
-for pid, fid in solutions_gt:
-    pid_coord = point3d_cloud[pid].xyz
-    fid_coord_true = point2d_cloud[fid].xy
-    fid_list2 = sorted(fid_list[:], key=lambda du: point2d_cloud[du].xy[0])
-    tracks = []
-    for count, fid2 in enumerate(fid_list2):
-        fid_coord_false = point2d_cloud[fid2].xy
-        cost = compute_pairwise_edge_cost(pid_coord, fid_coord_true, pid_coord, fid_coord_false, 2)
+def normalize(cloud, list_):
+    x_list = [cloud[index_].xy[0] for index_ in list_]
+    y_list = [cloud[index_].xy[1] for index_ in list_]
+    x_distance = max(x_list) - min(x_list)
+    y_distance = max(y_list) - min(y_list)
+    new_y_max = y_distance / x_distance
+    x_list = (np.array(x_list) - min(x_list)) / x_distance
+    y_list = (np.array(y_list) - min(y_list)) / y_distance * new_y_max
+    for idx in range(x_list.shape[0]):
+        cloud[list_[idx]].xy = np.array([x_list[idx], y_list[idx]])
 
-        pid_coord_wo_min_axis = np.array([pid_coord[du] for du in [0, 1, 2] if du != 2])
-        x1, y1 = [pid_coord_wo_min_axis[0], fid_coord_true[0]], [pid_coord_wo_min_axis[1], fid_coord_true[1]]
-        x2, y2 = [pid_coord_wo_min_axis[0], fid_coord_false[0]], [pid_coord_wo_min_axis[1], fid_coord_false[1]]
-        tracks.append([cost, x1, y1, x2, y2])
 
-    tracks = sorted(tracks, key=lambda du: du[0])
-    for count, (cost, x1, y1, x2, y2) in enumerate(tracks):
-        plt.plot(x1, y1, x2, y2, marker='o')
-        plt.savefig(f"debug/pw/{count}-{cost}.png")
-        plt.close()
-    break
+def normalize3d(cloud, list_):
+    x_list = [cloud[index_].xyz[0] for index_ in list_]
+    y_list = [cloud[index_].xyz[1] for index_ in list_]
+    x_distance = max(x_list) - min(x_list)
+    y_distance = max(y_list) - min(y_list)
+    new_y_max = y_distance / x_distance
+    x_list = (np.array(x_list) - min(x_list)) / x_distance
+    y_list = (np.array(y_list) - min(y_list)) / y_distance * new_y_max
+    for idx in range(x_list.shape[0]):
+        cloud[list_[idx]].xyz = np.array([x_list[idx], y_list[idx]])
+
+
+normalize(point2d_cloud, fid_list)
+normalize3d(point3d_cloud, pid_list)
+
+pid1 = 3337
+pid2 = 4004
+fid1 = 455
+pid_coord1 = point3d_cloud[pid1].xyz
+pid_coord2 = point3d_cloud[pid2].xyz
+fid_coord1 = point2d_cloud[fid1].xy
+pid_coord_wo_min_axis1 = np.array([pid_coord1[du] for du in [0, 1, 2] if du != 2])
+pid_coord_wo_min_axis2 = np.array([pid_coord2[du] for du in [0, 1, 2] if du != 2])
+
+tracks = []
+
+for fid2 in fid_list:
+    fid_coord2 = point2d_cloud[fid2].xy
+    cost = compute_pairwise_edge_cost(pid_coord1, fid_coord1, pid_coord2, fid_coord2, 2)
+
+    x1, y1 = [pid_coord_wo_min_axis1[0], fid_coord1[0]], [pid_coord_wo_min_axis1[1], fid_coord1[1]]
+    x2, y2 = [pid_coord_wo_min_axis2[0], fid_coord2[0]], [pid_coord_wo_min_axis2[1], fid_coord2[1]]
+    tracks.append([cost, x1, y1, x2, y2, fid2])
+
+tracks = sorted(tracks, key=lambda du: du[0])
+for count, (cost, x1, y1, x2, y2, fid2) in enumerate(tracks):
+    plt.plot(x1, y1, x2, y2, marker='o')
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+    plt.savefig(f"debug/pw/{count}-{cost}-{fid2}.png")
+    plt.close()
+
+# for pid, fid in solutions_gt:
+#     pid_coord = point3d_cloud[pid].xyz
+#     fid_coord_true = point2d_cloud[fid].xy
+#     fid_list2 = sorted(fid_list[:], key=lambda du: point2d_cloud[du].xy[0])
+#     tracks = []
+#     for count, fid2 in enumerate(fid_list2):
+#         fid_coord_false = point2d_cloud[fid2].xy
+#         cost = compute_pairwise_edge_cost(pid_coord, fid_coord_true, pid_coord, fid_coord_false, 2)
+#
+#         pid_coord_wo_min_axis = np.array([pid_coord[du] for du in [0, 1, 2] if du != 2])
+#         x1, y1 = [pid_coord_wo_min_axis[0], fid_coord_true[0]], [pid_coord_wo_min_axis[1], fid_coord_true[1]]
+#         x2, y2 = [pid_coord_wo_min_axis[0], fid_coord_false[0]], [pid_coord_wo_min_axis[1], fid_coord_false[1]]
+#         tracks.append([cost, x1, y1, x2, y2])
+#
+#     tracks = sorted(tracks, key=lambda du: du[0])
+#     for count, (cost, x1, y1, x2, y2) in enumerate(tracks):
+#         plt.plot(x1, y1, x2, y2, marker='o')
+#         plt.savefig(f"debug/pw/{count}-{cost}.png")
+#         plt.close()
+#     break

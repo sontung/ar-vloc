@@ -4,10 +4,8 @@
 1. normalizing quat and trans before clustering
 3. can SFM localize difficult image?
 5. qap
-   1. inlier thresholded
-   2. consistency
    3. visualize with non-qap
-   4. fix edge cost zero (make sure that fid list is strictly unique in coordinates)
+   4. scale the distance bound of feature space
    5. solve the whole neighborhood at once
 
 ## experimental results
