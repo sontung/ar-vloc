@@ -139,7 +139,6 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
     norm2 = np.linalg.norm(vec2)
     cost2 = np.abs(norm2-norm1)/(norm2+norm1)
     return cost1+cost2
-    # return np.var([v1, v2])
 
 
 def compute_pairwise_edge_cost2(u1, v1, u2, v2):
@@ -150,11 +149,11 @@ def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
             point2d_cloud, point3d_cloud,
-            correct_pairs, debug=False, qap_skip=True, optimal_label=False):
+            correct_pairs, debug=False, qap_skip=False, optimal_label=False):
     pid_coord_var = np.var(pid_coord_list, axis=0)
     min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
-    pid_coord_list = normalize(pid_coord_list, 2)
-    fid_coord_list = normalize(fid_coord_list, -2)
+    pid_coord_list = normalize(pid_coord_list, 0)
+    fid_coord_list = normalize(fid_coord_list, 0)
 
     if optimal_label:
         res = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204), (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173), (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115), (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
