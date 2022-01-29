@@ -31,7 +31,7 @@ def prepare_neighbor_information(coord_list, nb_neighbors=10):
 
 
 def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
-                  correct_pairs=None, only_neighbor=True, zero_pairwise_cost=False):
+                  correct_pairs=None, only_neighbor=False, zero_pairwise_cost=False):
     """
     c comment line
     p <N0> <N1> <A> <E>     // # points in the left image, # points in the right image, # assignments, # edges
@@ -133,11 +133,12 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
 
     vec1 = u1-v1
     vec2 = u2-v2
+    cost1 = np.abs(angle_between(vec1, vec2))
+
     norm1 = np.linalg.norm(vec1)
     norm2 = np.linalg.norm(vec2)
     cost2 = np.abs(norm2-norm1)/(norm2+norm1)
-
-    return np.abs(angle_between(vec1, vec2))+cost2
+    return cost1+cost2
     # return np.var([v1, v2])
 
 
@@ -149,9 +150,12 @@ def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
             point2d_cloud, point3d_cloud,
-            correct_pairs, debug=True, qap_skip=False, optimal_label=False):
+            correct_pairs, debug=False, qap_skip=True, optimal_label=False):
     pid_coord_var = np.var(pid_coord_list, axis=0)
     min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
+    pid_coord_list = normalize(pid_coord_list, 2)
+    fid_coord_list = normalize(fid_coord_list, -2)
+
     if optimal_label:
         res = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204), (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173), (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115), (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
 
@@ -175,6 +179,21 @@ def run_qap(pid_list, fid_list,
         else:
             print(" skipping qap optimization")
         labels = read_output(pid_coord_list, fid_coord_list)
+        total_pw_cost = compute_pairwise_cost_solution([(u, v) for u, v in enumerate(labels)],
+                                                       pid_coord_list, fid_coord_list)
+        solutions = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 5848), (4000, 9170), (4001, 8166),
+                     (4004, 9173), (3242, 9124), (4907, 7674), (3243, 4024), (3244, 9121), (4142, 7693), (4141, 4174),
+                     (5168, 7702), (4144, 453), (4018, 9119), (4019, 5896), (4017, 8935), (4021, 5940), (4022, 9090),
+                     (4535, 9207), (3251, 4267), (3527, 9175), (3400, 4164), (4167, 4117), (3282, 8486), (9810, 4190),
+                     (3544, 649), (4056, 8760), (4057, 5914), (3546, 7009), (4058, 8756), (3303, 928), (3306, 4307),
+                     (4205, 874), (4206, 6044), (8178, 385)]
+        solutions_dict = {u: v for u, v in solutions}
+        optimal_labels = [(pid_list.index(u), fid_list.index(solutions_dict[u])) for u in pid_list
+                          if solutions_dict[u] in fid_list]
+        total_pw_cost_optimal = compute_pairwise_cost_solution(optimal_labels, pid_coord_list, fid_coord_list)
+        print(f" total pw cost={total_pw_cost}")
+        print(f" total pw cost optimal={total_pw_cost_optimal}")
+
     geom_cost, cost, solutions, acc, dis = evaluate(point2d_cloud, point3d_cloud, labels,
                                                     pid_list, fid_list, pid_coord_list, fid_coord_list)
     print(f" inlier cost={cost}, return {len(solutions)} matches")
@@ -258,7 +277,8 @@ def evaluate(point2d_cloud, point3d_cloud, labels, pid_list, fid_list,
     return geom_cost, cost, solutions, acc, mean_distance
 
 
-def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors, name="qap/input.dd"):
+def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors, name="qap/input.dd",
+                write_neighbor_info=True):
     """
     c comment line
     p <N0> <N1> <A> <E>     // # points in the left image, # points in the right image, # assignments, # edges
@@ -280,14 +300,15 @@ def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors,
             assignment_id += 1
     for (edge_id, edge_id2) in pairwise_cost_mat:
         print(f"e {edge_id} {edge_id2} {pairwise_cost_mat[(edge_id, edge_id2)]}", file=a_file)
-    for u in pid_neighbors:
-        neighbors = pid_neighbors[u]
-        for v in neighbors:
-            print(f"n0 {u} {v}", file=a_file)
-    for u in fid_neighbors:
-        neighbors = fid_neighbors[u]
-        for v in neighbors:
-            print(f"n1 {u} {v}", file=a_file)
+    if write_neighbor_info:
+        for u in pid_neighbors:
+            neighbors = pid_neighbors[u]
+            for v in neighbors:
+                print(f"n0 {u} {v}", file=a_file)
+        for u in fid_neighbors:
+            neighbors = fid_neighbors[u]
+            for v in neighbors:
+                print(f"n1 {u} {v}", file=a_file)
     a_file.close()
 
 
@@ -385,3 +406,33 @@ def exhaustive_search(pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_li
     return best_solution
 
 
+def normalize(coord_list, offset):
+    x_distance = np.max(coord_list[:, 0]) - np.min(coord_list[:, 0])
+    coord_list[:, 0] = (coord_list[:, 0] - np.min(coord_list[:, 0])) / x_distance
+    for i in range(1, coord_list.shape[1]):
+        distance = np.max(coord_list[:, i]) - np.min(coord_list[:, i])
+        new_max = distance / x_distance
+        coord_list[:, i] = (coord_list[:, i] - np.min(coord_list[:, i])) * new_max / distance
+
+    return coord_list + offset
+
+
+def compute_pairwise_cost_solution(label, cloud1, cloud2):
+    pairwise_cost_mat = {}
+    choices = list(range(len(label)))
+    del choices[0]
+    total_cost_ = 0
+    count = 0
+    for edge_id, (u0, v0) in enumerate(label):
+        for edge_id2 in choices:
+            u1, v1 = label[edge_id2]
+            if u1 == u0 or v1 == v0:
+                continue
+            cost_ = compute_pairwise_edge_cost(cloud1[u0], cloud2[v0],
+                                               cloud1[u1], cloud2[v1], 2)
+            pairwise_cost_mat[(edge_id, edge_id2)] = cost_
+            total_cost_ += cost_
+            count += 1
+        if len(choices) > 0:
+            del choices[0]
+    return total_cost_/count

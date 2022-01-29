@@ -54,6 +54,27 @@ for j in range(coord_list[0].shape[0]):
 point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
 
 
+def compute_pairwise_cost_solution(label, cloud1, cloud2):
+    pairwise_cost_mat = {}
+    choices = list(range(len(label)))
+    del choices[0]
+    total_cost_ = 0
+    count = 0
+    for edge_id, (u0, v0) in enumerate(label):
+        for edge_id2 in choices:
+            u1, v1 = label[edge_id2]
+            if u1 == u0 or v1 == v0:
+                continue
+            cost_ = compute_pairwise_edge_cost(cloud1[u0].xyz, cloud2[v0].xy,
+                                               cloud1[u1].xyz, cloud2[v1].xy, 2)
+            pairwise_cost_mat[(edge_id, edge_id2)] = cost_
+            total_cost_ += cost_
+            count += 1
+        if len(choices) > 0:
+            del choices[0]
+    return total_cost_, count
+
+
 def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
     u1 = np.array([u1[du] for du in [0, 1, 2] if du != min_var_axis])
     u2 = np.array([u2[du] for du in [0, 1, 2] if du != min_var_axis])
@@ -74,13 +95,28 @@ solutions_gt = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 58
                 (4535, 9207), (3251, 4267), (3527, 9175), (3400, 4164), (4167, 4117), (3282, 8486), (9810, 4190),
                 (3544, 649), (4056, 8760), (4057, 5914), (3546, 7009), (4058, 8756), (3303, 928), (3306, 4307),
                 (4205, 874), (4206, 6044), (8178, 385)]
+print(f"cost1={compute_pairwise_cost_solution(solutions_gt, point3d_cloud, point2d_cloud)}")
+solutions_gt_dict = {u: v for u, v in solutions_gt}
 
 pid_list = [4004, 3337, 4907, 3243, 3244, 5168, 3282, 8178, 9810, 4535]
 fid_list = [7687, 4107, 526, 7702, 7734, 7743, 577, 7745, 579, 4164, 7748, 4174, 592, 4179, 606, 4190, 4195, 4205,
             4211, 649, 657, 661, 4246, 667, 4251, 4261, 701, 713, 8928, 5857, 8935, 5865, 8940, 5871, 759, 760, 765,
             5894, 5914, 796, 6952, 811, 8494, 814, 819, 5944, 6970, 5950, 830, 8512, 8514, 6978, 8516, 834, 5966, 5969,
             6996, 7009, 5990, 3943, 874, 878, 9089, 385, 7043, 3972, 3990, 3991, 3992, 9118, 9121, 419, 9124, 4006,
-            425, 4011, 4020, 4024, 4028, 9150, 4031, 455, 4053, 9173, 4062, 4070, 8168, 8181, 504, 505, 7674, 4092]
+            425, 4011, 4020, 4024, 4028, 9150, 4031, 455, 4053, 9173, 4062, 4070, 8168, 8181, 504, 505, 7674, 4092,
+            8486, 9207]
+
+for pid in pid_list:
+    pid_coord = point3d_cloud[pid].xyz
+    fid = solutions_gt_dict[pid]
+    assert fid in fid_list, fid
+    fid_coord = point2d_cloud[fid].xy
+    pid_coord_wo_min_axis = np.array([pid_coord[du] for du in [0, 1, 2] if du != 2])
+    x1, y1 = [pid_coord_wo_min_axis[0], fid_coord[0]], [pid_coord_wo_min_axis[1], fid_coord[1]]
+    plt.plot(x1, y1, marker='o')
+print()
+plt.show()
+plt.close()
 
 
 def normalize(cloud, list_):
@@ -92,7 +128,7 @@ def normalize(cloud, list_):
     x_list = (np.array(x_list) - min(x_list)) / x_distance
     y_list = (np.array(y_list) - min(y_list)) / y_distance * new_y_max
     for idx in range(x_list.shape[0]):
-        cloud[list_[idx]].xy = np.array([x_list[idx], y_list[idx]])
+        cloud[list_[idx]].xy = np.array([x_list[idx]+2, y_list[idx]+2])
 
 
 def normalize3d(cloud, list_):
@@ -104,11 +140,22 @@ def normalize3d(cloud, list_):
     x_list = (np.array(x_list) - min(x_list)) / x_distance
     y_list = (np.array(y_list) - min(y_list)) / y_distance * new_y_max
     for idx in range(x_list.shape[0]):
-        cloud[list_[idx]].xyz = np.array([x_list[idx], y_list[idx]])
+        cloud[list_[idx]].xyz = np.array([x_list[idx]-2, y_list[idx]-2])
 
 
 normalize(point2d_cloud, fid_list)
 normalize3d(point3d_cloud, pid_list)
+for pid in pid_list:
+    pid_coord = point3d_cloud[pid].xyz
+    fid = solutions_gt_dict[pid]
+    fid_coord = point2d_cloud[fid].xy
+    pid_coord_wo_min_axis = np.array([pid_coord[du] for du in [0, 1, 2] if du != 2])
+    x1, y1 = [pid_coord_wo_min_axis[0], fid_coord[0]], [pid_coord_wo_min_axis[1], fid_coord[1]]
+    plt.plot(x1, y1, marker='o')
+plt.show()
+plt.close()
+print(f"cost2={compute_pairwise_cost_solution(solutions_gt, point3d_cloud, point2d_cloud)}")
+sys.exit()
 
 pid1 = 3337
 pid2 = 4004
