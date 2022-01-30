@@ -30,6 +30,7 @@ def prepare_neighbor_information(coord_list, nb_neighbors=10):
     return res
 
 
+@profile
 def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
                   correct_pairs=None, only_neighbor=False, zero_pairwise_cost=False):
     """
@@ -127,22 +128,23 @@ def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc
     return data["labeling"]
 
 
+@profile
 def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
     u1 = np.array([u1[du] for du in [0, 1, 2] if du != min_var_axis])
     u2 = np.array([u2[du] for du in [0, 1, 2] if du != min_var_axis])
 
     vec1 = u1-v1
     vec2 = u2-v2
-    cost1 = np.abs(angle_between(vec1, vec2))
 
     norm1 = np.linalg.norm(vec1)
     norm2 = np.linalg.norm(vec2)
+
+    vec1 /= norm1
+    vec2 /= norm2
+
+    cost1 = angle_between(vec1, vec2)
     cost2 = np.abs(norm2-norm1)/(norm2+norm1)
     return cost1+cost2
-
-
-def compute_pairwise_edge_cost2(u1, v1, u2, v2):
-    return np.sqrt(np.sum(np.square(v1-v2)))
 
 
 def run_qap(pid_list, fid_list,

@@ -16,6 +16,7 @@ trash_code/*
 colmap_sift/*.txt
 colmap_sift/*.db
 qap/*
+profile.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

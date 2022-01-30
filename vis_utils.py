@@ -109,7 +109,7 @@ def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
     for database_image in point.visibility:
         x2, y2 = map(int, point.visibility[database_image])
         image = cv2.imread(f"{sfm_image_folder}/{database_image}")
-        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+        cv2.circle(image, (x2, y2), 50, (128, 128, 0), 20)
         visualized_list.append(image)
     list2 = []
     for im in visualized_list:

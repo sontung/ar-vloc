@@ -425,7 +425,7 @@ class PointCloud:
 
         return database, only_neighborhood_database
 
-    def sample(self, point2d_cloud, image_ori, debug=False, fixed_database=True):
+    def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):
         if fixed_database:
             database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702),
                         (4021, 9035, 0.18678693412288302, 0.606487034384174),
@@ -460,7 +460,7 @@ class PointCloud:
                 fx, fy = point2d_cloud[fid].xy
 
                 fx, fy = map(int, (fx, fy))
-                cv2.circle(image, (fx, fy), 50, (128, 128, 0), -1)
+                cv2.circle(image, (fx, fy), 50, (128, 128, 0), 20)
                 image = cv2.resize(image, (image.shape[1]//4, image.shape[0]//4))
                 images = visualize_matching_helper(np.copy(image), point2d_cloud[fid],
                                                    self.points[pid], "sfm_ws_hblab/images")

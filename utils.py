@@ -100,6 +100,7 @@ def unit_vector(vector):
     return vector / np.linalg.norm(vector)
 
 
+@profile
 def angle_between(v1, v2):
     """ Returns the angle in radians between vectors 'v1' and 'v2'::
 
@@ -110,9 +111,11 @@ def angle_between(v1, v2):
             >>> angle_between((1, 0, 0), (-1, 0, 0))
             3.141592653589793
     """
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+    # v1_u = unit_vector(v1)
+    # v2_u = unit_vector(v2)
+    dot_p = np.dot(v1, v2)
+    clip_dot = max(-1, min(dot_p, 1))
+    return np.arccos(clip_dot)
 
 
 if __name__ == '__main__':
