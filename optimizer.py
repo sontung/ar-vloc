@@ -148,8 +148,8 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
 def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
-            point2d_cloud, point3d_cloud,
-            correct_pairs, debug=False, qap_skip=False, optimal_label=False):
+            point2d_cloud,
+            correct_pairs, f, c1, c2, debug=False, qap_skip=False, optimal_label=False):
     pid_coord_var = np.var(pid_coord_list, axis=0)
     min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
     pid_coord_list = normalize(pid_coord_list, 0)
@@ -193,8 +193,8 @@ def run_qap(pid_list, fid_list,
         print(f" total pw cost={total_pw_cost}")
         print(f" total pw cost optimal={total_pw_cost_optimal}")
 
-    geom_cost, cost, solutions, acc, dis = evaluate(point2d_cloud, point3d_cloud, labels,
-                                                    pid_list, fid_list, pid_coord_list, fid_coord_list)
+    geom_cost, cost, solutions, acc, dis = evaluate(point2d_cloud, labels,
+                                                    pid_list, fid_list, pid_coord_list, fid_coord_list, f, c1, c2)
     print(f" inlier cost={cost}, return {len(solutions)} matches")
     print(f" geom cost={geom_cost}")
     print(f" compared against GT: acc={acc} dis={dis}")
@@ -205,8 +205,8 @@ def run_qap(pid_list, fid_list,
         process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
         process.wait()
         labels_debug = read_output(pid_coord_list, fid_coord_list)
-        geom_cost, cost, _, acc, dis = evaluate(point2d_cloud, point3d_cloud, labels_debug,
-                                                pid_list, fid_list, pid_coord_list, fid_coord_list)
+        geom_cost, cost, _, acc, dis = evaluate(point2d_cloud, labels_debug,
+                                                pid_list, fid_list, pid_coord_list, fid_coord_list, f, c1, c2)
 
         print(f" debug mode:")
         print(f"\t inlier cost={cost}")
@@ -221,8 +221,8 @@ def run_qap(pid_list, fid_list,
 def run_qap_final(pid_list, fid_list,
                   pid_desc_list, fid_desc_list,
                   pid_coord_list, fid_coord_list,
-                  point2d_cloud, point3d_cloud,
-                  correct_pairs):
+                  point2d_cloud,
+                  correct_pairs, f, c1, c2):
     pid_coord_var = np.var(pid_coord_list, axis=0)
     min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
     pid_coord_list = normalize(pid_coord_list, 0)
@@ -239,9 +239,9 @@ def run_qap_final(pid_list, fid_list,
                                                    pid_coord_list, fid_coord_list)
     print(f" total pw cost={total_pw_cost}")
 
-    geom_cost, cost, solutions, _, _ = evaluate(point2d_cloud, point3d_cloud, labels,
+    geom_cost, cost, solutions, _, _ = evaluate(point2d_cloud, labels,
                                                 pid_list, fid_list,
-                                                pid_coord_list, fid_coord_list, against_gt=False)
+                                                pid_coord_list, fid_coord_list, f, c1, c2, against_gt=False)
     if cost <= 0.7*pid_list.shape[0]:
         return []
     print(f" inlier cost={cost}, return {len(solutions)} matches")
@@ -264,10 +264,10 @@ def compare_two_labels(label1, label2, fid_coord_list):
     return acc, mean_distance
 
 
-def evaluate(point2d_cloud, point3d_cloud, labels, pid_list, fid_list,
-             pid_coord_list, fid_coord_list, against_gt=True):
+def evaluate(point2d_cloud, labels, pid_list, fid_list,
+             pid_coord_list, fid_coord_list, f, c1, c2, against_gt=True):
     geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
-    cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list)
+    cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list, f, c1, c2)
     solutions = []
     for idx in range(len(object_points)):
         u, v = object_points[idx], image_points[idx]

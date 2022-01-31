@@ -2,8 +2,9 @@ import pnp.build.pnp_python_binding
 import numpy as np
 
 
-def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list, threshold=0.001):
-    f, c1, c2 = 2600.0, 1134.0, 2016.0
+def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list, f, c1, c2, threshold=0.001):
+    if f == 0 and c1 == 0 and c2 == 0:
+        raise TypeError
     object_points = []
     image_points = []
     object_points_homo = []

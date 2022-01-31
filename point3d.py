@@ -3,7 +3,7 @@ from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
-from optimizer import exhaustive_search, run_qap
+from optimizer import exhaustive_search, run_qap, run_qap_final
 from vis_utils import visualize_matching_helper
 from pnp_utils import filter_bad_matches
 import time
@@ -419,9 +419,9 @@ class PointCloud:
                 fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
 
                 print(f"Solving smoothness for {len(pid_neighbors)} points and {len(fid_neighbors)} features")
-                solution = run_qap(pid_neighbors, fid_neighbors, pid_desc_list,
-                                   fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud, self,
-                                   new_correct_pairs)
+                solution = run_qap_final(pid_neighbors, fid_neighbors, pid_desc_list,
+                                         fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud,
+                                         new_correct_pairs, self.f, self.c1, self.c2)
                 for u, v in solution:
                     dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
                     only_neighborhood_database.append((u, v, dis, None))
@@ -457,8 +457,6 @@ class PointCloud:
         print("Solve neighborhood smoothness with", [du[:2] for du in database])
 
         database, only_neighborhood_database = self.search_neighborhood(database, point2d_cloud, image_ori)
-        # database = enforce_consistency_ratio_test(database)
-        # database = enforce_consistency_distance(database)
         results = []
         for pid, fid, dis, ratio in database:
             results.append([point2d_cloud[fid], self.points[pid]])
