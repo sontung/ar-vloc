@@ -100,7 +100,7 @@ def unit_vector(vector):
     return vector / np.linalg.norm(vector)
 
 
-@profile
+# @profile
 def angle_between(v1, v2):
     """ Returns the angle in radians between vectors 'v1' and 'v2'::
 

@@ -5,8 +5,7 @@
 3. can SFM localize difficult image?
 5. qap
    3. visualize with non-qap
-   4. scale the distance bound of feature space
-   5. solve the whole neighborhood at once
+   4. perform ransac pnp while solving neighborhood
 
 ## experimental results
 

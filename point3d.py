@@ -5,7 +5,7 @@ from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 from optimizer import exhaustive_search, run_qap
 from vis_utils import visualize_matching_helper
-
+from pnp_utils import filter_bad_matches
 import time
 import kmeans1d
 import cv2
@@ -94,7 +94,7 @@ def enforce_consistency_distance(database):
 
 
 class PointCloud:
-    def __init__(self, multiple_desc_map, debug=False):
+    def __init__(self, multiple_desc_map, f, c1, c2, debug=False):
         self.points = []
         self.point_id_list = []
         self.point_desc_list = []
@@ -116,6 +116,14 @@ class PointCloud:
         self.point2co_visible_points = {}
         self.visibility_trees = []
         self.visibility_matrix = None
+        self.f = f
+        self.c1 = c1
+        self.c2 = c2
+
+    def update_intrinsic(self, f, c1, c2):
+        self.f = f
+        self.c1 = c1
+        self.c2 = c2
 
     def cluster(self, image2pose):
         self.cluster_by_pose(image2pose)
@@ -416,13 +424,23 @@ class PointCloud:
                                    new_correct_pairs)
                 for u, v in solution:
                     dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
-                    if (u, v) not in correct_pairs:
-                        database.append((u, v, dis, None))
-                        only_neighborhood_database.append((u, v, dis, None))
-
+                    only_neighborhood_database.append((u, v, dis, None))
+                filtered_indices = filter_bad_matches([self[match[0]].xyz
+                                                       for match in only_neighborhood_database],
+                                                      [point2d_cloud[match[1]].xy
+                                                       for match in only_neighborhood_database],
+                                                      self.f, self.c1, self.c2)
+                only_neighborhood_database_new = []
+                for ind in range(len(only_neighborhood_database)):
+                    if ind in filtered_indices:
+                        only_neighborhood_database_new.append(only_neighborhood_database[ind])
+                ori_len2 = len(only_neighborhood_database)
+                del only_neighborhood_database[:]
+                only_neighborhood_database = only_neighborhood_database_new
+                print(f"Filtering reduces {ori_len2} matches to {len(only_neighborhood_database)} matches")
+        database.extend(only_neighborhood_database)
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches, "
               f"done in {time.time()-start}.")
-
         return database, only_neighborhood_database
 
     def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):

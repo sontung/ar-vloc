@@ -2,16 +2,14 @@ import sys
 
 import numpy as np
 import itertools
-import thinqpbo as tq
 import subprocess
 import pickle
 import json
-import pnp.build.pnp_python_binding
 from sklearn.cluster import MiniBatchKMeans
-from scipy.spatial.distance import cosine
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from utils import angle_between
+from pnp_utils import compute_smoothness_cost_pnp
 
 
 def prepare_neighbor_information(coord_list, nb_neighbors=10):
@@ -30,7 +28,6 @@ def prepare_neighbor_information(coord_list, nb_neighbors=10):
     return res
 
 
-@profile
 def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
                   correct_pairs=None, only_neighbor=False, zero_pairwise_cost=False):
     """
@@ -128,7 +125,7 @@ def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc
     return data["labeling"]
 
 
-@profile
+# @profile
 def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
     u1 = np.array([u1[du] for du in [0, 1, 2] if du != min_var_axis])
     u2 = np.array([u2[du] for du in [0, 1, 2] if du != min_var_axis])
@@ -147,6 +144,7 @@ def compute_pairwise_edge_cost(u1, v1, u2, v2, min_var_axis):
     return cost1+cost2
 
 
+# @profile
 def run_qap(pid_list, fid_list,
             pid_desc_list, fid_desc_list,
             pid_coord_list, fid_coord_list,
@@ -216,6 +214,37 @@ def run_qap(pid_list, fid_list,
         print(f"\t compared against GT: acc={acc} dis={dis}")
         acc, dis = compare_two_labels(labels_debug, labels, fid_coord_list)
         print(f"\t compared when w/ pw: acc={acc} dis={dis}")
+
+    return solutions
+
+
+def run_qap_final(pid_list, fid_list,
+                  pid_desc_list, fid_desc_list,
+                  pid_coord_list, fid_coord_list,
+                  point2d_cloud, point3d_cloud,
+                  correct_pairs):
+    pid_coord_var = np.var(pid_coord_list, axis=0)
+    min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
+    pid_coord_list = normalize(pid_coord_list, 0)
+    fid_coord_list = normalize(fid_coord_list, 0)
+
+    prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
+                  zero_pairwise_cost=False)
+    print(" running qap command")
+    process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
+    process.wait()
+    print(" done")
+    labels = read_output(pid_coord_list, fid_coord_list)
+    total_pw_cost = compute_pairwise_cost_solution([(u, v) for u, v in enumerate(labels)],
+                                                   pid_coord_list, fid_coord_list)
+    print(f" total pw cost={total_pw_cost}")
+
+    geom_cost, cost, solutions, _, _ = evaluate(point2d_cloud, point3d_cloud, labels,
+                                                pid_list, fid_list,
+                                                pid_coord_list, fid_coord_list, against_gt=False)
+    if cost <= 0.7*pid_list.shape[0]:
+        return []
+    print(f" inlier cost={cost}, return {len(solutions)} matches")
 
     return solutions
 
@@ -328,47 +357,6 @@ def compute_smoothness_cost_geometric(solution, pid_coord_list, fid_coord_list):
     object_points_projected = object_points[:, [ax for ax in range(3) if ax != min_var_axis]]
     diff = object_points_projected-image_points
     return np.var(np.abs(diff))
-
-
-def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list):
-    f, c1, c2 = 2600.0, 1134.0, 2016.0
-    object_points = []
-    image_points = []
-    object_points_homo = []
-    object_indices = []
-    image_indices = []
-
-    for u, v in enumerate(solution):
-        if v is not None:
-            object_indices.append(u)
-            image_indices.append(v)
-            xyz = pid_coord_list[u]
-            xy = fid_coord_list[v]
-            x, y = xy
-            u2 = (x - c1) / f
-            v2 = (y - c2) / f
-            image_points.append([u2, v2])
-            object_points.append(xyz)
-            x, y, z = xyz
-            object_points_homo.append([x, y, z, 1.0])
-    object_points = np.array(object_points)
-    object_points_homo = np.array(object_points_homo)
-    image_points = np.array(image_points)
-    object_indices = np.array(object_indices)
-    image_indices = np.array(image_indices)
-
-    if object_points.shape[0] < 4:
-        return -1, [], []
-    mat = pnp.build.pnp_python_binding.pnp(object_points, image_points)
-
-    xy = mat[None, :, :] @ object_points_homo[:, :, None]
-    xy = xy[:, :, 0]
-    xy = xy[:, :3] / xy[:, 2].reshape((-1, 1))
-    xy = xy[:, :2]
-    diff = np.sum(np.square(xy - image_points), axis=1)
-    inliers = np.sum(diff < 0.1)
-    object_indices, image_indices = object_indices[diff < 0.1], image_indices[diff < 0.1]
-    return inliers, object_indices, image_indices
 
 
 def compute_unary_cost(solution, unary_cost_mat):

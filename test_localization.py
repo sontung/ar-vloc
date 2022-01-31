@@ -28,7 +28,7 @@ image2pose = read_images(sfm_images_dir)
 point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
 points_3d_list = []
 point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = build_descriptors_2d_using_colmap_sift(image2pose)
-point3d_cloud = PointCloud(point3did2descs)
+point3d_cloud = PointCloud(point3did2descs, 0, 0, 0)
 for i in range(len(point3d_id_list)):
     point3d_id = point3d_id_list[i]
     point3d_desc = point3d_desc_list[i]
@@ -63,7 +63,12 @@ desc_list, coord_list = load_2d_queries_using_colmap_sift(query_images_folder)
 
 p2d2p3d = {}
 for i in range(len(desc_list)):
-    print(f"{im_name_list[i]}")
+    metadata = metadata_list[i]
+    f = metadata["f"]*100
+    cx = metadata["cx"]
+    cy = metadata["cy"]
+    point3d_cloud.update_intrinsic(f, cx, cy)
+
     start_time = time.time()
     point2d_cloud = FeatureCloud()
     for j in range(coord_list[i].shape[0]):
