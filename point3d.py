@@ -397,7 +397,7 @@ class PointCloud:
                 database.append((u, v, dis, None))
                 only_neighborhood_database.append((u, v, dis, None))
         else:
-            for pid, fid, dis, ratio in ori_database:
+            for count, (pid, fid, dis, ratio) in enumerate(ori_database):
                 pid_neighbors = []
                 fid_neighbors = []
                 correct_pairs = []
@@ -421,40 +421,55 @@ class PointCloud:
                 print(f"Solving smoothness for {len(pid_neighbors)} points and {len(fid_neighbors)} features")
                 solution = run_qap_final(pid_neighbors, fid_neighbors, pid_desc_list,
                                          fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud,
-                                         new_correct_pairs, self.f, self.c1, self.c2)
+                                         new_correct_pairs, self.f, self.c1, self.c2, count)
                 for u, v in solution:
                     dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
                     only_neighborhood_database.append((u, v, dis, None))
-                filtered_indices = filter_bad_matches([self[match[0]].xyz
-                                                       for match in only_neighborhood_database],
-                                                      [point2d_cloud[match[1]].xy
-                                                       for match in only_neighborhood_database],
-                                                      self.f, self.c1, self.c2)
-                only_neighborhood_database_new = []
-                for ind in range(len(only_neighborhood_database)):
-                    if ind in filtered_indices:
-                        only_neighborhood_database_new.append(only_neighborhood_database[ind])
-                ori_len2 = len(only_neighborhood_database)
-                del only_neighborhood_database[:]
-                only_neighborhood_database = only_neighborhood_database_new
-                print(f"Filtering reduces {ori_len2} matches to {len(only_neighborhood_database)} matches")
+
+            # filtering bad matches
+            filtered_indices = filter_bad_matches([self[match[0]].xyz
+                                                   for match in only_neighborhood_database],
+                                                  [point2d_cloud[match[1]].xy
+                                                   for match in only_neighborhood_database],
+                                                  self.f, self.c1, self.c2)
+            only_neighborhood_database_new = []
+            for ind in range(len(only_neighborhood_database)):
+                if ind in filtered_indices:
+                    only_neighborhood_database_new.append(only_neighborhood_database[ind])
+            ori_len2 = len(only_neighborhood_database)
+            del only_neighborhood_database[:]
+            only_neighborhood_database = only_neighborhood_database_new
+            print(f"Filtering reduces {ori_len2} matches to {len(only_neighborhood_database)} matches")
         database.extend(only_neighborhood_database)
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches, "
               f"done in {time.time()-start}.")
         return database, only_neighborhood_database
 
-    def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True):
+    def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True, create_fixed_database=True):
         if fixed_database:
-            database = [(4004, 9173, 0.12098117412262448, 0.4402885800224702),
+            database = [(3242, 9124, 0.18090676986048645, 0.5661925920214619),
                         (4021, 9035, 0.18678693412288302, 0.606487034384174),
-                        (3242, 9124, 0.18090676986048645, 0.5661925920214619),
-                        (4001, 9207, 0.16749420519371688, 0.6066296138357196),
-                        (4535, 9207, 0.15554088565304214, 0.5375631689539395)]
+                        (4533, 9124, 0.18860495123409068, 0.6202539604834014),
+                        (4523, 9173, 0.173769433002931, 0.5529564433997507),
+                        (4004, 9173, 0.12098117412262448, 0.4402885800224702)]
         else:
             visited_arr = np.zeros((len(self.points),))
             database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
             database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
-        print("Solve neighborhood smoothness with", [du[:2] for du in database])
+            if create_fixed_database:
+                print(database)
+                for count, (pid, fid, _, _) in enumerate(tqdm(database,
+                                                              desc="Visualizing for debugging")):
+                    image = np.copy(image_ori)
+                    fx, fy = point2d_cloud[fid].xy
+
+                    fx, fy = map(int, (fx, fy))
+                    cv2.circle(image, (fx, fy), 50, (128, 128, 0), 20)
+                    image = cv2.resize(image, (image.shape[1]//4, image.shape[0]//4))
+                    images = visualize_matching_helper(np.copy(image), point2d_cloud[fid],
+                                                       self.points[pid], "sfm_ws_hblab/images")
+                    cv2.imwrite(f"debug/im-{count}-{pid}-{fid}.png", images)
+                sys.exit()
 
         database, only_neighborhood_database = self.search_neighborhood(database, point2d_cloud, image_ori)
         results = []

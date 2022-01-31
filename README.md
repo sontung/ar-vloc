@@ -6,6 +6,7 @@
 5. qap
    3. visualize with non-qap
    4. perform ransac pnp while solving neighborhood
+   5. check unary cost with pw cost (when checking bad neighborhood)
 
 ## experimental results
 

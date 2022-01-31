@@ -10,6 +10,7 @@ from tqdm import tqdm
 from scipy.spatial import KDTree
 from utils import angle_between
 from pnp_utils import compute_smoothness_cost_pnp
+import matplotlib.pyplot as plt
 
 
 def prepare_neighbor_information(coord_list, nb_neighbors=10):
@@ -222,7 +223,7 @@ def run_qap_final(pid_list, fid_list,
                   pid_desc_list, fid_desc_list,
                   pid_coord_list, fid_coord_list,
                   point2d_cloud,
-                  correct_pairs, f, c1, c2):
+                  correct_pairs, f, c1, c2, index):
     pid_coord_var = np.var(pid_coord_list, axis=0)
     min_var_axis = min([0, 1, 2], key=lambda du: pid_coord_var[du])
     pid_coord_list = normalize(pid_coord_list, 0)
@@ -242,7 +243,16 @@ def run_qap_final(pid_list, fid_list,
     geom_cost, cost, solutions, _, _ = evaluate(point2d_cloud, labels,
                                                 pid_list, fid_list,
                                                 pid_coord_list, fid_coord_list, f, c1, c2, against_gt=False)
-    if cost <= 0.7*pid_list.shape[0]:
+    for u, v in enumerate(labels):
+        pid_coord = pid_coord_list[u]
+        fid_coord = fid_coord_list[v]
+        pid_coord_wo_min_axis = np.array([pid_coord[du] for du in [0, 1, 2] if du != min_var_axis])
+        x1, y1 = [pid_coord_wo_min_axis[0]-2, fid_coord[0]+2], [pid_coord_wo_min_axis[1], fid_coord[1]]
+        plt.plot(x1, y1, marker='o')
+    plt.savefig(f"debug/pw/img-{index}.png")
+    plt.close()
+
+    if cost <= 0.7*len(pid_list):
         return []
     print(f" inlier cost={cost}, return {len(solutions)} matches")
 
