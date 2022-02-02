@@ -5,8 +5,7 @@
 3. can SFM localize difficult image?
 5. qap
    3. visualize with non-qap
-   4. perform ransac pnp while solving neighborhood
-   5. check unary cost with pw cost (when checking bad neighborhood)
+   4. final optim to select which seed to take
 
 ## experimental results
 

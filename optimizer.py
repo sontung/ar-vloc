@@ -60,6 +60,7 @@ def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fi
     unary_cost_mat = (unary_cost_mat-min_val)/div+1
     max_val, min_val = np.max(unary_cost_mat), np.min(unary_cost_mat)
     print(f" unary cost after normalized: max={max_val}, min={min_val}")
+    unary_cost_mat_returned = np.copy(unary_cost_mat)
     unary_cost_mat = -unary_cost_mat
     if correct_pairs is not None:
         for u, v in correct_pairs:
@@ -108,6 +109,7 @@ def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fi
     print(f" pairwise cost after normalized: max={max_val}, min={min_val}")
     print(f" problem size: {unary_cost_mat.shape[0]*unary_cost_mat.shape[1]} nodes, {len(pairwise_cost_mat)} edges")
     write_to_dd(unary_cost_mat, pairwise_cost_mat, n0, n1)
+    return unary_cost_mat_returned
 
 
 def read_output(pid_coord_list, fid_coord_list, name="/home/sontung/work/ar-vloc/qap/fused.txt"):
@@ -229,7 +231,7 @@ def run_qap_final(pid_list, fid_list,
     pid_coord_list = normalize(pid_coord_list, 0)
     fid_coord_list = normalize(fid_coord_list, 0)
 
-    prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
+    unary_cost_mat = prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
                   zero_pairwise_cost=False)
     print(" running qap command")
     process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
@@ -238,7 +240,8 @@ def run_qap_final(pid_list, fid_list,
     labels = read_output(pid_coord_list, fid_coord_list)
     total_pw_cost = compute_pairwise_cost_solution([(u, v) for u, v in enumerate(labels)],
                                                    pid_coord_list, fid_coord_list)
-    print(f" total pw cost={total_pw_cost}")
+    total_unary_cost = np.mean([unary_cost_mat[u, v] for u, v in enumerate(labels)])
+    print(f" pw cost={total_pw_cost}, unary cost={total_unary_cost}")
 
     geom_cost, cost, solutions, _, _ = evaluate(point2d_cloud, labels,
                                                 pid_list, fid_list,
