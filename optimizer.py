@@ -9,7 +9,9 @@ from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from utils import angle_between
-from pnp_utils import compute_smoothness_cost_pnp
+from pnp_utils import compute_smoothness_cost_pnp, compute_smoothness_cost_pnp2
+from itertools import product
+
 import matplotlib.pyplot as plt
 
 
@@ -232,7 +234,7 @@ def run_qap_final(pid_list, fid_list,
     fid_coord_list = normalize(fid_coord_list, 0)
 
     unary_cost_mat = prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list, correct_pairs,
-                  zero_pairwise_cost=False)
+                                   zero_pairwise_cost=False)
     print(" running qap command")
     process = subprocess.Popen(["./run_qap.sh"], shell=True, stdout=subprocess.PIPE)
     process.wait()
@@ -260,6 +262,44 @@ def run_qap_final(pid_list, fid_list,
     print(f" inlier cost={cost}, return {len(solutions)} matches")
 
     return solutions
+
+
+def exhaustive_filter_post_optim(point3d_cloud, point2d_cloud, f, c1, c2, universe):
+    if len(universe) > 10:
+        return []
+    tracks = []
+    choices = list(product([0, 1], repeat=len(universe)))
+    best_cost = None
+    for choice in choices:
+        if np.sum(choice) <= 1:
+            continue
+        matches = []
+        for u, v in enumerate(choice):
+            if v > 0:
+                matches.extend(universe[u])
+        cost, p_indices, f_indices = compute_smoothness_cost_pnp2(matches, point3d_cloud, point2d_cloud, f, c1, c2)
+        cost_norm = cost/len(matches)
+        tracks.append([choice, p_indices.tolist(), f_indices.tolist(), cost, cost_norm])
+        if best_cost is None or cost_norm > best_cost:
+            best_cost = cost_norm
+    tracks = sorted(tracks, key=lambda du: du[-1])
+    for track in tracks:
+        print(track[0], track[-2], track[-1])
+
+    # in case of tie, breaking by choosing the biggest number of inliers
+    best_tracks = [track for track in tracks if track[-1] == best_cost]
+    if len(best_tracks) == 1:
+        best_track = best_tracks[0]
+    else:
+        best_track = max(best_tracks, key=lambda du: du[-2])
+    p_indices = best_track[1]
+    f_indices = best_track[2]
+
+    matches = []
+    assert len(p_indices) == len(f_indices)
+    for u, v in enumerate(p_indices):
+        matches.append((v, f_indices[u]))
+    return matches
 
 
 def compare_two_labels(label1, label2, fid_coord_list):
@@ -438,3 +478,4 @@ def compute_pairwise_cost_solution(label, cloud1, cloud2):
         if len(choices) > 0:
             del choices[0]
     return total_cost_/count
+

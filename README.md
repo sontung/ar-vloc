@@ -5,7 +5,7 @@
 3. can SFM localize difficult image?
 5. qap
    3. visualize with non-qap
-   4. final optim to select which seed to take
+   4. post-optim filter with a few iterations
 
 ## experimental results
 

@@ -3,7 +3,7 @@ from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
-from optimizer import exhaustive_search, run_qap, run_qap_final
+from optimizer import exhaustive_search, run_qap, run_qap_final, exhaustive_filter_post_optim
 from vis_utils import visualize_matching_helper
 from pnp_utils import filter_bad_matches
 import time
@@ -377,7 +377,7 @@ class PointCloud:
         return smallest_dis
 
     def search_neighborhood(self, database, point2d_cloud, image_ori,
-                            debug=True, using_gt=False, filtering=False):
+                            debug=True, using_gt=False, filtering=True):
         ori_len = len(database)
         ori_database = database[:]
         only_neighborhood_database = []
@@ -398,6 +398,8 @@ class PointCloud:
                 database.append((u, v, dis, None))
                 only_neighborhood_database.append((u, v, dis, None))
         else:
+            everything = {}
+            uv2dis = {}
             for count, (pid, fid, dis, ratio) in enumerate(ori_database):
                 pid_neighbors = []
                 fid_neighbors = []
@@ -423,7 +425,7 @@ class PointCloud:
                 solution = run_qap_final(pid_neighbors, fid_neighbors, pid_desc_list,
                                          fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud,
                                          new_correct_pairs, self.f, self.c1, self.c2, count)
-
+                everything[count] = solution
                 if debug:
                     image = np.copy(image_ori)
                     for u, v in solution:
@@ -435,21 +437,15 @@ class PointCloud:
                 for u, v in solution:
                     dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
                     only_neighborhood_database.append((u, v, dis, None))
+                    uv2dis[(u, v)] = dis
 
             # filtering bad matches
             if filtering:
-                filtered_indices = filter_bad_matches([self[match[0]].xyz
-                                                       for match in only_neighborhood_database],
-                                                      [point2d_cloud[match[1]].xy
-                                                       for match in only_neighborhood_database],
-                                                      self.f, self.c1, self.c2)
-                only_neighborhood_database_new = []
-                for ind in range(len(only_neighborhood_database)):
-                    if ind in filtered_indices:
-                        only_neighborhood_database_new.append(only_neighborhood_database[ind])
+                only_neighborhood_database_new = exhaustive_filter_post_optim(self, point2d_cloud, self.f,
+                                                                              self.c1, self.c2, everything)
                 ori_len2 = len(only_neighborhood_database)
                 del only_neighborhood_database[:]
-                only_neighborhood_database = only_neighborhood_database_new
+                only_neighborhood_database = [(u, v, uv2dis[(u, v)], 0) for u, v in only_neighborhood_database_new]
                 print(f"Filtering reduces {ori_len2} matches to {len(only_neighborhood_database)} matches")
         database.extend(only_neighborhood_database)
         print(f"Neighborhood search gains {len(database)-ori_len} extra matches, "
@@ -459,11 +455,11 @@ class PointCloud:
     def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True, create_fixed_database=True):
         if fixed_database:
             database = [
-                # (3242, 9124, 0.18090676986048645, 0.5661925920214619),
-                # (4021, 9035, 0.18678693412288302, 0.606487034384174),
+                (3242, 9124, 0.18090676986048645, 0.5661925920214619),
+                (4021, 9035, 0.18678693412288302, 0.606487034384174),
                 (4533, 9124, 0.18860495123409068, 0.6202539604834014),
                 (4523, 9173, 0.173769433002931, 0.5529564433997507),
-                # (4004, 9173, 0.12098117412262448, 0.4402885800224702)
+                (4004, 9173, 0.12098117412262448, 0.4402885800224702)
             ]
         else:
             visited_arr = np.zeros((len(self.points),))
@@ -482,7 +478,6 @@ class PointCloud:
                     images = visualize_matching_helper(np.copy(image), point2d_cloud[fid],
                                                        self.points[pid], "sfm_ws_hblab/images")
                     cv2.imwrite(f"debug/im-{count}-{pid}-{fid}.png", images)
-                sys.exit()
 
         database, only_neighborhood_database = self.search_neighborhood(database, point2d_cloud, image_ori)
         results = []

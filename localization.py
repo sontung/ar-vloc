@@ -62,9 +62,10 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
     return rot_mat, trans
 
 
-def localize_single_image_lt_pnp(pairs, f, c1, c2):
+def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001):
     object_points = []
     image_points = []
+    object_points_homo = []
 
     for xy, xyz in pairs:
         x, y = xy
@@ -72,11 +73,22 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2):
         v = (y-c2)/f
         image_points.append([u, v])
         object_points.append(xyz)
+        x, y, z = xyz
+        object_points_homo.append([x, y, z, 1.0])
     if len(object_points) < 3:
         return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1))
     object_points = np.array(object_points)
     image_points = np.array(image_points)
     res = pnp.build.pnp_python_binding.pnp(object_points, image_points)
+
+    object_points_homo = np.array(object_points_homo)
+    xy = res[None, :, :] @ object_points_homo[:, :, None]
+    xy = xy[:, :, 0]
+    xy = xy[:, :3] / xy[:, 2].reshape((-1, 1))
+    xy = xy[:, :2]
+    diff = np.sum(np.square(xy - image_points), axis=1)
+    inliers = np.sum(diff < threshold)
+    print(f"Localization is done with {inliers}/{image_points.shape[0]} inliers ({inliers/image_points.shape[0]})")
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
