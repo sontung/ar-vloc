@@ -264,24 +264,39 @@ def run_qap_final(pid_list, fid_list,
     return solutions
 
 
-def exhaustive_filter_post_optim(point3d_cloud, point2d_cloud, f, c1, c2, universe):
+def exhaustive_filter_post_optim(point3d_cloud, point2d_cloud, f, c1, c2, universe, debug=True):
     if len(universe) > 10:
         return []
     tracks = []
     choices = list(product([0, 1], repeat=len(universe)))
     best_cost = None
+    choice_tracks = {}
     for choice in choices:
         if np.sum(choice) <= 1:
             continue
-        matches = []
-        for u, v in enumerate(choice):
-            if v > 0:
-                matches.extend(universe[u])
-        cost, p_indices, f_indices = compute_smoothness_cost_pnp2(matches, point3d_cloud, point2d_cloud, f, c1, c2)
-        cost_norm = cost/len(matches)
-        tracks.append([choice, p_indices.tolist(), f_indices.tolist(), cost, cost_norm])
+        if debug and choice == (0, 0, 1, 1):
+            continue
+        choice_tracks[choice] = []
+
+    for _ in range(5):
+        for choice in choice_tracks:
+            matches = []
+            for u, v in enumerate(choice):
+                if v > 0:
+                    matches.extend(universe[u])
+            cost, p_indices, f_indices = compute_smoothness_cost_pnp2(matches, point3d_cloud, point2d_cloud, f, c1, c2)
+            cost_norm = cost/len(matches)
+            choice_tracks[choice].append([p_indices.tolist(), f_indices.tolist(), cost, cost_norm])
+
+    # normalize all iterations
+    for choice in choice_tracks:
+        res = choice_tracks[choice]
+        cost = np.mean([du[-2] for du in res])
+        cost_norm = np.mean([du[-1] for du in res])
+        tracks.append([choice, res[0][0], res[0][1], cost, cost_norm])
         if best_cost is None or cost_norm > best_cost:
             best_cost = cost_norm
+
     tracks = sorted(tracks, key=lambda du: du[-1])
     for track in tracks:
         print(track[0], track[-2], track[-1])

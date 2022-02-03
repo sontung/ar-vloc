@@ -1,4 +1,27 @@
 import numpy as np
+from sklearn.cluster import MiniBatchKMeans
+
+
+def random_select(pid_neighbors, pid_coord_list, nb_selection=10):
+    nb_clusters = min(round(len(pid_neighbors)/nb_selection), 4)
+    cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
+    pose_arr = np.vstack(pid_coord_list)
+    labels = cluster_model.fit_predict(pose_arr)
+    cluster2idx = {v: [] for v in range(nb_clusters)}
+    for u, v in enumerate(labels):
+        cluster2idx[v].append(pid_neighbors[u])
+
+    selection = []
+    for _ in range(nb_selection):
+        v = np.random.choice(list(range(nb_clusters)))
+        points = cluster2idx[v]
+        if len(points) < 1:
+            continue
+        u = np.random.choice(points)
+        points.remove(u)
+        cluster2idx[v] = points
+        selection.append(u)
+    return selection
 
 
 def rank_by_area(cid2kp):

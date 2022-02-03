@@ -40,7 +40,6 @@ def compute_smoothness_cost_pnp(solution, pid_coord_list, fid_coord_list, f, c1,
     xy = xy[:, :2]
     diff = np.sum(np.square(xy - image_points), axis=1)
     inliers = np.sum(diff < threshold)
-    object_indices, image_indices = object_indices[diff < threshold], image_indices[diff < threshold]
     return inliers, object_indices, image_indices
 
 

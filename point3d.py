@@ -5,6 +5,7 @@ from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
 from optimizer import exhaustive_search, run_qap, run_qap_final, exhaustive_filter_post_optim
 from vis_utils import visualize_matching_helper
+from sampling_utils import random_select
 from pnp_utils import filter_bad_matches
 import time
 import kmeans1d
@@ -400,14 +401,34 @@ class PointCloud:
         else:
             everything = {}
             uv2dis = {}
-            for count, (pid, fid, dis, ratio) in enumerate(ori_database):
-                pid_neighbors = []
-                fid_neighbors = []
-                correct_pairs = []
 
-                pid_neighbors.extend(self.xyz_nearest_and_covisible(pid, nb_neighbors=10))
-                fid_neighbors.extend(point2d_cloud.nearby_feature(fid, nb_neighbors=100))
-                correct_pairs.append((pid, fid))
+            # check if two points are close
+            neighbor_tracks = {}
+            for idx, (pid, fid, dis, ratio) in enumerate(ori_database):
+                merge = False
+                merge_key = None
+                for key_ in neighbor_tracks:
+                    center_list, pid_neighbors, fid_neighbors, correct_pairs = neighbor_tracks[key_]
+                    if pid in pid_neighbors:
+                        merge = True
+                        merge_key = key_
+                points = self.xyz_nearest_and_covisible(pid, nb_neighbors=10)
+                features = point2d_cloud.nearby_feature(fid, nb_neighbors=100)
+                print(f"Centers included: pid={pid in points} fid={fid in features}")
+
+                if not merge:
+                    correct_pairs = [(pid, fid)]
+                    neighbor_tracks[idx] = [[pid], points, features, correct_pairs]
+                else:
+                    center_list, pid_neighbors, fid_neighbors, correct_pairs = neighbor_tracks[merge_key]
+                    center_list.append(pid)
+                    pid_neighbors.extend(points)
+                    fid_neighbors.extend(features)
+                    correct_pairs.append((pid, fid))
+                    neighbor_tracks[merge_key] = center_list, pid_neighbors, fid_neighbors, correct_pairs
+
+            for count, key_ in enumerate(neighbor_tracks):
+                center_list, pid_neighbors, fid_neighbors, correct_pairs = neighbor_tracks[key_]
 
                 # filter duplicate
                 pid_neighbors = list(set(pid_neighbors))
@@ -415,6 +436,12 @@ class PointCloud:
                 new_correct_pairs = correct_pairs[:]  # convert from global to local [(4004, 9173)] => [(0, 83)]
                 for index, (pid_, fid_) in enumerate(correct_pairs):
                     new_correct_pairs[index] = (pid_neighbors.index(pid_), fid_neighbors.index(fid_))
+
+                if len(pid_neighbors) > 10:
+                    pid_neighbors2 = [pid2 for pid2 in pid_neighbors if pid2 not in center_list]
+                    pid_coord_list = np.vstack([self[pid2].xyz for pid2 in pid_neighbors2])
+                    pid_neighbors = random_select(pid_neighbors2, pid_coord_list, 10-len(correct_pairs))
+                    pid_neighbors.extend(center_list)
 
                 pid_desc_list = np.vstack([self[pid2].desc for pid2 in pid_neighbors])
                 fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
@@ -433,6 +460,16 @@ class PointCloud:
                         fx, fy = map(int, (fx, fy))
                         cv2.circle(image, (fx, fy), 20, (128, 128, 0), -1)
                     cv2.imwrite(f"debug/pw/all_features{count}.png", image)
+
+                    for idx, (u, v) in enumerate(solution):
+                        image = np.copy(image_ori)
+                        fx, fy = point2d_cloud[v].xy
+                        fx, fy = map(int, (fx, fy))
+                        cv2.circle(image, (fx, fy), 50, (128, 128, 0), 20)
+                        image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
+                        images = visualize_matching_helper(np.copy(image), point2d_cloud[v],
+                                                           self.points[u], "sfm_ws_hblab/images")
+                        cv2.imwrite(f"debug/all/im-{count}-{idx}.png", images)
 
                 for u, v in solution:
                     dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
@@ -466,7 +503,6 @@ class PointCloud:
             database, pose_cluster_prob_arr = self.sample_explore(point2d_cloud, visited_arr)
             database = self.sample_exploit(pose_cluster_prob_arr, database, visited_arr, point2d_cloud)
             if create_fixed_database:
-                print(database)
                 for count, (pid, fid, _, _) in enumerate(tqdm(database,
                                                               desc="Visualizing for debugging")):
                     image = np.copy(image_ori)
