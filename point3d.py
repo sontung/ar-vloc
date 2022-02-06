@@ -437,10 +437,10 @@ class PointCloud:
                 for index, (pid_, fid_) in enumerate(correct_pairs):
                     new_correct_pairs[index] = (pid_neighbors.index(pid_), fid_neighbors.index(fid_))
 
-                if len(pid_neighbors) > 10:
+                if len(pid_neighbors) > 10:  # too many points, thus randomly select 10 points
                     pid_neighbors2 = [pid2 for pid2 in pid_neighbors if pid2 not in center_list]
                     pid_coord_list = np.vstack([self[pid2].xyz for pid2 in pid_neighbors2])
-                    pid_neighbors = random_select(pid_neighbors2, pid_coord_list, 10-len(correct_pairs))
+                    pid_neighbors = random_select(pid_neighbors2, pid_coord_list, 10-len(center_list))
                     pid_neighbors.extend(center_list)
 
                 pid_desc_list = np.vstack([self[pid2].desc for pid2 in pid_neighbors])

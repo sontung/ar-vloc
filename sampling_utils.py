@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 
 
-def random_select(pid_neighbors, pid_coord_list, nb_selection=10):
+def random_select(pid_neighbors, pid_coord_list, nb_selection):
     nb_clusters = min(round(len(pid_neighbors)/nb_selection), 4)
     cluster_model = MiniBatchKMeans(nb_clusters, random_state=1)
     pose_arr = np.vstack(pid_coord_list)
