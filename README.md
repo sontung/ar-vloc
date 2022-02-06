@@ -1,5 +1,10 @@
 # Visual localization for augmented reality
 
+## problems
+1. smoothness fails when the center is wrong.
+2. post optim does not robustly solve this issue.
+3. how to detect the wrong center?
+
 ## to do list
 1. normalizing quat and trans before clustering
 3. can SFM localize difficult image?
