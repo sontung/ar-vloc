@@ -133,7 +133,7 @@ def array_to_blob(array):
 
 def blob_to_array(blob, dtype, shape=(-1,)):
     if IS_PYTHON3:
-        return np.fromstring(blob, dtype=dtype).reshape(*shape)
+        return np.frombuffer(blob, dtype=dtype).reshape(*shape)
     else:
         return np.frombuffer(blob, dtype=dtype).reshape(*shape)
 

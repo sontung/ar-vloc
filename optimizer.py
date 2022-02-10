@@ -1,34 +1,17 @@
 import sys
-
+import matplotlib.pyplot as plt
 import numpy as np
 import itertools
 import subprocess
 import pickle
 import json
-from sklearn.cluster import MiniBatchKMeans
+from optimizer_utils import most_common_numbers, prepare_neighbor_information, evaluate, compare_two_labels, \
+    smallest_set_containing
 from tqdm import tqdm
-from scipy.spatial import KDTree
 from utils import angle_between
 from pnp_utils import compute_smoothness_cost_pnp, compute_smoothness_cost_pnp2
 from itertools import product
-
-import matplotlib.pyplot as plt
-
-
-def prepare_neighbor_information(coord_list, nb_neighbors=10):
-    tree = KDTree(coord_list)
-    res = {}
-
-    for i in range(coord_list.shape[0]):
-        distances, _ = tree.query(coord_list[i], nb_neighbors)
-        neighborhood = tree.query_ball_point(coord_list[i], distances[-1])
-        res[i] = []
-        for index in neighborhood:
-            if i != index:
-                res[i].append(index)
-    for index in range(coord_list.shape[0]):
-        assert index in res
-    return res
+from collections import Counter
 
 
 def prepare_input(min_var_axis, pid_desc_list, fid_desc_list, pid_coord_list, fid_coord_list,
@@ -274,105 +257,67 @@ def exhaustive_filter_post_optim(point3d_cloud, point2d_cloud, f, c1, c2, univer
     for choice in choices:
         if np.sum(choice) <= 1:
             continue
-        if debug and choice == (0, 0, 1, 1):
-            continue
         choice_tracks[choice] = []
 
-    for _ in range(5):
-        for choice in choice_tracks:
-            matches = []
-            for u, v in enumerate(choice):
-                if v > 0:
-                    matches.extend(universe[u])
+    choice2match = {}
+    for choice in choice_tracks:
+        matches = []
+        for u, v in enumerate(choice):
+            if v > 0:
+                matches.extend(universe[u])
+        votes = {}
+        for _ in range(100):
             cost, p_indices, f_indices = compute_smoothness_cost_pnp2(matches, point3d_cloud, point2d_cloud, f, c1, c2)
             cost_norm = cost/len(matches)
-            choice_tracks[choice].append([p_indices.tolist(), f_indices.tolist(), cost, cost_norm])
+            choice_tracks[choice].append([p_indices.tolist(), f_indices.tolist(), len(matches), cost, cost_norm])
+            for idx, pid in enumerate(p_indices):
+                fid = f_indices[idx]
+                key_ = (pid, fid)
+                if key_ in votes:
+                    votes[key_] += 1
+                else:
+                    votes[key_] = 1
+        print(choice)
+        data_ = most_common_numbers(votes)
+        print(f" {data_}")
+        choice2match[choice] = matches
 
-    # normalize all iterations
-    for choice in choice_tracks:
-        res = choice_tracks[choice]
-        cost = np.mean([du[-2] for du in res])
-        cost_norm = np.mean([du[-1] for du in res])
-        tracks.append([choice, res[0][0], res[0][1], cost, cost_norm])
-        if best_cost is None or cost_norm > best_cost:
-            best_cost = cost_norm
+    return choice2match[(1, 1, 0, 0)]
 
-    tracks = sorted(tracks, key=lambda du: du[-1])
-    for track in tracks:
-        print(track[0], track[-2], track[-1])
-
-    # in case of tie, breaking by choosing the biggest number of inliers
-    best_tracks = [track for track in tracks if track[-1] == best_cost]
-    if len(best_tracks) == 1:
-        best_track = best_tracks[0]
-    else:
-        best_track = max(best_tracks, key=lambda du: du[-2])
-    p_indices = best_track[1]
-    f_indices = best_track[2]
-
-    matches = []
-    assert len(p_indices) == len(f_indices)
-    for u, v in enumerate(p_indices):
-        matches.append((v, f_indices[u]))
-    return matches
-
-
-def compare_two_labels(label1, label2, fid_coord_list):
-    agree = 0
-    distances = []
-    for u, v in enumerate(label1):
-        if v == label2[u]:
-            agree += 1
-        if label2[u] is not None and v is not None:
-            coord1 = fid_coord_list[label2[u]]
-            coord2 = fid_coord_list[v]
-            distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
-    acc = agree / len(label1)
-    mean_distance = np.mean(distances)
-    return acc, mean_distance
-
-
-def evaluate(point2d_cloud, labels, pid_list, fid_list,
-             pid_coord_list, fid_coord_list, f, c1, c2, against_gt=True):
-    geom_cost = compute_smoothness_cost_geometric(labels, pid_coord_list, fid_coord_list)
-    cost, object_points, image_points = compute_smoothness_cost_pnp(labels, pid_coord_list, fid_coord_list, f, c1, c2)
-    solutions = []
-    for idx in range(len(object_points)):
-        u, v = object_points[idx], image_points[idx]
-        solutions.append((pid_list[u], fid_list[v]))
-
-    # compare against gt
-    res_gt = [(0, 213), (1, 98), (2, 47), (3, 169), (4, 88), (5, 218), (6, 229), (7, 220), (8, 191), (9, 237), (10, 204),
-              (11, 188), (12, 7), (13, 48), (14, 14), (15, 211), (16, 186), (17, 112), (18, 97), (19, 129), (20, 173),
-              (21, 104), (22, 77), (23, 222), (24, 39), (25, 13), (26, 119), (27, 56), (28, 66), (29, 31), (30, 115),
-              (31, 159), (32, 29), (33, 189), (34, 87), (35, 163), (36, 184), (37, 170)]
-
-    solutions_gt = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 5848), (4000, 9170), (4001, 8166),
-                    (4004, 9173), (3242, 9124), (4907, 7674), (3243, 4024), (3244, 9121), (4142, 7693), (4141, 4174),
-                    (5168, 7702), (4144, 453), (4018, 9119), (4019, 5896), (4017, 8935), (4021, 5940), (4022, 9090),
-                    (4535, 9207), (3251, 4267), (3527, 9175), (3400, 4164), (4167, 4117), (3282, 8486), (9810, 4190),
-                    (3544, 649), (4056, 8760), (4057, 5914), (3546, 7009), (4058, 8756), (3303, 928), (3306, 4307),
-                    (4205, 874), (4206, 6044), (8178, 385)]
-    optimal_labels = [0 for _ in res_gt]
-    for u, v in res_gt:
-        optimal_labels[u] = v
-    agree = 0
-    distances = []
-    acc = -1
-    mean_distance = -1
-    if against_gt:
-        solutions_pred = [(pid_list[u], fid_list[v]) for u, v in enumerate(labels) if v is not None]
-        pid2fid_gt = {x: y for x, y in solutions_gt}
-        for u, v in solutions_pred:
-            if v == pid2fid_gt[u]:
-                agree += 1
-            if pid2fid_gt[u] is not None and v is not None:
-                coord1 = point2d_cloud[pid2fid_gt[u]].xy
-                coord2 = point2d_cloud[v].xy
-                distances.append(np.sum(np.abs(coord1 - coord2)) / coord2.shape[0])
-        acc = agree/len(labels)
-        mean_distance = np.mean(distances)
-    return geom_cost, cost, solutions, acc, mean_distance
+    # # normalize all iterations
+    # for choice in choice_tracks:
+    #     if choice != (1, 1, 0, 0):
+    #         continue
+    #     res = choice_tracks[choice]
+    #     all_costs = [du[-2] for du in res]
+    #     most_common_costs = most_common_numbers(Counter(all_costs))
+    #     cost = np.mean(most_common_costs)
+    #     cost_norm = cost/res[0][-3]
+    #     tracks.append([choice, res[0][0], res[0][1], most_common_costs,
+    #                    [du[-1] for du in res], [du[-2] for du in res], cost, cost_norm])
+    #     if best_cost is None or cost_norm > best_cost:
+    #         best_cost = cost_norm
+    #
+    # tracks = sorted(tracks, key=lambda du: du[-1])
+    # for track in tracks:
+    #     print(track[0], track[-2], track[-1])
+    #     print(f" {Counter(track[-3])}")
+    #     print(f" {track[-5]}")
+    #
+    # # in case of tie, breaking by choosing the biggest number of inliers
+    # best_tracks = [track for track in tracks if track[-1] == best_cost]
+    # if len(best_tracks) == 1:
+    #     best_track = best_tracks[0]
+    # else:
+    #     best_track = max(best_tracks, key=lambda du: du[-2])
+    # p_indices = best_track[1]
+    # f_indices = best_track[2]
+    #
+    # matches = []
+    # assert len(p_indices) == len(f_indices)
+    # for u, v in enumerate(p_indices):
+    #     matches.append((v, f_indices[u]))
+    # return matches
 
 
 def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors, name="qap/input.dd",
@@ -408,23 +353,6 @@ def write_to_dd(unary_cost_mat, pairwise_cost_mat, pid_neighbors, fid_neighbors,
             for v in neighbors:
                 print(f"n1 {u} {v}", file=a_file)
     a_file.close()
-
-
-def compute_smoothness_cost_geometric(solution, pid_coord_list, fid_coord_list):
-    object_points = []
-    image_points = []
-    for u, v in enumerate(solution):
-        if v is not None:
-            xyz = pid_coord_list[u]
-            xy = fid_coord_list[v]
-            image_points.append(xy)
-            object_points.append(xyz)
-    object_points = np.array(object_points)
-    image_points = np.array(image_points)
-    min_var_axis = min([0, 1, 2], key=lambda du: np.var(object_points[:, du]))
-    object_points_projected = object_points[:, [ax for ax in range(3) if ax != min_var_axis]]
-    diff = object_points_projected-image_points
-    return np.var(np.abs(diff))
 
 
 def compute_unary_cost(solution, unary_cost_mat):

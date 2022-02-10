@@ -516,6 +516,7 @@ class PointCloud:
                     cv2.imwrite(f"debug/im-{count}-{pid}-{fid}.png", images)
 
         database, only_neighborhood_database = self.search_neighborhood(database, point2d_cloud, image_ori)
+        database = only_neighborhood_database[:]
         results = []
         for pid, fid, dis, ratio in database:
             results.append([point2d_cloud[fid], self.points[pid]])
@@ -539,7 +540,7 @@ class PointCloud:
                 image = cv2.resize(image, (image.shape[1]//4, image.shape[0]//4))
                 images = visualize_matching_helper(np.copy(image), point2d_cloud[fid],
                                                    self.points[pid], "sfm_ws_hblab/images")
-                cv2.imwrite(f"debug/im-{count}.png", images)
+                cv2.imwrite(f"debug/im-{count}-{pid}-{fid}.png", images)
 
         return results
 

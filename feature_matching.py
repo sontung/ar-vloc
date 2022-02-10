@@ -107,6 +107,23 @@ def load_2d_queries_using_colmap_sift(folder, db_path="/home/sontung/work/ar-vlo
     return descriptors, coordinates
 
 
+def load_2d_queries_using_colmap_sift_by_names(names, db_path="/home/sontung/work/ar-vloc/colmap_sift/test_small.db"):
+    descriptors = []
+    coordinates = []
+    id2kp, id2desc, id2name = extract_colmap_sift(db_path)
+    name2id = {v: k for k, v in id2name.items()}
+    for name in tqdm(names, desc="Reading query images"):
+        if "jpg" not in name:
+            continue
+        db_id = name2id[name]
+        kp = id2kp[db_id]
+        desc = id2desc[db_id]
+        # desc = produce_root_sift(desc)
+        coordinates.append(kp)
+        descriptors.append(desc)
+    return descriptors, coordinates
+
+
 def build_descriptors_2d(images, images_folder="sfm_models/images"):
     point3did2descs = {}
     matching_ratio = []

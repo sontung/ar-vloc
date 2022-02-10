@@ -4,3 +4,6 @@
 [submodule "pnp"]
 	path = pnp
 	url = git@github.com:sontung/pnp.git
+[submodule "libmpopt"]
+	path = libmpopt
+	url = git@github.com:sontung/libmpopt.git

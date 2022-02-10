@@ -1,3 +1,4 @@
+import os
 import pickle
 import sys
 import pickle
@@ -7,7 +8,6 @@ import time
 import cv2
 
 import colmap_read
-from feature_matching import build_descriptors_2d, load_2d_queries_generic, load_2d_queries_using_colmap_sift
 from feature_matching import build_descriptors_2d_using_colmap_sift, filter_using_d2_detector
 from colmap_io import read_points3D_coordinates, read_images, read_cameras
 from vis_utils import produce_cam_mesh
@@ -21,7 +21,7 @@ VISUALIZING_SFM_POSES = False
 VISUALIZING_POSES = True
 
 
-query_images_folder = "Test line small"
+query_images_folder = "Test line"
 sfm_images_dir = "sfm_ws_hblab/images.txt"
 sfm_point_cloud_dir = "sfm_ws_hblab/points3D.txt"
 sfm_images_folder = "sfm_ws_hblab/images"
@@ -67,66 +67,17 @@ if VISUALIZING_POSES:
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
-_, _, im_name_list, metadata_list, image_list, response_list = load_2d_queries_generic(query_images_folder)
-desc_list, coord_list = load_2d_queries_using_colmap_sift(query_images_folder)
+im_names = os.listdir(query_images_folder)
 
 p2d2p3d = {}
-for i in range(len(desc_list)):
-    metadata = metadata_list[i]
-    f = metadata["f"]*100
-    cx = metadata["cx"]
-    cy = metadata["cy"]
-    point3d_cloud.update_intrinsic(f, cx, cy)
-
-    start_time = time.time()
-    point2d_cloud = FeatureCloud()
-    for j in range(coord_list[i].shape[0]):
-        point2d_cloud.add_point(j, desc_list[i][j], coord_list[i][j], 0.0)
-    point2d_cloud.assign_words(vocab_tree.word2level, vocab_tree.v1)
-
+for i in range(len(im_names)):
     p2d2p3d[i] = [[], [], []]
 
-    # 3d - 2d
-    # res_exp = point3d_cloud.sample(point2d_cloud, image_list[i])
-    # for point2d, point3d in res_exp:
-    #     p2d2p3d[i][1].append((point2d.xy, point3d.xyz))
-
-    # brute force
-    res = vocab_tree.search_brute_force(point2d_cloud, im_name_list[i], query_images_folder)
-    if len(res[0]) > 2:
-        img = np.copy(image_list[i])
-        for count, (point2d, point3d, _) in enumerate(res):
-            p2d2p3d[i][0].append((point2d.xy, point3d.xyz))
-    else:
-        for point2d, point3d in res:
-            p2d2p3d[i][0].append((point2d.xy, point3d.xyz))
-
     # gt
-    p2d2p3d[i][2].append(name2pose_gt[f"{im_name_list[0]}.jpg"])
-
-    print(f"Done in {time.time()-start_time}")
+    p2d2p3d[i][2].append(name2pose_gt[f"{im_names[i]}.jpg"])
 
 localization_results = []
 for im_idx in p2d2p3d:
-    metadata = metadata_list[im_idx]
-
-    f = metadata["f"]*100
-    cx = metadata["cx"]
-    cy = metadata["cy"]
-    k = 0.06
-    camera_matrix = np.array([[f, 0, cx],
-                              [0, f, cy],
-                              [0, 0, 1]])
-    distortion_coefficients = np.array([k, 0, 0, 0])
-    # res = localize_single_image(p2d2p3d[im_idx][1], camera_matrix, distortion_coefficients)
-    # localization_results.append((res, (0, 1, 0)))
-
-    res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][0], f, cx, cy)  # brute force result
-    localization_results.append((res2, (0, 0, 1)))
-
-    # res2 = localize_single_image_lt_pnp(p2d2p3d[im_idx][1], f, cx, cy)
-    # localization_results.append((res2, (0.5, 0, 0)))
-
     qw, qx, qy, qz, tx, ty, tz = p2d2p3d[im_idx][2][0]
     ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
     t_vec = np.array([tx, ty, tz])

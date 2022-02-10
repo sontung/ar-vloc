@@ -7,6 +7,7 @@ import numpy as np
 import kornia
 import torch
 import sqlite3
+import struct
 from PIL import Image
 
 WARNING = False
@@ -24,7 +25,7 @@ def read_points3D(in_dir="sfm_models/points3D.txt"):
         point3d_id, x, y, z, r, g, b = numbers[:7]
         tracks = list(map(int, numbers[8:]))
         point3d_id = int(point3d_id)
-        data[point3d_id] = [tracks]
+        data[point3d_id] = tracks
     return data
 
 
@@ -89,7 +90,7 @@ def read_images(in_dir="sfm_models/images.txt"):
 
             data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
             print(f"Loading {len(points2d_meaningful)} keypoints of image {image_id}")
-
+            print(image_name)
             idx += 2
     return data
 
@@ -358,8 +359,19 @@ def dump_image2pose_json():
         json.dump(data, f)
 
 
+def read_vocab_tree(a_file="/home/sontung/work/sfm_ws_hblab/vocab_tree_flickr100K_words32K.bin"):
+    with open(a_file, mode='rb') as file:  # b is important -> binary
+        fileContent = file.read()
+    head = struct.unpack("QQf", fileContent[:20])
+    print(head)
+    body = struct.unpack("e"*20, fileContent[16:16+2*20])
+    print(body)
+
+
 if __name__ == '__main__':
-    read_cameras()
+    read_vocab_tree()
+    # read_images("/home/sontung/work/sfm_ws_hblab/new_model/images.txt")
+    # read_cameras()
     # dump_image2pose_json()
     # build_descriptors()
     # build_sfm_database()
