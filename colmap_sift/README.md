@@ -7,8 +7,8 @@ colmap feature_extractor --image_path "../Test line small" --image_list_path "te
 
 ### How to matching
 ```
-colmap feature_extractor --database_path database.db --image_path test_line --image_list_path test_images.txt
-colmap exhaustive_matcher --database_path database.db
+colmap feature_extractor --database_path matching.db --image_path db_images --image_list_path test_images.txt
+colmap exhaustive_matcher --database_path matching.db
 ```
 
 ### COLMAP compile

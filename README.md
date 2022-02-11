@@ -7,10 +7,12 @@
 
 ## to do list
 1. normalizing quat and trans before clustering
-3. can SFM localize difficult image?
-5. qap
+2. can SFM localize difficult image?
+3. qap
    3. visualize with non-qap
    4. post-optim filter with a few iterations
+4. retrieval
+   1. check matches with h mat from "two view geometries"
 
 ## experimental results
 

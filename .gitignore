@@ -15,6 +15,9 @@ trash_code/*
 *.lprof
 colmap_sift/*.txt
 colmap_sift/*.db
+colmap_sift/db_images/*
+colmap_sift/matches/*
+test_line_jpg/*
 qap/*
 profile.json
 

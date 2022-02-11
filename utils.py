@@ -7,6 +7,12 @@ from PIL import Image
 from scipy.spatial.transform import Rotation as rot_mat_compute
 
 
+def to_homo(vec):
+    vec = vec.tolist()
+    vec.append(1.0)
+    return np.array(vec)
+
+
 def clean_point_cloud(pcd):
     cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
     return cl

@@ -77,30 +77,31 @@ def matching_gt():
             cv2.line(image, (x1, y1), (x2+image1.shape[1], y2), (0, 0, 0), 5)
 
         image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
+        cv2.imwrite("debug/gt.jpg", image)
         cv2.imshow("", image)
         cv2.waitKey()
         cv2.destroyAllWindows()
-        sys.exit()
-        for index, track in enumerate(good_tracks):
-            visualized_list = []
-
-            for im_id2, fid in track:
-                name = image2pose_gt[im_id2][0]
-                image = cv2.imread(f"{sfm_image_folder}/{name}")
-                assert image is not None, f" cant read {sfm_image_folder}/{name}"
-                x2, y2, _ = image2pose_gt[im_id2][1][fid]
-                x2, y2 = map(int, (x2, y2))
-                cv2.circle(image, (x2, y2), 50, (128, 128, 0), 20)
-                visualized_list.append(image)
-
-            list2 = []
-            for im in visualized_list:
-                im2 = PIL.Image.fromarray(im)
-                im2.thumbnail((500, 500))
-                im2 = np.array(im2)
-                list2.append(im2)
-            list2 = np.hstack(list2)
-            cv2.imwrite(f"debug/gt/im-{index}.jpg", list2)
+        
+        # for index, track in enumerate(good_tracks):
+        #     visualized_list = []
+        #
+        #     for im_id2, fid in track:
+        #         name = image2pose_gt[im_id2][0]
+        #         image = cv2.imread(f"{sfm_image_folder}/{name}")
+        #         assert image is not None, f" cant read {sfm_image_folder}/{name}"
+        #         x2, y2, _ = image2pose_gt[im_id2][1][fid]
+        #         x2, y2 = map(int, (x2, y2))
+        #         cv2.circle(image, (x2, y2), 50, (128, 128, 0), 20)
+        #         visualized_list.append(image)
+        #
+        #     list2 = []
+        #     for im in visualized_list:
+        #         im2 = PIL.Image.fromarray(im)
+        #         im2.thumbnail((500, 500))
+        #         im2 = np.array(im2)
+        #         list2.append(im2)
+        #     list2 = np.hstack(list2)
+        #     cv2.imwrite(f"debug/gt/im-{index}.jpg", list2)
 
 
 def normalize(dis):
@@ -115,30 +116,15 @@ def dot_custom(v1, v2):
     return res
 
 
-def matching_pred():
+def matching_pred(names=("IMG_0726.jpg", "IMG_0761.HEIC.jpg")):
     pairs = []
-    descriptors, coordinates = feature_matching.load_2d_queries_using_colmap_sift_by_names(["IMG_0761.HEIC.jpg", "IMG_0726.jpg"])
+    descriptors, coordinates = feature_matching.load_2d_queries_using_colmap_sift_by_names(names)
     descriptors[0] = descriptors[0].astype(np.float64)
     descriptors[1] = descriptors[1].astype(np.float64)
 
     dist_mat = np.einsum('ij,kj->ik', descriptors[0], descriptors[1])
+    matches_mat = np.zeros((descriptors[0].shape[0],), np.uint32)
     for idx in range(descriptors[0].shape[0]):
-        # best_i2 = -1
-        # best_dist = 0
-        # second_best_dist = 0
-        #
-        # for idx2 in range(descriptors[1].shape[0]):
-        #     dist = dist_mat[idx, idx2]
-        #     if dist > best_dist:
-        #         best_i2 = idx2
-        #         second_best_dist = best_dist
-        #         best_dist = dist
-        #     elif dist > second_best_dist:
-        #         second_best_dist = dist
-        #
-        # if best_i2 == -1:
-        #     continue
-
         best_i2 = np.argmax(dist_mat[idx, :])
         best_dist = dist_mat[idx, best_i2]
         row2 = np.delete(dist_mat[idx, :], best_i2)
@@ -153,13 +139,31 @@ def matching_pred():
 
         if best_dist_norm >= 0.8*second_best_dist_norm:
             continue
+        matches_mat[idx] = best_i2
 
-        print(best_dist_norm, idx, best_i2)
-        pairs.append([coordinates[0][idx], coordinates[1][best_i2]])
+    for idx in range(descriptors[1].shape[0]):
+        best_i2 = np.argmax(dist_mat[:, idx])
+        best_dist = dist_mat[best_i2, idx]
+        row2 = np.delete(dist_mat[:, idx], best_i2)
+        second_best_dist = np.max(row2)
 
-    name1 = "IMG_0761.HEIC.jpg"
+        if matches_mat[best_i2] != idx:
+            continue
+        best_dist_norm = normalize(best_dist)
+
+        if best_dist_norm > 0.7:
+            continue
+
+        second_best_dist_norm = normalize(second_best_dist)
+
+        if best_dist_norm >= 0.8*second_best_dist_norm:
+            continue
+
+        pairs.append([coordinates[0][best_i2], coordinates[1][idx]])
+
+    name1 = names[0]
     image1 = cv2.imread(f"{sfm_image_folder}/{name1}")
-    name2 = "IMG_0726.jpg"
+    name2 = names[1]
     image2 = cv2.imread(f"{sfm_image_folder}/{name2}")
     image = np.hstack([image1, image2])
     print(f"reading {name1, name2}")
@@ -172,6 +176,7 @@ def matching_pred():
         cv2.circle(image, (x2 + image1.shape[1], y2), 20, (128, 128, 0), -1)
         cv2.line(image, (x1, y1), (x2 + image1.shape[1], y2), (0, 0, 0), 5)
 
+    cv2.imwrite("debug/pred.jpg", image)
     image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
     cv2.imshow("", image)
     cv2.waitKey()
@@ -181,4 +186,5 @@ def matching_pred():
 
 
 if __name__ == '__main__':
+    matching_gt()
     matching_pred()

@@ -282,5 +282,77 @@ def extract_colmap_sift(database_path):
     return keypoints, desc, id2name
 
 
+def extract_colmap_matches(database_path):
+    # Open the database.
+    db = COLMAPDatabase.connect(database_path)
+
+    pid2rc = dict(
+        (x, (y, z))
+        for x, y, z in db.execute(
+            "SELECT pair_id, rows, cols FROM matches"))
+    pid2blob = dict(
+        (x, y)
+        for x, y in db.execute(
+            "SELECT pair_id, data FROM matches"))
+    pid2match = {}
+    for pid in pid2rc:
+        k = tuple(map(int, pair_id_to_image_ids(pid)))
+        r, c = pid2rc[pid]
+        blob = pid2blob[pid]
+        if blob is None:
+            pid2match[k] = None
+        else:
+            arr = blob_to_array(blob, np.uint32, (r, c))
+            pid2match[k] = arr
+    db.close()
+    return pid2match
+
+
+def extract_colmap_two_view_geometries(database_path):
+    # Open the database.
+    db = COLMAPDatabase.connect(database_path)
+
+    pid2rc = dict(
+        (x, (y, z))
+        for x, y, z in db.execute(
+            "SELECT pair_id, rows, cols FROM two_view_geometries"))
+    pid2blob = dict(
+        (x, y)
+        for x, y in db.execute(
+            "SELECT pair_id, data FROM two_view_geometries"))
+    pid2match = {}
+    for pid in pid2rc:
+        k = tuple(map(int, pair_id_to_image_ids(pid)))
+        r, c = pid2rc[pid]
+        blob = pid2blob[pid]
+        if blob is None:
+            pid2match[k] = None
+        else:
+            arr = blob_to_array(blob, np.uint32, (r, c))
+            pid2match[k] = arr
+
+    pid2config = dict(
+        (x, (y, a, b, c))
+        for x, y, a, b, c in db.execute(
+            "SELECT pair_id, config, F, E, H FROM two_view_geometries"))
+    pid2geom = {}
+    for pid in pid2config:
+        k = tuple(map(int, pair_id_to_image_ids(pid)))
+        config, f, e, h = pid2config[pid]
+        arr_list = [None, None, None]
+        if f is not None:
+            arr1 = blob_to_array(f, np.float64, (3, 3))
+            arr2 = blob_to_array(e, np.float64, (3, 3))
+            arr3 = blob_to_array(h, np.float64, (3, 3))
+            arr_list = [arr1, arr2, arr3]
+        pid2geom[k] = (config, arr_list)
+    db.close()
+    return pid2match, pid2geom
+
+
 if __name__ == "__main__":
-    example_usage()
+    r1=extract_colmap_two_view_geometries("colmap_sift/matching.db")
+    r2=extract_colmap_matches("colmap_sift/matching.db")
+    for u in r2:
+        if r2[u] is not None and r1[u] is not None:
+            print(r2[u].shape, r1[u].shape)
