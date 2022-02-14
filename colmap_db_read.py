@@ -309,6 +309,11 @@ def extract_colmap_matches(database_path):
 
 
 def extract_colmap_two_view_geometries(database_path):
+    """
+    returns:
+    pid2match: im1 im2 => fid1 fid2
+    pid2geom: im1 im2 => f mat, e mat, h mat
+    """
     # Open the database.
     db = COLMAPDatabase.connect(database_path)
 

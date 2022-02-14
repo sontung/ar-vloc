@@ -20,6 +20,7 @@ colmap_sift/matches/*
 test_line_jpg/*
 qap/*
 profile.json
+colmap_loc/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

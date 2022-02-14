@@ -5,7 +5,7 @@ colmap feature_extractor --image_path "../sfm_ws_hblab/images" --image_list_path
 colmap feature_extractor --image_path "../Test line small" --image_list_path "test_images.txt" --database_path "test_small.db" --ImageReader.default_focal_length_factor=0.64484
 ```
 
-### How to matching
+### How to do matching
 ```
 colmap feature_extractor --database_path matching.db --image_path db_images --image_list_path test_images.txt
 colmap exhaustive_matcher --database_path matching.db
