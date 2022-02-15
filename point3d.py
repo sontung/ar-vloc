@@ -206,7 +206,6 @@ class PointCloud:
                 data = list(set(data))
                 xyz_list = [self.point_xyz_list[du] for du in data]
                 self.visibility_graph[graph_id] = (KDTree(xyz_list), data)
-        print(f"Done building visibility graph of size {len(self.visibility_graph)}")
 
     def build_visibility_matrix(self, image2pose):
         for pid in range(len(self.points)):
@@ -276,7 +275,6 @@ class PointCloud:
             self.build_desc_tree()
         self.vocab, self.cluster_model = build_vocabulary_of_descriptors(self.point_id_list,
                                                                          self.point_desc_list)
-        print("Point cloud committed")
 
     def xyz_nearest(self, xyz, nb_neighbors=5):
         _, indices = self.xyz_tree.query(xyz, nb_neighbors)

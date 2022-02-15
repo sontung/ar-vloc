@@ -21,6 +21,7 @@ test_line_jpg/*
 qap/*
 profile.json
 colmap_loc/*
+vloc_workspace/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -24,7 +24,7 @@ colmap bundle_adjuster \
 colmap model_converter --input_path sparse/0 --output_path sparse/0 --output_type TXT
 ```
 
-# Continue reconstruction
+## Continue reconstruction
 
 ```
 colmap feature_extractor --database_path database.db --image_path new_images --image_list_path test_images.txt

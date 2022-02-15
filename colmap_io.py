@@ -89,8 +89,6 @@ def read_images(in_dir="sfm_models/images.txt"):
                 points2d_meaningful.append(point)
 
             data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
-            print(f"Loading {len(points2d_meaningful)} keypoints of image {image_id}")
-            print(image_name)
             idx += 2
     return data
 

@@ -1,3 +1,7 @@
+import glob
+import os
+import pathlib
+import subprocess
 import sys
 
 import cv2
@@ -7,6 +11,7 @@ import colmap_io
 import colmap_read
 import feature_matching
 import localization
+import shutil
 import point2d
 import point3d
 import open3d as o3d
@@ -14,6 +19,8 @@ from vis_utils import visualize_matching_pairs, visualize_matching_helper, produ
     visualize_cam_pose_with_point_cloud
 from utils import to_homo
 from scipy.spatial import KDTree
+from distutils.dir_util import copy_tree
+from tqdm import tqdm
 
 
 def proj_err(coord1, coord2, mat):
@@ -35,29 +42,55 @@ def proj_err2(coord1, coord2, mat):
     return v2 @ coord2
 
 
+def localize(metadata, pairs):
+    f = metadata["f"] * 100
+    cx = metadata["cx"]
+    cy = metadata["cy"]
+
+    r_mat, t_vec = localization.localize_single_image_lt_pnp(pairs, f, cx, cy)
+    return r_mat, t_vec
+
+
+def find_im_name(image2pose, name):
+    for k in image2pose:
+        res = image2pose[k]
+        if res[0] == name:
+            return res
+    return None
+
+
 class Localization:
     def __init__(self):
-        self.match_database_dir = "/home/sontung/work/ar-vloc/colmap_loc/database.db"  # dir to database containing matches between queries and database
-        self.db_images_dir = "/home/sontung/work/ar-vloc/colmap_loc/images"
+        self.database_dir = "colmap_loc"
+        self.match_database_dir = "colmap_loc/database.db"  # dir to database containing matches between queries and database
+        self.db_images_dir = "colmap_loc/images"
         self.query_images_folder = "/home/sontung/work/ar-vloc/colmap_loc/new_images"
-        self.sfm_images_dir = "/home/sontung/work/ar-vloc/colmap_loc/new/images.txt"
-        self.sfm_point_cloud_dir = "/home/sontung/work/ar-vloc/colmap_loc/new/points3D.txt"
         self.sfm_images_folder = "/home/sontung/work/ar-vloc/colmap_loc/images"
         self.ground_truth_dir = "/home/sontung/work/recon_models/office/images.txt"
+        self.existing_model = "colmap_loc/sparse/0"
+
+        self.all_queries_folder = "Test line"
+        self.workspace_dir = "vloc_workspace"
+        self.workspace_images_dir = f"{self.workspace_dir}/images"
+        self.workspace_loc_dir = f"{self.workspace_dir}/new"
+        self.workspace_sfm_point_cloud_dir = f"{self.workspace_dir}/new/points3D.txt"
+        self.workspace_sfm_images_dir = f"{self.workspace_dir}/new/images.txt"
+        self.workspace_database_dir = f"{self.workspace_dir}/database.db"
+        self.workspace_existing_model = f"{self.workspace_dir}/sparse/0"
 
         self.image_to_kp_tree = {}
         self.point3d_cloud = None
         self.image_name_to_image_id = {}
         self.image2pose = None
-        self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.sfm_point_cloud_dir)
 
-        self.build_tree()
-        self.build_point3d_cloud()
+        self.name_list, self.md_list, self.im_list = feature_matching.load_2d_queries_minimal(self.all_queries_folder)
+        self.point3did2xyzrgb = None
+        self.point_cloud = None
         return
 
     def build_point3d_cloud(self):
-        point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = feature_matching.build_descriptors_2d_using_colmap_sift(
-            self.image2pose, self.match_database_dir)
+        point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = feature_matching.build_descriptors_2d_using_colmap_sift_no_verbose(
+            self.image2pose, self.workspace_database_dir)
         self.point3d_cloud = point3d.PointCloud(point3did2descs, 0, 0, 0)
 
         for i in range(len(point3d_id_list)):
@@ -69,7 +102,7 @@ class Localization:
         self.point3d_cloud.commit(self.image2pose)
 
     def build_tree(self):
-        self.image2pose = colmap_io.read_images(self.sfm_images_dir)
+        self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
         for img_id in self.image2pose:
             self.image_to_kp_tree[img_id] = []
         for img_id in self.image2pose:
@@ -85,8 +118,54 @@ class Localization:
                     f_coord_list.append([fx, fy])
             self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
 
-    def vote_for_pid(self):
-        return
+    def create_folders(self):
+        pathlib.Path(self.workspace_images_dir).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(self.workspace_loc_dir).mkdir(parents=True, exist_ok=True)
+
+        shutil.copyfile(self.match_database_dir, f"{self.workspace_dir}/database.db")
+        shutil.copyfile(f"{self.database_dir}/test_images.txt", f"{self.workspace_dir}/test_images.txt")
+
+        copy_tree(self.db_images_dir, self.workspace_images_dir)
+        copy_tree(self.existing_model, self.workspace_existing_model)
+
+    def delete_folders(self):
+        os.remove(f"{self.workspace_images_dir}/query.jpg")
+        os.remove(f"{self.workspace_dir}/database.db")
+        shutil.copyfile(self.match_database_dir, f"{self.workspace_dir}/database.db")
+
+    def main(self):
+        self.create_folders()
+        localization_results = []
+        for idx in tqdm(range(len(self.name_list)), desc="Processing"):
+            query_im = self.im_list[idx]
+            cv2.imwrite(f"{self.workspace_images_dir}/query.jpg", query_im)
+
+            tqdm.write(" run colmap")
+            process = subprocess.Popen(["./colmap_match.sh"], shell=True, stdout=subprocess.PIPE)
+            process.wait()
+            tqdm.write(" done")
+
+            self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
+            self.prepare_visualization()
+            self.build_tree()
+            self.build_point3d_cloud()
+            pairs = self.match("query.jpg")
+            metadata = self.md_list[idx]
+            r_mat, t_vec = localize(metadata, pairs)
+            localization_results.append(((r_mat, t_vec), (0, 1, 0)))
+
+            # gt
+            res = find_im_name(self.image2pose, "query.jpg")
+            if res is not None:
+                _, _, cam_pose, _ = res
+                qw, qx, qy, qz, tx, ty, tz = cam_pose
+                ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
+                t_vec = np.array([tx, ty, tz])
+                t_vec = t_vec.reshape((-1, 1))
+                localization_results.append(((ref_rot_mat, t_vec), (0, 0, 0)))
+
+            self.delete_folders()
+        visualize_cam_pose_with_point_cloud(self.point_cloud, localization_results)
 
     def read_2d_2d_matches(self, query_im_name, only_geom_verified=False, threshold=5):
         matches, geom_matrices = colmap_db_read.extract_colmap_two_view_geometries(self.match_database_dir)
@@ -159,30 +238,37 @@ class Localization:
                     # cv2.waitKey()
                     # cv2.destroyAllWindows()
 
-    def match(self, query_im_name):
+    def match(self, query_im_name, debug=False):
         query_im_id = self.image_name_to_image_id[query_im_name]
         fid_list, pid_list, tree, coord_list = self.image_to_kp_tree[query_im_id]
         results = []
         for ind, pid in enumerate(pid_list):
             coord = coord_list[ind]
-            query_image = cv2.imread(f"{self.query_images_folder}/{query_im_name}")
-            x2, y2 = map(int, coord)
-            cv2.circle(query_image, (x2, y2), 50, (128, 128, 0), -1)
-            images = visualize_matching_helper(query_image, 0, self.point3d_cloud.access_by_id(pid), self.sfm_images_folder)
-            cv2.imwrite(f"debug/im-{ind}.jpg", images)
-            results.append([coord, self.point3d_cloud.access_by_id(pid).xyz])
+            point = self.point3d_cloud.access_by_id(pid)
+            if point is None:
+                continue
+            results.append([coord, point.xyz])
+            if debug:
+                query_image = cv2.imread(f"{self.query_images_folder}/{query_im_name}")
+                x2, y2 = map(int, coord)
+                cv2.circle(query_image, (x2, y2), 50, (128, 128, 0), -1)
+                images = visualize_matching_helper(query_image, 0, self.point3d_cloud.access_by_id(pid), self.sfm_images_folder)
+                cv2.imwrite(f"debug/im-{ind}.jpg", images)
         return results
 
-    def visualize(self):
+    def prepare_visualization(self):
         points_3d_list = []
 
         for point3d_id in self.point3did2xyzrgb:
             x, y, z, r, g, b = self.point3did2xyzrgb[point3d_id]
             points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
         points_3d_list = np.vstack(points_3d_list)
-        point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
-        point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
-        point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+        self.point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
+        self.point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
+        self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+
+    def visualize(self):
+        self.prepare_visualization()
         pairs = self.match("query.jpg")
 
         im_name_list, metadata_list, image_list = feature_matching.load_2d_queries_minimal("Test line small")
@@ -194,15 +280,10 @@ class Localization:
         localization_results = []
         for im_idx in p2d2p3d:
             metadata = metadata_list[im_idx]
-
-            f = metadata["f"] * 100
-            cx = metadata["cx"]
-            cy = metadata["cy"]
-
-            r_mat, t_vec = localization.localize_single_image_lt_pnp(pairs, f, cx, cy)
+            r_mat, t_vec = localize(metadata, pairs)
             localization_results.append(((r_mat, t_vec), (0, 1, 0)))
 
-        visualize_cam_pose_with_point_cloud(point_cloud, localization_results)
+        visualize_cam_pose_with_point_cloud(self.point_cloud, localization_results)
 
     def test_colmap_loc(self, query_im_name,
                         res_dir="colmap_loc/sparse/0/images.txt",
@@ -233,7 +314,8 @@ class Localization:
 
 if __name__ == '__main__':
     system = Localization()
-    system.visualize()
+    system.main()
+    # system.visualize()
     # system.read_2d_2d_matches("query.jpg")
     # system.test_colmap_loc("query.jpg",
     #                        res_dir="/home/sontung/work/ar-vloc/colmap_loc/new/images.txt",

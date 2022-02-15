@@ -6,6 +6,7 @@ import pnp.build.pnp_python_binding
 import kmeans1d
 import sklearn.cluster
 from test_gosma import process_results
+from tqdm import tqdm
 
 
 def localize_shared_intrinsics(p2d2p3d, coord_list, point3did2xyzrgb, camera_matrix, distortion_coefficients):
@@ -88,7 +89,7 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001):
     xy = xy[:, :2]
     diff = np.sum(np.square(xy - image_points), axis=1)
     inliers = np.sum(diff < threshold)
-    print(f"Localization is done with {inliers}/{image_points.shape[0]} inliers ({inliers/image_points.shape[0]})")
+    tqdm.write(f" localization is done with {inliers}/{image_points.shape[0]} inliers ({inliers/image_points.shape[0]})")
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]

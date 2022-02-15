@@ -264,6 +264,52 @@ def build_descriptors_2d_using_colmap_sift(images,
     return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
 
 
+def build_descriptors_2d_using_colmap_sift_no_verbose(images,
+                                                      db_path="/home/sontung/work/ar-vloc/sfm_ws_hblab/database.db"):
+    point3did2descs = {}
+    matching_ratio = []
+
+    id2kp, id2desc, id2name = extract_colmap_sift(db_path)
+    name2id = {v: k for k, v in id2name.items()}
+    for image_id in images:
+        image_name = images[image_id][0]
+        db_id = name2id[image_name]
+        coord, desc = id2kp[db_id], id2desc[db_id]
+        desc = produce_root_sift(desc)
+        assert coord.shape[0] == desc.shape[0]
+
+        tree = KDTree(coord)
+        nb_points = 0
+        nb_3d_points = 0
+        points2d_meaningful = images[image_id][1]
+
+        for x, y, p3d_id in points2d_meaningful:
+            if p3d_id > 0:
+                dis, idx = tree.query([x, y], 1)
+                nb_3d_points += 1
+                if dis < 1:
+                    nb_points += 1
+                    if p3d_id not in point3did2descs:
+                        point3did2descs[p3d_id] = [[image_id, desc[idx]]]
+                    else:
+                        point3did2descs[p3d_id].append([image_id, desc[idx]])
+
+        matching_ratio.append(nb_points/nb_3d_points)
+    p3d_id_list = []
+    p3d_desc_list = []
+    p3d_desc_list_multiple = []
+    mean_diff = []
+    for p3d_id in point3did2descs:
+        p3d_id_list.append(p3d_id)
+        desc_list = [du[1] for du in point3did2descs[p3d_id]]
+        p3d_desc_list_multiple.append(desc_list)
+        desc = np.mean(desc_list, axis=0)
+        if len(desc_list) > 1:
+            mean_diff.extend([np.sqrt(np.sum(np.square(desc-du))) for du in desc_list])
+        p3d_desc_list.append(desc)
+    return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
+
+
 def produce_root_sift(des):
     des = des.astype(np.float64)
     des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
