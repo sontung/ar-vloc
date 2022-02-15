@@ -101,15 +101,11 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
 
 
 def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
-    visualized_list = []
-    (x, y) = map(int, feature.xy)
-    # cv2.circle(query_image, (x, y), 50, (128, 128, 0), -1)
-
-    visualized_list.append(query_image)
+    visualized_list = [query_image]
     for database_image in point.visibility:
         x2, y2 = map(int, point.visibility[database_image])
         image = cv2.imread(f"{sfm_image_folder}/{database_image}")
-        cv2.circle(image, (x2, y2), 50, (128, 128, 0), 20)
+        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
         visualized_list.append(image)
     list2 = []
     for im in visualized_list:
@@ -180,3 +176,37 @@ def visualize_matching_pairs(image1, image2, pairs):
         cv2.circle(image, (x2 + image1.shape[1], y2), 20, (128, 128, 0), -1)
         cv2.line(image, (x1, y1), (x2 + image1.shape[1], y2), (0, 0, 0), 5)
     return image
+
+
+def visualize_cam_pose_with_point_cloud(point_cloud, localization_results):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1920, height=1025)
+
+    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    cameras = [point_cloud, coord_mesh]
+
+    # queried poses
+    for result, color_cam in localization_results:
+        if result is None:
+            continue
+        rot_mat, trans = result
+        t = -rot_mat.transpose() @ trans
+        t = t.reshape((3, 1))
+        mat = np.hstack([-rot_mat.transpose(), t])
+        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+
+        cm = produce_cam_mesh(color=color_cam)
+
+        vertices = np.asarray(cm.vertices)
+        for i in range(vertices.shape[0]):
+            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+            arr = mat @ arr
+            vertices[i] = arr[:3]
+        cm.vertices = o3d.utility.Vector3dVector(vertices)
+        cameras.append(cm)
+
+    for c in cameras:
+        vis.add_geometry(c)
+    vis.run()
+    vis.destroy_window()

@@ -21,9 +21,9 @@ VISUALIZING_SFM_POSES = False
 VISUALIZING_POSES = True
 
 
-def main(sfm_images_dir = "/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images.txt",
-         sfm_point_cloud_dir = "/home/sontung/work/ar-vloc/colmap_loc/sparse/0/points3D.txt",
-         db_dir = "/home/sontung/work/ar-vloc/colmap_loc/database.db"):
+def main(sfm_images_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images.txt",
+         sfm_point_cloud_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/points3D.txt",
+         db_dir="/home/sontung/work/ar-vloc/colmap_loc/database.db"):
     image2pose_gt = read_images(sfm_images_dir)
     name2pose_gt = {}
     for im_id in image2pose_gt:
@@ -116,4 +116,4 @@ def main(sfm_images_dir = "/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images
 if __name__ == '__main__':
     main("/home/sontung/work/ar-vloc/colmap_loc/new/images.txt",
          "/home/sontung/work/ar-vloc/colmap_loc/new/points3D.txt",
-         "/home/sontung/work/ar-vloc/colmap_loc/not_full_database.db")
+         "/home/sontung/work/ar-vloc/colmap_loc/database.db")

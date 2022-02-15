@@ -75,6 +75,43 @@ def load_2d_queries_generic(folder):
     return descriptors, coordinates, name_list, md_list, im_list, response_list
 
 
+def load_2d_queries_minimal(folder):
+    im_names = os.listdir(folder)
+    md_list = []
+    im_list = []
+    name_list = []
+    for name in tqdm(im_names, desc="Reading query images"):
+        metadata = {}
+        im_name = os.path.join(folder, name)
+        if "HEIC" in name:
+            heif_file = pyheif.read(im_name)
+            image = Image.frombytes(
+                heif_file.mode,
+                heif_file.size,
+                heif_file.data,
+                "raw",
+                heif_file.mode,
+                heif_file.stride,
+            )
+            im = np.array(image)
+            im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+            f = open(im_name, 'rb')
+            tags = exifread.process_file(f)
+            metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
+            metadata["cx"] = im.shape[1]/2
+            metadata["cy"] = im.shape[0]/2
+        elif ".pkl" in name:
+            continue
+        else:
+            im = cv2.imread(im_name)
+
+        md_list.append(metadata)
+        im_list.append(im)
+        name_list.append(name)
+
+    return name_list, md_list, im_list
+
+
 def load_2d_queries_opencv(folder="test_images"):
     im_names = os.listdir(folder)
     descriptors = []
