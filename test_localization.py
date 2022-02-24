@@ -77,6 +77,7 @@ for i in range(len(desc_list)):
     cx = metadata["cx"]
     cy = metadata["cy"]
     point3d_cloud.update_intrinsic(f, cx, cy)
+    print(f, cx, cy)
 
     start_time = time.time()
     point2d_cloud = FeatureCloud()

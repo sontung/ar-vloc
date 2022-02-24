@@ -6,18 +6,32 @@ import time
 import cv2
 import os
 import glob
-
+import json
+import tqdm
+import os
+import moviepy.video.io.ImageSequenceClip
+import colmap_read
+from colmap_io import read_images, read_points3D_coordinates
 from PIL import Image
 from scipy.spatial import KDTree
+from pathlib import Path
 
 
-def produce_cam_mesh(color=None, res=4):
+def produce_cam_mesh(color=None, res=4, mat=None):
     camera_mesh2 = o3d.geometry.TriangleMesh.create_cone(resolution=res)
     camera_mesh2.scale(0.25, camera_mesh2.get_center())
-    camera_mesh2.translate([0, 0, 0], relative=False)
+    # camera_mesh2.translate([0, 0, 0], relative=False)
 
     if color:
         camera_mesh2.paint_uniform_color(color)
+
+    if mat is not None:
+        vertices = np.asarray(camera_mesh2.vertices)
+        for i in range(vertices.shape[0]):
+            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+            arr = mat @ arr
+            vertices[i] = arr[:3]
+        camera_mesh2.vertices = o3d.utility.Vector3dVector(vertices)
     return camera_mesh2
 
 
@@ -210,3 +224,150 @@ def visualize_cam_pose_with_point_cloud(point_cloud, localization_results):
         vis.add_geometry(c)
     vis.run()
     vis.destroy_window()
+
+
+def produce_mat(data):
+    qw, qx, qy, qz, tx, ty, tz = data
+    ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
+    t_vec = np.array([tx, ty, tz])
+    t_vec = t_vec.reshape((-1, 1))
+    rot_mat, trans = (ref_rot_mat, t_vec)
+    rot_mat = -rot_mat.transpose()
+    t = rot_mat @ trans
+    t = t.reshape((3, 1))
+    mat_ = np.hstack([rot_mat, t])
+    mat_ = np.vstack([mat_, np.array([0, 0, 0, 1])])
+    return mat_
+
+
+def produce_proj_mat(data):
+    qw, qx, qy, qz, tx, ty, tz = data
+    ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
+    t_vec = np.array([tx, ty, tz])
+    t_vec = t_vec.reshape((3, 1))
+
+    print(ref_rot_mat, t_vec)
+    mat_ = np.hstack([ref_rot_mat, t_vec])
+    return mat_
+
+
+def produce_o3d_cam(mat=None, cam_intrinsic=None):
+    camera_parameters = o3d.camera.PinholeCameraParameters()
+    if cam_intrinsic is None:
+        width = 1920
+        height = 1025
+        focal = 0.9616278814278851
+    else:
+        width, height, focal = cam_intrinsic
+
+    if mat is None:
+        f = open('view.json')
+        data = json.load(f)
+        mat = np.array(data["extrinsic"]).reshape((4, 4)).T
+        K = np.array(data["intrinsic"]["intrinsic_matrix"]).reshape((3, 3)).T
+
+        camera_parameters.extrinsic = mat
+        camera_parameters.intrinsic.set_intrinsics(
+            width=width, height=height, fx=K[0][0], fy=K[1][1], cx=K[0][2], cy=K[1][2])
+        pass
+    else:
+        K = [[focal * width, 0, width / 2-0.5],
+             [0, focal * width, height / 2-0.5],
+             [0, 0, 1]]
+
+        camera_parameters.extrinsic = mat
+    camera_parameters.intrinsic.set_intrinsics(
+        width=width, height=height, fx=K[0][0], fy=K[1][1], cx=K[0][2], cy=K[1][2])
+    return camera_parameters
+
+
+def visualize_reconstruction_process(sfm_image_dir, sfm_point_cloud_dir,
+                                     vid="/home/sontung/work/ar-vloc/data/indoor_video"):
+    point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
+
+    image2pose = read_images(sfm_image_dir)
+    number_to_image_id = {}
+    for image_id in image2pose:
+        image_name = image2pose[image_id][0]
+        number = int(image_name.split("-")[-1].split(".")[0])
+        number_to_image_id[number] = image_id
+    image_seq = sorted(list(number_to_image_id.keys()))
+
+    points_3d_list = []
+    point_cloud = None
+    point_id_to_point_index = {}
+    for number in image_seq:
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        for _, _, point3d_id in points2d_meaningful:
+            if point3d_id != -1 and point3d_id not in point_id_to_point_index:
+                x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+                point_id_to_point_index[point3d_id] = [len(points_3d_list), r / 255, g / 255, b / 255]
+                points_3d_list.append([x, y, z, 1, 1, 1])
+    points_3d_arr = np.vstack(points_3d_list)
+
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1920, height=1025)
+    vis.get_render_option().point_size = 1
+    vis.get_render_option().background_color = np.array([1, 1, 1])
+    camera_parameters = produce_o3d_cam(None)
+    vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
+
+    for number2, number in enumerate(tqdm.tqdm(image_seq)):
+        if point_cloud is not None:
+            vis.remove_geometry(point_cloud, reset_bounding_box=True)
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        for _, _, point3d_id in points2d_meaningful:
+            if point3d_id != -1:
+                idx, r, g, b = point_id_to_point_index[point3d_id]
+                points_3d_arr[idx, 3:] = [r, g, b]
+        point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_arr[:, :3]))
+        point_cloud.colors = o3d.utility.Vector3dVector(points_3d_arr[:, 3:])
+
+        vis.add_geometry(point_cloud, reset_bounding_box=True)
+
+        if number2 % 16 == 0:
+            mat = produce_mat(cam_pose)
+            cm = produce_cam_mesh(color=(1, 0, 0))
+            vertices = np.asarray(cm.vertices)
+            for i in range(vertices.shape[0]):
+                arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+                arr = mat @ arr
+                vertices[i] = arr[:3]
+            cm.vertices = o3d.utility.Vector3dVector(vertices)
+            cm = o3d.geometry.LineSet.create_from_triangle_mesh(cm)
+            vis.add_geometry(cm, reset_bounding_box=True)
+
+        vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
+
+        vis.poll_events()
+        vis.update_renderer()
+        vis.capture_screen_image(f"{vid}/img-{number2}.png")
+    make_video(vid)
+    vis.run()
+    # param = vis.get_view_control().convert_to_pinhole_camera_parameters()
+    # o3d.io.write_pinhole_camera_parameters(filename, param)
+    vis.destroy_window()
+    return
+
+
+def make_video(image_folder):
+    fps = 50
+
+    image_files = [os.path.join(image_folder, img)
+                   for img in os.listdir(image_folder)
+                   if img.endswith(".png")]
+    image_files = sorted(image_files, key=lambda du: int(du.split("/")[-1].split("-")[-1].split(".")[0]))
+    clip = moviepy.video.io.ImageSequenceClip.ImageSequenceClip(image_files, fps=fps)
+    clip.write_videofile(f'{image_folder}/my_video.mp4')
+
+
+if __name__ == '__main__':
+    # produce_o3d_cam(None)
+    # make_video("/home/sontung/work/ar-vloc/data/indoor_video")
+    visualize_reconstruction_process("/home/sontung/work/recon_models/building/sparse/images.txt",
+                                     "/home/sontung/work/recon_models/building/sparse/points3D.txt",
+                                     "/home/sontung/work/ar-vloc/data/outdoor_video")

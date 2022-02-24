@@ -265,12 +265,12 @@ def extract_colmap_sift(database_path):
     keypoints = dict(
         (image_id, blob_to_array(data, np.float32, (-1, 6)))
         for image_id, data in db.execute(
-            "SELECT image_id, data FROM keypoints"))
+            "SELECT image_id, data FROM keypoints") if data is not None)
 
     desc = dict(
         (image_id, blob_to_array(data, np.uint8, (-1, 128)))
         for image_id, data in db.execute(
-            "SELECT image_id, data FROM descriptors"))
+            "SELECT image_id, data FROM descriptors") if data is not None)
 
     id2name = dict(
         (image_id, name)

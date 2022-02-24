@@ -124,7 +124,63 @@ def angle_between(v1, v2):
     return np.arccos(clip_dot)
 
 
+def read_video():
+    from os import listdir
+    from os.path import isfile, join
+    mypath = "/home/sontung/work/recon_models/building/videos"
+    onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
+    print(onlyfiles)
+    for afile in onlyfiles:
+        afile = f"{mypath}/{afile}"
+        name = afile.split("/")[-1].split(".")[-2]
+        cap = cv2.VideoCapture(afile)
+        idx = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                idx += 1
+                if idx % 4 == 0:
+                    cv2.imwrite(f"/home/sontung/work/recon_models/building/images/img-{name}-{idx}.jpg", frame)
+            else:
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+
+def create_image_list():
+    from os import listdir
+    from os.path import isfile, join
+    mypath = "/home/sontung/work/recon_models/building/images"
+    onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
+    k2name = {}
+    for name in onlyfiles:
+        k = name.split("-")[1]
+        if k not in k2name:
+            k2name[k] = [name]
+        else:
+            k2name[k].append(name)
+    for k in k2name:
+        txt_file = open(f"/home/sontung/work/recon_models/building/{k}-img-list.txt", "w")
+        for name in k2name[k]:
+            print(name, file=txt_file)
+        txt_file.close()
+
+
+def dump_point_cloud(file_dir="/home/sontung/work/recon_models/indoor/model.txt"):
+    from colmap_io import read_points3D_coordinates
+    data = read_points3D_coordinates("/home/sontung/work/recon_models/indoor/dense_model/points3D.txt")
+    afile = open(file_dir, "w")
+    for k in data:
+        x, y, z, r, g, b = data[k]
+        print(x, y, z, r, g, b, file=afile)
+    return
+
+
 if __name__ == '__main__':
+    # dump_point_cloud()
     # clean_pc()
     # simple_square()
-    visualize()
+    read_video()
+    # create_image_list()
+    # read_video("/home/sontung/work/recon_models/building/videos/c4.MOV")

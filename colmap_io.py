@@ -36,7 +36,7 @@ def read_points3D_coordinates(in_dir="sfm_models/points3D.txt"):
     for line in lines:
         if line[0] == "#":
             continue
-        numbers = line[:-1].split(" ")
+        numbers = line[:-1].split(" ")[:7]
         numbers = list(map(float, numbers))
         point3d_id, x, y, z, r, g, b = numbers[:7]
         point3d_id = int(point3d_id)
