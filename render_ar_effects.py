@@ -6,7 +6,7 @@ import colmap_io
 import colmap_read
 import open3d as o3d
 import open3d.visualization.rendering as rendering
-from vis_utils import produce_cam_mesh
+from vis_utils import produce_cam_mesh, produce_proj_mat_4
 
 
 def produce_mat(data):
@@ -75,34 +75,14 @@ def main(sfm_images_dir, sfm_point_cloud_dir):
     mesh.vertices = o3d.utility.Vector3dVector(vertices)
     mesh.translate([0, -1.2, -2.1], relative=True)
     mesh.compute_triangle_normals()
-    print(mat)
     vis.add_geometry(point_cloud, reset_bounding_box=True)
     vis.add_geometry(mesh, reset_bounding_box=True)
     cam_correct = produce_cam_mesh((1, 0, 0), mat=mat)
     vis.add_geometry(cam_correct)
 
+    mat = produce_proj_mat_4(pose_list[0])
     camera_parameters = produce_o3d_cam(mat)
     cam_vis = o3d.geometry.LineSet.create_camera_visualization(camera_parameters.intrinsic, camera_parameters.extrinsic)
-    cam_vis.translate([0, 0, 0], relative=False)
-    # vertices = np.asarray(cam_vis.points)
-    # for i in range(vertices.shape[0]):
-    #     arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
-    #     arr = mat @ arr
-    #     vertices[i] = arr[:3]
-    # cam_vis.points = o3d.utility.Vector3dVector(vertices)
-    vis.add_geometry(cam_vis)
-
-    mat[2, :] = -mat[2, :]
-    camera_parameters = produce_o3d_cam(mat)
-    cam_vis = o3d.geometry.LineSet.create_camera_visualization(camera_parameters.intrinsic, camera_parameters.extrinsic)
-    mat[2, :] = -mat[2, :]
-    cam_vis.translate([0, 0, 0], relative=False)
-    vertices = np.asarray(cam_vis.points)
-    for i in range(vertices.shape[0]):
-        arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
-        arr = mat @ arr
-        vertices[i] = arr[:3]
-    cam_vis.points = o3d.utility.Vector3dVector(vertices)
     vis.add_geometry(cam_vis)
 
     # vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)

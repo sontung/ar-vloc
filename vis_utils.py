@@ -246,8 +246,18 @@ def produce_proj_mat(data):
     t_vec = np.array([tx, ty, tz])
     t_vec = t_vec.reshape((3, 1))
 
-    print(ref_rot_mat, t_vec)
     mat_ = np.hstack([ref_rot_mat, t_vec])
+    return mat_
+
+
+def produce_proj_mat_4(data):
+    qw, qx, qy, qz, tx, ty, tz = data
+    ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
+    t_vec = np.array([tx, ty, tz])
+    t_vec = t_vec.reshape((3, 1))
+
+    mat_ = np.hstack([ref_rot_mat, t_vec])
+    mat_ = np.vstack([mat_, np.array([0, 0, 0, 1])])
     return mat_
 
 
@@ -365,9 +375,77 @@ def make_video(image_folder):
     clip.write_videofile(f'{image_folder}/my_video.mp4')
 
 
+def visualize_camera_sequence(sfm_image_dir, sfm_point_cloud_dir):
+    point3did2xyzrgb = read_points3D_coordinates(sfm_point_cloud_dir)
+
+    image2pose = read_images(sfm_image_dir)
+    number_to_image_id = {}
+    for image_id in image2pose:
+        image_name = image2pose[image_id][0]
+        number = int(image_name.split("-")[-1].split(".")[0])
+        number_to_image_id[number] = image_id
+    image_seq = sorted(list(number_to_image_id.keys()))
+
+    points_3d_list = []
+    point_id_to_point_index = {}
+    for number in image_seq:
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        for _, _, point3d_id in points2d_meaningful:
+            if point3d_id != -1 and point3d_id not in point_id_to_point_index:
+                x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+                point_id_to_point_index[point3d_id] = [len(points_3d_list), r / 255, g / 255, b / 255]
+                points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
+    points_3d_arr = np.vstack(points_3d_list)
+
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1920, height=1025)
+    vis.get_render_option().point_size = 2.5
+    vis.get_render_option().background_color = np.array([1, 1, 1])
+    camera_parameters2 = produce_o3d_cam(None)
+    vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters2)
+
+    point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_arr[:, :3]))
+    point_cloud.colors = o3d.utility.Vector3dVector(points_3d_arr[:, 3:])
+    vis.add_geometry(point_cloud)
+
+    for number2, number in enumerate(tqdm.tqdm(image_seq)):
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        mat = produce_mat(cam_pose)
+        cm = produce_cam_mesh(color=(1, 0, 0))
+        vertices = np.asarray(cm.vertices)
+        for i in range(vertices.shape[0]):
+            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+            arr = mat @ arr
+            vertices[i] = arr[:3]
+        cm.vertices = o3d.utility.Vector3dVector(vertices)
+        cm = o3d.geometry.LineSet.create_from_triangle_mesh(cm)
+        vis.add_geometry(cm, reset_bounding_box=True)
+
+        mat = produce_proj_mat_4(cam_pose)
+        camera_parameters = produce_o3d_cam(mat)
+        cam_vis = o3d.geometry.LineSet.create_camera_visualization(camera_parameters.intrinsic,
+                                                                   camera_parameters.extrinsic)
+        vis.add_geometry(cam_vis)
+        vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters2)
+
+        vis.poll_events()
+        vis.update_renderer()
+    vis.run()
+    # param = vis.get_view_control().convert_to_pinhole_camera_parameters()
+    # o3d.io.write_pinhole_camera_parameters(filename, param)
+    vis.destroy_window()
+    return
+
+
 if __name__ == '__main__':
     # produce_o3d_cam(None)
     # make_video("/home/sontung/work/ar-vloc/data/indoor_video")
-    visualize_reconstruction_process("/home/sontung/work/recon_models/building/sparse/images.txt",
-                                     "/home/sontung/work/recon_models/building/sparse/points3D.txt",
-                                     "/home/sontung/work/ar-vloc/data/outdoor_video")
+    # visualize_reconstruction_process("/home/sontung/work/recon_models/building/sparse/images.txt",
+    #                                  "/home/sontung/work/recon_models/building/sparse/points3D.txt",
+    #                                  "/home/sontung/work/ar-vloc/data/outdoor_video")
+    visualize_camera_sequence("/home/sontung/work/recon_models/building/sparse/images.txt",
+                              "/home/sontung/work/recon_models/building/sparse/points3D.txt")

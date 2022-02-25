@@ -1,7 +1,7 @@
 import numpy as np
 
 import colmap_io
-from vis_utils import produce_mat, produce_proj_mat
+from vis_utils import produce_mat, produce_proj_mat, produce_proj_mat_4
 
 
 def radial_world_to_image(u, v, f, c1, c2, k):
@@ -33,6 +33,7 @@ def main():
     for im_id in image2pose_gt:
         image_name, points2d_meaningful, cam_pose, cam_id = image2pose_gt[im_id]
         proj_mat = produce_proj_mat(cam_pose)
+        ext_mat = produce_proj_mat_4(cam_pose)
         for x, y, pid in points2d_meaningful:
             if pid != -1:
                 px, py, pz = point3did2xyzrgb[pid][:3]
@@ -41,8 +42,10 @@ def main():
                 object_points_homo.append([px, py, pz, 1])
                 homo = np.array([px, py, pz, 1])
                 projected_homo = proj_mat @ homo
+                projected_homo2 = ext_mat @ homo
+                print(projected_homo2, projected_homo)
+
                 projected_homo /= projected_homo[2]
-                print(radial_world_to_image(projected_homo[0], projected_homo[1], f, c1, c2, k), x, y)
         break
 
 
