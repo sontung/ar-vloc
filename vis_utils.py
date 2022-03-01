@@ -364,9 +364,7 @@ def visualize_reconstruction_process(sfm_image_dir, sfm_point_cloud_dir,
     return
 
 
-def make_video(image_folder):
-    fps = 50
-
+def make_video(image_folder, fps=50):
     image_files = [os.path.join(image_folder, img)
                    for img in os.listdir(image_folder)
                    if img.endswith(".png")]
