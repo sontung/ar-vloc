@@ -5,6 +5,8 @@ import trimesh
 import cv2
 from PIL import Image
 from scipy.spatial.transform import Rotation as rot_mat_compute
+from os import listdir
+from os.path import isfile, join
 
 
 def to_homo(vec):
@@ -124,12 +126,9 @@ def angle_between(v1, v2):
     return np.arccos(clip_dot)
 
 
-def read_video():
-    from os import listdir
-    from os.path import isfile, join
+def read_videos():
     mypath = "/home/sontung/work/recon_models/building/videos"
     onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
-    print(onlyfiles)
     for afile in onlyfiles:
         afile = f"{mypath}/{afile}"
         name = afile.split("/")[-1].split(".")[-2]
@@ -146,6 +145,23 @@ def read_video():
 
         cap.release()
         cv2.destroyAllWindows()
+
+
+def read_video(afile, save_folder):
+    name = afile.split("/")[-1].split(".")[-2]
+    cap = cv2.VideoCapture(afile)
+    idx = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            idx += 1
+            if idx % 4 == 0:
+                cv2.imwrite(f"{save_folder}/img-{name}-{idx}.jpg", frame)
+        else:
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 def create_image_list():
@@ -181,6 +197,6 @@ if __name__ == '__main__':
     # dump_point_cloud()
     # clean_pc()
     # simple_square()
-    read_video()
+    read_video("/home/sontung/Downloads/IMG_0794.MOV", "/home/sontung/work/sparse_outdoor/images")
     # create_image_list()
     # read_video("/home/sontung/work/recon_models/building/videos/c4.MOV")

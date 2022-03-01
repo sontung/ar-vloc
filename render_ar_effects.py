@@ -155,7 +155,7 @@ def render(sfm_images_dir, sfm_point_cloud_dir, vid, no_point_cloud=True, first_
     vis.destroy_window()
 
 
-def project_to_video(sfm_images_dir, sfm_point_cloud_dir, sfm_images_folder, rendering_folder):
+def project_to_video(sfm_images_dir, sfm_point_cloud_dir, sfm_images_folder, rendering_folder, augmented_folder):
     # render(sfm_images_dir, sfm_point_cloud_dir, rendering_folder)
     # render(sfm_images_dir, sfm_point_cloud_dir, rendering_folder, first_pass=False)
 
@@ -172,23 +172,27 @@ def project_to_video(sfm_images_dir, sfm_point_cloud_dir, sfm_images_folder, ren
         number_to_image_id[number] = image_id
     image_seq = sorted(list(number_to_image_id.keys()))
 
-    for number2 in range(len(image_seq)):
+    for number2 in tqdm.tqdm(range(len(image_seq))):
         number = image_seq[number2]
         image_id = number_to_image_id[number]
         image_name, points2d_meaningful, cam_pose, cam_id = image2pose_gt[image_id]
-        image_name = image_name.replace("IMG_0794", "IMG_0795", 1)
         img = cv2.imread(f"{sfm_images_folder}/{image_name}")
         mask = cv2.imread(f"{rendering_folder}/img-{number2}-2.png")
         augment = cv2.imread(f"{rendering_folder}/img-{number2}.png")
-        print(img.shape, mask.shape, augment.shape)
-        print(np.unique(mask[:, :, 0]))
-        print(augment[mask[:, :, 0]==0].shape)
-        break
+        mask2 = np.zeros((mask.shape[0], mask.shape[1]), np.uint8)
+        mask3 = np.ones((mask.shape[0], mask.shape[1]), np.uint8)
+        mask3[mask[:, :, 0] == 0] = 0
+        mask2[mask[:, :, 0] == 0] = 1
+        img = np.multiply(img, mask3[:, :, None])
+        augment2 = np.multiply(augment, mask2[:, :, None])
+        final = img + augment2
+        cv2.imwrite(f"{augmented_folder}/img-{number2}.png", final)
 
 
 if __name__ == '__main__':
     project_to_video("/home/sontung/work/sparse_outdoor/images.txt",
                      "/home/sontung/work/sparse_outdoor/points3D.txt",
                      "/home/sontung/work/sparse_outdoor/images/images",
-                     "/home/sontung/work/ar-vloc/data/augment_video")
-    # make_video("/home/sontung/work/ar-vloc/data/augment_video", 15)
+                     "/home/sontung/work/ar-vloc/data/augment_video",
+                     "/home/sontung/work/ar-vloc/data/ar_video")
+    make_video("/home/sontung/work/ar-vloc/data/ar_video", 15)
