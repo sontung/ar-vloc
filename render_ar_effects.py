@@ -89,11 +89,10 @@ def render(sfm_images_dir, sfm_point_cloud_dir, vid, no_point_cloud=True, first_
     point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=width, height=height, visible=False)
-
-    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
     sample_scene(vis, point_cloud, first_pass)
 
@@ -118,7 +117,6 @@ def render(sfm_images_dir, sfm_point_cloud_dir, vid, no_point_cloud=True, first_
         camera_parameters = produce_o3d_cam(mat, width, height)
         cam_vis = o3d.geometry.LineSet.create_camera_visualization(camera_parameters.intrinsic,
                                                                    camera_parameters.extrinsic)
-        # vis.add_geometry(cam_vis)
         if first_pass:
             mesh_new = produce_object([0, 0, 0])
         else:
@@ -133,13 +131,6 @@ def render(sfm_images_dir, sfm_point_cloud_dir, vid, no_point_cloud=True, first_
         mat = produce_proj_mat_4(cam_pose)
         camera_parameters = produce_o3d_cam(mat, width, height)
 
-        # int_mat = camera_parameters.intrinsic.intrinsic_matrix
-        # print(int_mat[0, 2], width/2-0.5, int_mat[1, 2], height/2-0.5, camera_parameters.intrinsic.width,
-        #       camera_parameters.intrinsic.height)
-        # camera_parameters2 = vis.get_view_control().convert_to_pinhole_camera_parameters()
-        # print(camera_parameters2.intrinsic.width, camera_parameters2.intrinsic.height)
-        # sys.exit()
-
         vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
 
         vis.poll_events()
@@ -150,14 +141,12 @@ def render(sfm_images_dir, sfm_point_cloud_dir, vid, no_point_cloud=True, first_
         else:
             vis.capture_screen_image(f"{vid}/img-{number2}.png", True)
 
-    # make_video(vid, fps=15)
-    # vis.run()
     vis.destroy_window()
 
 
 def project_to_video(sfm_images_dir, sfm_point_cloud_dir, sfm_images_folder, rendering_folder, augmented_folder):
-    # render(sfm_images_dir, sfm_point_cloud_dir, rendering_folder)
-    # render(sfm_images_dir, sfm_point_cloud_dir, rendering_folder, first_pass=False)
+    render(sfm_images_dir, sfm_point_cloud_dir, rendering_folder)
+    render(sfm_images_dir, sfm_point_cloud_dir, rendering_folder, first_pass=False)
 
     image2pose_gt = colmap_io.read_images(sfm_images_dir)
     name2pose_gt = {}
@@ -189,10 +178,36 @@ def project_to_video(sfm_images_dir, sfm_point_cloud_dir, sfm_images_folder, ren
         cv2.imwrite(f"{augmented_folder}/img-{number2}.png", final)
 
 
+def mesh_the_map(sfm_images_dir, sfm_point_cloud_dir):
+    image2pose_gt = colmap_io.read_images(sfm_images_dir)
+    name2pose_gt = {}
+    for im_id in image2pose_gt:
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose_gt[im_id]
+        name2pose_gt[image_name] = cam_pose
+    point3did2xyzrgb = colmap_io.read_points3D_coordinates(sfm_point_cloud_dir)
+    points_3d_list = []
+    for point3d_id in point3did2xyzrgb:
+        x, y, z, r, g, b = point3did2xyzrgb[point3d_id]
+        points_3d_list.append([x, y, z, r/255, g/255, b/255])
+    points_3d_list = np.vstack(points_3d_list)
+    point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
+    point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
+    # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+    # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+
+    mesh = o3d.io.read_triangle_mesh("/home/sontung/work/dense_fusion_building/meshed-poisson.ply")
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+    vis.add_geometry(mesh)
+    vis.run()
+    vis.destroy_window()
+
+
 if __name__ == '__main__':
-    project_to_video("/home/sontung/work/sparse_outdoor/images.txt",
-                     "/home/sontung/work/sparse_outdoor/points3D.txt",
-                     "/home/sontung/work/sparse_outdoor/images/images",
-                     "/home/sontung/work/ar-vloc/data/augment_video",
-                     "/home/sontung/work/ar-vloc/data/ar_video")
-    make_video("/home/sontung/work/ar-vloc/data/ar_video", 15)
+    mesh_the_map("/home/sontung/work/sparse_building/images.txt", "/home/sontung/work/dense_fusion_building/points3D.txt")
+    # project_to_video("/home/sontung/work/sparse_building/images.txt",
+    #                  "/home/sontung/work/sparse_building/points3D.txt",
+    #                  "/home/sontung/work/sparse_outdoor/images/images",
+    #                  "/home/sontung/work/ar-vloc/data/augment_video",
+    #                  "/home/sontung/work/ar-vloc/data/ar_video")
+    # make_video("/home/sontung/work/ar-vloc/data/ar_video", 15)

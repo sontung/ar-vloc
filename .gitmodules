@@ -7,3 +7,6 @@
 [submodule "libmpopt"]
 	path = libmpopt
 	url = git@github.com:sontung/libmpopt.git
+[submodule "pyrenderer"]
+	path = pyrenderer
+	url = git@github.com:sontung/pyrenderer.git
