@@ -197,6 +197,7 @@ if __name__ == '__main__':
     # dump_point_cloud()
     # clean_pc()
     # simple_square()
-    read_video("/home/sontung/Downloads/IMG_0794.MOV", "/home/sontung/work/sparse_outdoor/images")
+    read_video("/home/sontung/work/recon_models/bookshelf/IMG_0802.MOV",
+               "/home/sontung/work/recon_models/bookshelf/images")
     # create_image_list()
     # read_video("/home/sontung/work/recon_models/building/videos/c4.MOV")
