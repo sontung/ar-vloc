@@ -15,8 +15,7 @@ import shutil
 import point2d
 import point3d
 import open3d as o3d
-from vis_utils import visualize_matching_pairs, visualize_matching_helper, produce_cam_mesh, \
-    visualize_cam_pose_with_point_cloud
+from vis_utils import visualize_matching_helper, visualize_cam_pose_with_point_cloud
 from utils import to_homo
 from scipy.spatial import KDTree
 from distutils.dir_util import copy_tree

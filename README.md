@@ -1,5 +1,7 @@
 # Visual localization for augmented reality
 
+## main script = `retrieval_based.py`
+
 ## problems
 1. smoothness fails when the center is wrong.
 2. post optim does not robustly solve this issue.
