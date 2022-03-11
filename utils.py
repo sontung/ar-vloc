@@ -151,12 +151,14 @@ def read_video(afile, save_folder):
     name = afile.split("/")[-1].split(".")[-2]
     cap = cv2.VideoCapture(afile)
     idx = 0
+    img_idx = 0
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
             idx += 1
             if idx % 4 == 0:
-                cv2.imwrite(f"{save_folder}/img-{name}-{idx}.jpg", frame)
+                img_idx += 1
+                cv2.imwrite(f"{save_folder}/image{img_idx:04d}.jpg", frame)
         else:
             break
 
@@ -197,7 +199,7 @@ if __name__ == '__main__':
     # dump_point_cloud()
     # clean_pc()
     # simple_square()
-    read_video("/home/sontung/work/recon_models/bookshelf/IMG_0802.MOV",
-               "/home/sontung/work/recon_models/bookshelf/images")
+    read_video("/home/sontung/work/recon_models/indoor/IMG_0794.MOV",
+               "/home/sontung/work/recon_models/indoor/images")
     # create_image_list()
     # read_video("/home/sontung/work/recon_models/building/videos/c4.MOV")

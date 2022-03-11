@@ -22,7 +22,7 @@ def produce_cam_mesh(color=None, res=4, mat=None):
     camera_mesh2.scale(0.25, camera_mesh2.get_center())
     # camera_mesh2.translate([0, 0, 0], relative=False)
 
-    if color:
+    if color is not None:
         camera_mesh2.paint_uniform_color(color)
 
     if mat is not None:
@@ -299,8 +299,14 @@ def visualize_reconstruction_process(sfm_image_dir, sfm_point_cloud_dir,
     number_to_image_id = {}
     for image_id in image2pose:
         image_name = image2pose[image_id][0]
-        number = int(image_name.split("-")[-1].split(".")[0])
+        number = 0
+        try:
+            number = int(image_name.split("-")[-1].split(".")[0])
+        except ValueError:
+            if "image" == image_name[:5]:
+                number = int(image_name[5:].split(".")[0])
         number_to_image_id[number] = image_id
+
     image_seq = sorted(list(number_to_image_id.keys()))
 
     points_3d_list = []
@@ -319,7 +325,7 @@ def visualize_reconstruction_process(sfm_image_dir, sfm_point_cloud_dir,
 
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
-    vis.get_render_option().point_size = 1
+    vis.get_render_option().point_size = 2
     vis.get_render_option().background_color = np.array([1, 1, 1])
     camera_parameters = produce_o3d_cam(None)
     vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
@@ -339,7 +345,7 @@ def visualize_reconstruction_process(sfm_image_dir, sfm_point_cloud_dir,
 
         vis.add_geometry(point_cloud, reset_bounding_box=True)
 
-        if number2 % 16 == 0:
+        if number2 % 4 == 0:
             mat = produce_mat(cam_pose)
             cm = produce_cam_mesh(color=(1, 0, 0))
             vertices = np.asarray(cm.vertices)
@@ -348,18 +354,19 @@ def visualize_reconstruction_process(sfm_image_dir, sfm_point_cloud_dir,
                 arr = mat @ arr
                 vertices[i] = arr[:3]
             cm.vertices = o3d.utility.Vector3dVector(vertices)
-            cm = o3d.geometry.LineSet.create_from_triangle_mesh(cm)
+            cm2 = o3d.geometry.LineSet.create_from_triangle_mesh(cm)
             vis.add_geometry(cm, reset_bounding_box=True)
+            vis.add_geometry(cm2, reset_bounding_box=True)
 
         vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
 
         vis.poll_events()
         vis.update_renderer()
         vis.capture_screen_image(f"{vid}/img-{number2}.png")
-    make_video(vid)
+    # make_video(vid)
     vis.run()
-    # param = vis.get_view_control().convert_to_pinhole_camera_parameters()
-    # o3d.io.write_pinhole_camera_parameters(filename, param)
+    param = vis.get_view_control().convert_to_pinhole_camera_parameters()
+    o3d.io.write_pinhole_camera_parameters("view.json", param)
     vis.destroy_window()
     return
 
@@ -380,7 +387,12 @@ def visualize_camera_sequence(sfm_image_dir, sfm_point_cloud_dir):
     number_to_image_id = {}
     for image_id in image2pose:
         image_name = image2pose[image_id][0]
-        number = int(image_name.split("-")[-1].split(".")[0])
+        number = 0
+        try:
+            number = int(image_name.split("-")[-1].split(".")[0])
+        except ValueError:
+            if "image" == image_name[:5]:
+                number = int(image_name[5:].split(".")[0])
         number_to_image_id[number] = image_id
     image_seq = sorted(list(number_to_image_id.keys()))
 
@@ -441,9 +453,9 @@ def visualize_camera_sequence(sfm_image_dir, sfm_point_cloud_dir):
 
 if __name__ == '__main__':
     # produce_o3d_cam(None)
-    # make_video("/home/sontung/work/ar-vloc/data/indoor_video")
-    # visualize_reconstruction_process("/home/sontung/work/recon_models/building/sparse/images.txt",
-    #                                  "/home/sontung/work/recon_models/building/sparse/points3D.txt",
-    #                                  "/home/sontung/work/ar-vloc/data/outdoor_video")
-    visualize_camera_sequence("/home/sontung/work/recon_models/building/sparse/images.txt",
-                              "/home/sontung/work/recon_models/building/sparse/points3D.txt")
+    make_video("/home/sontung/work/ar-vloc/data/indoor_video")
+    # visualize_reconstruction_process("/home/sontung/work/recon_models/indoor/images.txt",
+    #                                  "/home/sontung/work/recon_models/indoor/points3D.txt",
+    #                                  "/home/sontung/work/ar-vloc/data/indoor_video")
+    # visualize_camera_sequence("/home/sontung/work/recon_models/indoor/images.txt",
+    #                           "/home/sontung/work/recon_models/indoor/points3D.txt")

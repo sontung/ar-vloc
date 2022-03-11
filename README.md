@@ -2,6 +2,12 @@
 
 ## main script = `retrieval_based.py`
 
+## how to use colmap
+1. feature extraction with `shared for all images`
+2. feature matching with `sequential`, check `loop detection` `quadratic overlap` and `vocab tree path`
+3. reconstruction: uncheck `multiple models`
+4. dense reconstruction: in `stereo`, set `max image size` to 1000, `cache size` to 8 (do the same for `fusion`)
+
 ## problems
 1. smoothness fails when the center is wrong.
 2. post optim does not robustly solve this issue.
@@ -15,16 +21,7 @@
    4. post-optim filter with a few iterations
 4. retrieval
    1. check matches with h mat from "two view geometries"
-
-## experimental results
-
-|             | no pw     | pw using cosine | pw using `np.var([v1, v2])` | pw using 1-cosine |
-|-------------|-----------|-----------------|-----------------------------|-------------------|
-| distance    | 164.66    | 165.97          | 146.5                       | 175.66            |
-| accuracy    | 0.078     | 0.078           | 0.078                       | 0.078             |
-| geom. cost  | 68440.125 | 67327.11        | 58809.8                     | 69330.03          |
-| inlier cost | 19        | 37              | 35                          | 22                |
-
+   
 ## build LT-pnp
 1. `cmake .. -DPYTHON_EXECUTABLE=$(which python)`
 

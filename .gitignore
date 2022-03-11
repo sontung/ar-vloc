@@ -22,6 +22,10 @@ qap/*
 profile.json
 colmap_loc/*
 vloc_workspace/*
+DepthCamera*
+DepthCapture*
+RenderOption*
+ScreenCapture*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
