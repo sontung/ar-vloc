@@ -15,6 +15,7 @@ from colmap_io import read_images, read_points3D_coordinates
 from PIL import Image
 from scipy.spatial import KDTree
 from pathlib import Path
+from pykdtree.kdtree import KDTree
 
 
 def produce_cam_mesh(color=None, res=4, mat=None):
@@ -261,7 +262,7 @@ def produce_proj_mat_4(data):
     return mat_
 
 
-def produce_o3d_cam(mat=None, cam_intrinsic=None):
+def produce_o3d_cam2(mat=None, cam_intrinsic=None):
     camera_parameters = o3d.camera.PinholeCameraParameters()
     if cam_intrinsic is None:
         width = 1920
@@ -288,6 +289,19 @@ def produce_o3d_cam(mat=None, cam_intrinsic=None):
         camera_parameters.extrinsic = mat
     camera_parameters.intrinsic.set_intrinsics(
         width=width, height=height, fx=K[0][0], fy=K[1][1], cx=K[0][2], cy=K[1][2])
+    return camera_parameters
+
+
+def produce_o3d_cam(mat, width, height):
+    camera_parameters = o3d.camera.PinholeCameraParameters()
+    focal = 0.9616278814278851
+    k_mat = [[focal * width, 0, width / 2 - 0.5],
+             [0, focal * width, height / 2 - 0.5],
+             [0, 0, 1]]
+    camera_parameters.extrinsic = mat
+    camera_parameters.intrinsic.set_intrinsics(width=width, height=height,
+                                               fx=k_mat[0][0], fy=k_mat[1][1],
+                                               cx=k_mat[0][2], cy=k_mat[1][2])
     return camera_parameters
 
 
@@ -451,9 +465,102 @@ def visualize_camera_sequence(sfm_image_dir, sfm_point_cloud_dir):
     return
 
 
+def read_image_sequence(image2pose):
+    number_to_image_id = {}
+    for image_id in image2pose:
+        image_name = image2pose[image_id][0]
+        number = 0
+        try:
+            number = int(image_name.split("-")[-1].split(".")[0])
+        except ValueError:
+            if "image" == image_name[:5]:
+                number = int(image_name[5:].split(".")[0])
+        number_to_image_id[number] = image_id
+    image_seq = sorted(list(number_to_image_id.keys()))
+    return image_seq, number_to_image_id
+
+
+def visualize_dense_reconstruction_process(sfm_image_dir, images_dir, sfm_dense_point_cloud_dir,
+                                           vid="/home/sontung/work/ar-vloc/data/indoor_video",
+                                           vid2="/home/sontung/work/ar-vloc/data/test"):
+    mesh = o3d.io.read_triangle_mesh("/home/sontung/work/recon_models/indoor_all/meshed-poisson.ply")
+    point3did2xyzrgb_dense, dense_coord_mat, dense_color_mat, dense_id_mat = read_points3D_coordinates(sfm_dense_point_cloud_dir, return_mat=True)
+    print("Done reading.")
+
+    image2pose = read_images(sfm_image_dir)
+    image_seq, number_to_image_id = read_image_sequence(image2pose)
+    # image_seq = image_seq[:5]
+    dense_color_mat /= 255
+
+    points_3d_arr = np.hstack([dense_coord_mat, dense_color_mat])
+    point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_arr[:, :3]))
+    point_cloud.colors = o3d.utility.Vector3dVector(points_3d_arr[:, 3:])
+    print("Done constructing point cloud.")
+
+    vis = o3d.visualization.Visualizer()
+    width = 1920
+    height = 1080
+    vis.create_window(width=width, height=height, visible=False)
+    vis.get_render_option().point_size = 2
+    vis.get_render_option().background_color = np.array([1, 1, 1])
+    vis.add_geometry(point_cloud, reset_bounding_box=True)
+
+    for number2, number in enumerate(tqdm.tqdm(image_seq)):
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        mat = produce_proj_mat_4(cam_pose)
+        camera_parameters = produce_o3d_cam(mat, width, height)
+        vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
+        vis.poll_events()
+        vis.update_renderer()
+        vis.capture_screen_image(f"{vid}/img-{number2}-1.png", True)
+    vis.destroy_window()
+
+    vis = o3d.visualization.Visualizer()
+    width = 1920
+    height = 1080
+    vis.create_window(width=width, height=height, visible=False)
+    vis.get_render_option().point_size = 2
+    vis.get_render_option().background_color = np.array([1, 1, 1])
+    vis.add_geometry(mesh, reset_bounding_box=True)
+
+    for number2, number in enumerate(tqdm.tqdm(image_seq)):
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        mat = produce_proj_mat_4(cam_pose)
+        camera_parameters = produce_o3d_cam(mat, width, height)
+        vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
+        vis.poll_events()
+        vis.update_renderer()
+        vis.capture_screen_image(f"{vid}/img-{number2}-2.png", True)
+    vis.destroy_window()
+
+    for number2, number in enumerate(tqdm.tqdm(image_seq)):
+        image_id = number_to_image_id[number]
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+
+        im1 = cv2.imread(f"{vid}/img-{number2}-1.png")
+        im2 = cv2.imread(f"{vid}/img-{number2}-2.png")
+        im3 = cv2.imread(f"{images_dir}/{image_name}")
+        im1 = cv2.flip(cv2.transpose(im1), 1)
+        im2 = cv2.flip(cv2.transpose(im2), 1)
+        im3 = cv2.flip(cv2.transpose(im3), 1)
+
+        im = np.hstack([im1, im2, im3])
+        cv2.imwrite(f"{vid2}/img-{number2}.png", im)
+
+    make_video(vid2)
+    return
+
+
 if __name__ == '__main__':
     # produce_o3d_cam(None)
-    make_video("/home/sontung/work/ar-vloc/data/indoor_video")
+    # make_video("/home/sontung/work/ar-vloc/data/indoor_video")
+    visualize_dense_reconstruction_process("/home/sontung/work/recon_models/indoor_all/sparse/images.txt",
+                                           "/home/sontung/work/recon_models/indoor_all/images",
+                                           "/home/sontung/work/recon_models/indoor_all/sparse/points3D_dense.txt")
     # visualize_reconstruction_process("/home/sontung/work/recon_models/indoor/images.txt",
     #                                  "/home/sontung/work/recon_models/indoor/points3D.txt",
     #                                  "/home/sontung/work/ar-vloc/data/indoor_video")

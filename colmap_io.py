@@ -29,7 +29,7 @@ def read_points3D(in_dir="sfm_models/points3D.txt"):
     return data
 
 
-def read_points3D_coordinates(in_dir="sfm_models/points3D.txt"):
+def read_points3D_coordinates(in_dir="sfm_models/points3D.txt", return_mat=False):
     sys.stdin = open(in_dir, "r")
     lines = sys.stdin.readlines()
     data = {}
@@ -41,6 +41,16 @@ def read_points3D_coordinates(in_dir="sfm_models/points3D.txt"):
         point3d_id, x, y, z, r, g, b = numbers[:7]
         point3d_id = int(point3d_id)
         data[point3d_id] = [x, y, z, r, g, b]
+    if return_mat:
+        coord_mat = np.zeros((len(data), 3))
+        color_mat = np.zeros((len(data), 3))
+        id_mat = np.zeros((len(data),))
+        for idx, pid in enumerate(data.keys()):
+            x, y, z, r, g, b = data[pid]
+            id_mat[idx] = pid
+            coord_mat[idx] = [x, y, z]
+            color_mat[idx] = [r, g, b]
+        return data, coord_mat, color_mat, id_mat
     return data
 
 
