@@ -497,6 +497,7 @@ def visualize_dense_reconstruction_process(sfm_image_dir, images_dir, sfm_dense_
     point_cloud.colors = o3d.utility.Vector3dVector(points_3d_arr[:, 3:])
     print("Done constructing point cloud.")
 
+    # point cloud
     vis = o3d.visualization.Visualizer()
     width = 1920
     height = 1080
@@ -517,38 +518,16 @@ def visualize_dense_reconstruction_process(sfm_image_dir, images_dir, sfm_dense_
         vis.capture_screen_image(f"{vid}/img-{number2}-1.png", True)
     vis.destroy_window()
 
-    vis = o3d.visualization.Visualizer()
-    width = 1920
-    height = 1080
-    vis.create_window(width=width, height=height, visible=False)
-    vis.get_render_option().point_size = 2
-    vis.get_render_option().background_color = np.array([1, 1, 1])
-    vis.add_geometry(mesh, reset_bounding_box=True)
-
-    for number2, number in enumerate(tqdm.tqdm(image_seq)):
-        image_id = number_to_image_id[number]
-        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
-
-        mat = produce_proj_mat_4(cam_pose)
-        camera_parameters = produce_o3d_cam(mat, width, height)
-        vis.get_view_control().convert_from_pinhole_camera_parameters(camera_parameters)
-        vis.poll_events()
-        vis.update_renderer()
-        vis.capture_screen_image(f"{vid}/img-{number2}-2.png", True)
-    vis.destroy_window()
-
     for number2, number in enumerate(tqdm.tqdm(image_seq)):
         image_id = number_to_image_id[number]
         image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
 
         im1 = cv2.imread(f"{vid}/img-{number2}-1.png")
-        im2 = cv2.imread(f"{vid}/img-{number2}-2.png")
         im3 = cv2.imread(f"{images_dir}/{image_name}")
         im1 = cv2.flip(cv2.transpose(im1), 1)
-        im2 = cv2.flip(cv2.transpose(im2), 1)
         im3 = cv2.flip(cv2.transpose(im3), 1)
 
-        im = np.hstack([im1, im2, im3])
+        im = np.hstack([im1, im3])
         cv2.imwrite(f"{vid2}/img-{number2}.png", im)
 
     make_video(vid2)
