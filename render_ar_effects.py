@@ -8,24 +8,8 @@ import tqdm
 import colmap_io
 import colmap_read
 import open3d as o3d
-from vis_utils import produce_cam_mesh, produce_proj_mat_4, produce_mat, make_video
+from vis_utils import produce_cam_mesh, produce_proj_mat_4, produce_mat, make_video, produce_o3d_cam
 import trimesh.exchange
-
-
-def produce_o3d_cam(mat, width, height):
-    camera_parameters = o3d.camera.PinholeCameraParameters()
-    # width = 1920
-    # height = 1025
-    focal = 0.9616278814278851
-    k_mat = [[focal * width, 0, width / 2 - 0.5],
-             [0, focal * width, height / 2 - 0.5],
-             [0, 0, 1]]
-    camera_parameters.extrinsic = mat
-    camera_parameters.intrinsic.set_intrinsics(width=width, height=height,
-                                               fx=k_mat[0][0], fy=k_mat[1][1],
-                                               cx=k_mat[0][2], cy=k_mat[1][2])
-
-    return camera_parameters
 
 
 def produce_object(color=None):
