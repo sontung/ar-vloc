@@ -464,6 +464,9 @@ def qvec2rotmat(qvec):
 
 
 def rotmat2qvec(R):
+    """
+    returns qw, qx, qy, qz
+    """
     Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
     K = np.array([
         [Rxx - Ryy - Rzz, 0, 0, 0],

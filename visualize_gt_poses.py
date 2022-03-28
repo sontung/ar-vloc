@@ -22,7 +22,20 @@ VISUALIZING_SFM_POSES = False
 VISUALIZING_POSES = True
 
 
-def main(sfm_images_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images.txt",
+def read_gt_poses(pose_dir):
+    sys.stdin = open(pose_dir, "r")
+    lines = sys.stdin.readlines()
+    poses = []
+    for line in lines:
+        line = line[:-1]
+        name, qw, qx, qy, qz, tx, ty, tz = line.split(" ")
+        cam_pose = list(map(float, [qw, qx, qy, qz, tx, ty, tz]))
+        poses.append(cam_pose)
+    return poses
+
+
+def main(poses,
+         sfm_images_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images.txt",
          sfm_point_cloud_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/points3D.txt"):
     image2pose_gt = read_images(sfm_images_dir)
     name2pose_gt = {}
@@ -43,69 +56,22 @@ def main(sfm_images_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images.t
         point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
         point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
-    # im_names = ["query.jpg"]
-    im_names = list(name2pose_gt.keys())
-
-    p2d2p3d = {}
-    idx = 480  # random.choice(range(0, len(im_names), 20))
-    print(idx)
-    p2d2p3d[idx] = [[], [], []]
-    p2d2p3d[idx][2].append(name2pose_gt[f"{im_names[idx]}"])
-
-    # for i in range(0, len(im_names), 20):
-    #     p2d2p3d[i] = [[], [], []]
-    #
-    #     # gt
-    #     p2d2p3d[i][2].append(name2pose_gt[f"{im_names[i]}"])
-
-    localization_results = []
-    for im_idx in p2d2p3d:
-        qw, qx, qy, qz, tx, ty, tz = p2d2p3d[im_idx][2][0]
-        print(qw, qx, qy, qz, tx, ty, tz)
-        ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
-        t_vec = np.array([tx, ty, tz])
-        t_vec = t_vec.reshape((-1, 1))
-        localization_results.append(((ref_rot_mat, t_vec), (0, 0, 0)))
-
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1920, height=1025)
 
-    point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-    coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
-    cameras = [point_cloud, coord_mesh]
-
-    # mesh
-    mesh = o3d.io.read_triangle_mesh("data/teapot.obj")
-    mesh.scale(0.1, mesh.get_center())
-    mesh.translate([0, 0, 0], relative=False)
-
-    result, _ = localization_results[0]
-    rot_mat, trans = result
-    t = -rot_mat.transpose() @ trans
-    t = t.reshape((3, 1))
-    mat = np.hstack([-rot_mat.transpose(), t])
-    mat = np.vstack([mat, np.array([0, 0, 0, 1])])
-    vertices = np.asarray(mesh.vertices)
-    for i in range(vertices.shape[0]):
-        arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
-        arr = mat @ arr
-        vertices[i] = arr[:3]
-    mesh.vertices = o3d.utility.Vector3dVector(vertices)
-    mesh.translate([0, -1.2, -2.1], relative=True)
-
-    vis.add_geometry(mesh)
-
     # queried poses
-    for result, color_cam in localization_results:
-        if result is None:
-            continue
-        rot_mat, trans = result
-        t = -rot_mat.transpose() @ trans
-        t = t.reshape((3, 1))
-        mat = np.hstack([-rot_mat.transpose(), t])
+    cameras = []
+    for pose in poses:
+        qw, qx, qy, qz, tx, ty, tz = pose
+        # qx, qy, qz, qw, tx, ty, tz = pose
+
+        rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
+        t_vec = np.array([tx, ty, tz])
+        t_vec = t_vec.reshape((-1, 1))
+        mat = np.hstack([-rot_mat.transpose(), t_vec])
         mat = np.vstack([mat, np.array([0, 0, 0, 1])])
 
-        cm = produce_cam_mesh(color=color_cam)
+        cm = produce_cam_mesh(color=(1, 0, 0))
 
         vertices = np.asarray(cm.vertices)
         for i in range(vertices.shape[0]):
@@ -115,12 +81,16 @@ def main(sfm_images_dir="/home/sontung/work/ar-vloc/colmap_loc/sparse/0/images.t
         cm.vertices = o3d.utility.Vector3dVector(vertices)
         cameras.append(cm)
 
-    for c in cameras:
+    for c in cameras[:5]:
         vis.add_geometry(c)
+
     vis.run()
     vis.destroy_window()
 
 
 if __name__ == '__main__':
-    main("/home/sontung/work/recon_models/indoor/sparse/images.txt",
-         "/home/sontung/work/recon_models/indoor/sparse/points3D.txt")
+    poses_gt = read_gt_poses("/home/sontung/work/Hierarchical-Localization/outputs/hblab/"
+                             "Aachen_hloc_superpoint+superglue_netvlad20.txt")
+    main(poses_gt,
+         "/media/sontung/580ECE740ECE4B28/recon_models2/indoor2/dense/sparse/images.txt",
+         "/media/sontung/580ECE740ECE4B28/recon_models2/indoor2/dense/sparse/points3D.txt")

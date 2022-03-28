@@ -26,6 +26,8 @@ DepthCamera*
 DepthCapture*
 RenderOption*
 ScreenCapture*
+api.py
+vloc_workspace_retrieval/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

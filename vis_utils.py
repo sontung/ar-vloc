@@ -114,21 +114,37 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
     vis.destroy_window()
 
 
+def concat_images_different_sizes(images):
+
+    # get maximum width
+    ww = max([du.shape[0] for du in images])
+
+    # pad images with transparency in width
+    new_images = []
+    for img in images:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+        w1 = img.shape[0]
+        img = cv2.copyMakeBorder(img, 0, ww - w1, 0, 0, borderType=cv2.BORDER_CONSTANT, value=(0, 0, 0, 0))
+        new_images.append(img)
+
+    # stack images vertically
+    result = cv2.hconcat(new_images)
+    return result
+
+
 def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
     visualized_list = [query_image]
     for database_image in point.visibility:
         x2, y2 = map(int, point.visibility[database_image])
         image = cv2.imread(f"{sfm_image_folder}/{database_image}")
+        if image is None:
+            print(f"{sfm_image_folder}/{database_image}")
+            raise ValueError
         cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
         visualized_list.append(image)
-    list2 = []
-    for im in visualized_list:
-        im2 = Image.fromarray(im)
-        im2.thumbnail((500, 500))
-        im2 = np.array(im2)
-        list2.append(im2)
-    list2 = np.hstack(list2)
-    return list2
+    if len(visualized_list) > 5:
+        visualized_list = visualized_list[:5]
+    return concat_images_different_sizes(visualized_list)
 
 
 def visualize_all_point_images(point, sfm_image_folder):

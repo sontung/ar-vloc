@@ -30,6 +30,9 @@ def read_points3D(in_dir="sfm_models/points3D.txt"):
 
 
 def read_points3D_coordinates(in_dir="sfm_models/points3D.txt"):
+    """
+    mapper from pid to xyz rgb
+    """
     sys.stdin = open(in_dir, "r")
     lines = sys.stdin.readlines()
     data = {}
@@ -64,7 +67,7 @@ def read_cameras(cam_dir="sfm_ws_hblab/cameras.txt"):
     return data
 
 
-def read_images(in_dir="sfm_models/images.txt"):
+def read_images(in_dir="sfm_models/images.txt", by_im_name=False):
     """
     this returns a dict:
     data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
@@ -87,8 +90,10 @@ def read_images(in_dir="sfm_models/images.txt"):
             for i in range(0, len(points2d), 3):
                 point = (points2d[i], points2d[i+1], int(points2d[i+2]))
                 points2d_meaningful.append(point)
-
-            data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
+            if not by_im_name:
+                data[image_id] = [image_name, points2d_meaningful, cam_pose, cam_id]
+            else:
+                data[image_name] = cam_pose
             idx += 2
     return data
 

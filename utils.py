@@ -126,6 +126,53 @@ def angle_between(v1, v2):
     return np.arccos(clip_dot)
 
 
+def rewrite_colmap_output(in_dir, out_dir):
+    """
+    add an prefix to colmap database images' names
+    """
+    sys.stdin = open(in_dir, "r")
+    lines = sys.stdin.readlines()
+    idx = 0
+    lines_to_be_written = []
+
+    while idx < len(lines):
+        line = lines[idx]
+        if line[0] == "#":
+            idx += 1
+            lines_to_be_written.append(line[:-1])
+            continue
+        else:
+            image_id, qw, qx, qy, qz, tx, ty, tz, cam_id, image_name = line[:-1].split(" ")
+            image_name = f"db/{image_name}"
+            new_line = " ".join([image_id, qw, qx, qy, qz, tx, ty, tz, cam_id, image_name])
+            lines_to_be_written.append(new_line)
+            lines_to_be_written.append(lines[idx + 1][:-1])
+            idx += 2
+    with open(out_dir, "w") as a_file:
+        for line in lines_to_be_written:
+            print(line, file=a_file)
+
+
+def rewrite_retrieval_output(in_dir, out_dir):
+    sys.stdin = open(in_dir, "r")
+    lines = sys.stdin.readlines()
+    lines_to_be_written = []
+    for line in lines:
+        tokens = line.split(" ")
+        tokens = [token.rstrip().split("/")[-1] for token in tokens]
+        line2 = " ".join(tokens)
+        lines_to_be_written.append(line2)
+    with open(out_dir, "w") as a_file:
+        for line in lines_to_be_written:
+            print(line, file=a_file)
+
+
+def write_something(out_dir):
+    with open(out_dir, "w") as a_file:
+        for idx in range(30):
+            print(f"line-{idx}.jpg", file=a_file)
+
+
 def read_videos():
     mypath = "/home/sontung/work/recon_models/building/videos"
     onlyfiles = [f for f in listdir(mypath) if isfile(join(mypath, f))]
@@ -159,6 +206,7 @@ def read_video(afile, save_folder):
             if idx % 4 == 0:
                 img_idx += 1
                 cv2.imwrite(f"{save_folder}/image{img_idx:04d}.jpg", frame)
+                print(img_idx)
         else:
             break
 
@@ -196,10 +244,15 @@ def dump_point_cloud(file_dir="/home/sontung/work/recon_models/indoor/model.txt"
 
 
 if __name__ == '__main__':
+    # rewrite_retrieval_output("/home/sontung/work/Hierarchical-Localization/outputs/hblab/pairs-query-netvlad20.txt",
+    #                          "data/retrieval_pairs.txt")
+    write_something("vloc_workspace_retrieval/test_images.txt")
+    # rewrite_colmap_output("/home/sontung/work/Hierarchical-Localization/outputs/hblab/sfm_sift/images.txt",
+    #                       "/home/sontung/work/Hierarchical-Localization/outputs/hblab/sfm_sift/images2.txt")
     # dump_point_cloud()
     # clean_pc()
     # simple_square()
-    read_video("/home/sontung/work/recon_models/indoor/IMG_0794.MOV",
-               "/home/sontung/work/recon_models/indoor/images")
+    # read_video("/media/sontung/580ECE740ECE4B28/recon_models2/indoor2/IMG_0794.MOV",
+    #            "/media/sontung/580ECE740ECE4B28/recon_models2/indoor2/images")
     # create_image_list()
     # read_video("/home/sontung/work/recon_models/building/videos/c4.MOV")
