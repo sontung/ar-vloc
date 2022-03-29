@@ -283,6 +283,10 @@ def extract_colmap_sift(database_path):
 
 
 def extract_colmap_matches(database_path):
+    """
+        returns:
+        pid2match: im1 im2 => fid1 fid2
+    """
     # Open the database.
     db = COLMAPDatabase.connect(database_path)
 

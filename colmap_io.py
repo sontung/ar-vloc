@@ -108,6 +108,22 @@ def read_images(in_dir="sfm_models/images.txt", by_im_name=False):
     return data
 
 
+def read_pid2images(image2pose):
+    """
+    maps point 3d id to 2d features that see this point.
+    """
+    data = {}
+    for image_id in image2pose:
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+        for x, y, p3d_id in points2d_meaningful:
+            if p3d_id > 0:
+                if p3d_id not in data:
+                    data[p3d_id] = [(image_id, image_name, x, y)]
+                else:
+                    data[p3d_id].append((image_id, image_name, x, y))
+    return data
+
+
 def decode_descriptors(db_dir="sfm_models/database.db"):
     conn = sqlite3.connect(db_dir)
     c = conn.cursor()

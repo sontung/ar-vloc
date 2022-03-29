@@ -142,6 +142,25 @@ def visualize_matching_helper(query_image, feature, point, sfm_image_folder):
             print(f"{sfm_image_folder}/{database_image}")
             raise ValueError
         cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+        image2 = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        visualized_list.append(image2)
+    if len(visualized_list) > 5:
+        visualized_list = visualized_list[:5]
+    return concat_images_different_sizes(visualized_list)
+
+
+def visualize_matching_helper_with_pid2features(query_image, features, sfm_image_folder, rotate=True):
+    visualized_list = [query_image]
+    for image_id, database_image, x2, y2 in features:
+        image = cv2.imread(f"{sfm_image_folder}/{database_image}")
+        x2, y2 = map(int, (x2, y2))
+
+        if image is None:
+            print(f"{sfm_image_folder}/{database_image}")
+            raise ValueError
+        cv2.circle(image, (x2, y2), 50, (128, 128, 0), -1)
+        if rotate:
+            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         visualized_list.append(image)
     if len(visualized_list) > 5:
         visualized_list = visualized_list[:5]
