@@ -244,9 +244,9 @@ def dump_point_cloud(file_dir="/home/sontung/work/recon_models/indoor/model.txt"
 
 
 if __name__ == '__main__':
-    # rewrite_retrieval_output("/home/sontung/work/Hierarchical-Localization/outputs/hblab/pairs-query-netvlad20.txt",
-    #                          "data/retrieval_pairs.txt")
-    write_something("vloc_workspace_retrieval/test_images.txt")
+    rewrite_retrieval_output("/home/sontung/work/Hierarchical-Localization/outputs/hblab/pairs-query-netvlad20.txt",
+                             "data/retrieval_pairs.txt")
+    # write_something("vloc_workspace_retrieval/test_images.txt")
     # rewrite_colmap_output("/home/sontung/work/Hierarchical-Localization/outputs/hblab/sfm_sift/images.txt",
     #                       "/home/sontung/work/Hierarchical-Localization/outputs/hblab/sfm_sift/images2.txt")
     # dump_point_cloud()

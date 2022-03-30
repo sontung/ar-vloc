@@ -57,6 +57,43 @@ def read_points3D_coordinates(in_dir="sfm_models/points3D.txt", return_mat=False
     return data
 
 
+def build_co_visibility_graph(image2pose):
+    """
+    co-visibility matrix between database images
+    image_id_to_visibilities: image_id -> image_id2 -> number of co-visible points
+    image_id_to_top_k: image_id -> list of co-visible images (sorted by the number of co-visible points)
+    """
+    pid2image_id = {}
+    image_id_to_visibilities = {}
+    for image_id in image2pose:
+        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[image_id]
+        image_id_to_visibilities[image_id] = {}
+        for x, y, p3d_id in points2d_meaningful:
+            if p3d_id > 0:
+                if p3d_id not in pid2image_id:
+                    pid2image_id[p3d_id] = [image_id]
+                else:
+                    pid2image_id[p3d_id].append(image_id)
+
+    for pid in pid2image_id:
+        images = pid2image_id[pid]
+        for image_id in images:
+            for image_id2 in images:
+                if image_id2 != image_id:
+                    if image_id2 not in image_id_to_visibilities[image_id]:
+                        image_id_to_visibilities[image_id][image_id2] = 1
+                    else:
+                        image_id_to_visibilities[image_id][image_id2] += 1
+
+    image_id_to_top_k = {}
+    for image_id in image_id_to_visibilities:
+        visibilities = image_id_to_visibilities[image_id]
+        images = list(visibilities.keys())
+        images = sorted(images, key=lambda du: visibilities[du], reverse=True)
+        image_id_to_top_k[image_id] = images
+    return image_id_to_visibilities, image_id_to_top_k
+
+
 def read_cameras(cam_dir="sfm_ws_hblab/cameras.txt"):
     sys.stdin = open(cam_dir, "r")
     lines = sys.stdin.readlines()
@@ -75,6 +112,14 @@ def read_cameras(cam_dir="sfm_ws_hblab/cameras.txt"):
             data[cam_id] = [model, width, height, params]
             idx += 1
     return data
+
+
+def read_name2id(image2pose):
+    name2id = {}
+    for img_id in image2pose:
+        img_name = image2pose[img_id][0]
+        name2id[img_name] = img_id
+    return name2id
 
 
 def read_images(in_dir="sfm_models/images.txt", by_im_name=False):
@@ -398,7 +443,9 @@ def read_vocab_tree(a_file="/home/sontung/work/sfm_ws_hblab/vocab_tree_flickr100
 
 
 if __name__ == '__main__':
-    read_vocab_tree()
+    image2pose_ = read_images("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/new/images.txt")
+    build_co_visibility_graph(image2pose_)
+    # read_vocab_tree()
     # read_images("/home/sontung/work/sfm_ws_hblab/new_model/images.txt")
     # read_cameras()
     # dump_image2pose_json()

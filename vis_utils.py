@@ -262,6 +262,30 @@ def visualize_cam_pose_with_point_cloud(point_cloud, localization_results):
     vis.destroy_window()
 
 
+def return_cam_mesh_with_pose(localization_results):
+    # queried poses
+    cameras = []
+    for result, color_cam in localization_results:
+        if result is None:
+            continue
+        rot_mat, trans = result
+        t = -rot_mat.transpose() @ trans
+        t = t.reshape((3, 1))
+        mat = np.hstack([-rot_mat.transpose(), t])
+        mat = np.vstack([mat, np.array([0, 0, 0, 1])])
+
+        cm = produce_cam_mesh(color=color_cam)
+
+        vertices = np.asarray(cm.vertices)
+        for i in range(vertices.shape[0]):
+            arr = np.array([vertices[i, 0], vertices[i, 1], vertices[i, 2], 1])
+            arr = mat @ arr
+            vertices[i] = arr[:3]
+        cm.vertices = o3d.utility.Vector3dVector(vertices)
+        cameras.append(cm)
+    return cameras
+
+
 def produce_mat(data):
     qw, qx, qy, qz, tx, ty, tz = data
     ref_rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])

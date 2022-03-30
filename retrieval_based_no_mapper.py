@@ -10,13 +10,12 @@ import cv2
 import numpy as np
 import colmap_db_read
 import colmap_io
-import colmap_read
 import feature_matching
 import localization
 import shutil
 import point3d
 import open3d as o3d
-from vis_utils import visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features
+from vis_utils import visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose
 from vis_utils import concat_images_different_sizes
 from scipy.spatial import KDTree
 from distutils.dir_util import copy_tree
@@ -24,49 +23,7 @@ from tqdm import tqdm
 from os import listdir
 from os.path import isfile, join
 from pathlib import Path
-
-
-class CandidatePool:
-    def __init__(self):
-        self.pool = []
-        self.pid2votes = {}
-
-    def add(self, candidate):
-        self.pool.append(candidate)
-        pid = candidate.pid
-        if pid not in self.pid2votes:
-            self.pid2votes[pid] = 1
-        else:
-            self.pid2votes[pid] += 1
-
-    def filter(self):
-        pid2scores = {}
-        for candidate in self.pool:
-            pid = candidate.pid
-            if pid not in pid2scores:
-                pid2scores[pid] = [candidate]
-            else:
-                pid2scores[pid].append(candidate)
-
-        new_pool = []
-        for pid in pid2scores:
-            candidates = pid2scores[pid]
-            best_candidate = min(candidates, key=lambda x: x.score)
-            new_pool.append(best_candidate)
-        self.pool = new_pool
-
-    def sort(self):
-        self.pool = sorted(self.pool, key=lambda x: x.score)
-
-
-class MatchCandidate:
-    def __init__(self, query_coord, pid, score):
-        self.query_coord = query_coord
-        self.pid = pid
-        self.score = score
-
-    def __str__(self):
-        return f"matched to {self.pid} with score={self.score}"
+from retrieval_utils import CandidatePool, MatchCandidate
 
 
 def localize(metadata, pairs):
@@ -170,14 +127,45 @@ class Localization:
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
         # name_list = ["line-20.jpg"]
         localization_results = []
+        failed = 0
+        failed_images = []
         for idx in tqdm(range(len(name_list)), desc="Processing"):
             pairs = self.read_2d_3d_matches(name_list[idx])
             if not pairs:
-                print(f"{name_list[idx]} failed to loc")
+                tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
+                self.verbose_when_failed(name_list[idx])
+                pairs, _ = self.read_2d_2d_matches(name_list[idx])
+                if len(pairs) == 0:
+                    failed += 1
+                    failed_images.append(name_list[idx])
+                    continue
             r_mat, t_vec, score = localize(self.default_metadata, pairs)
+            if score < 0.5:
+                failed += 1
+                failed_images.append(name_list[idx])
+                continue
             localization_results.append(((r_mat, t_vec), (0, 1, 0)))
+        print(f"failed to loc {failed} images: {failed_images}")
         self.prepare_visualization()
         visualize_cam_pose_with_point_cloud(self.point_cloud, localization_results)
+
+    def verbose_when_failed(self, query_im_name):
+        matches_verified, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
+        matches = colmap_db_read.extract_colmap_matches(self.workspace_database_dir)
+        id2kp, _, id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
+        name2id = {name: ind for ind, name in id2name.items()}
+        query_im_id = name2id[query_im_name]
+        count = 0
+        for m in matches_verified:
+            if query_im_id in m:
+                if matches_verified[m] is not None:
+                    count += 1
+        count2 = 0
+        for m in matches:
+            if query_im_id in m:
+                if matches[m] is not None:
+                    count2 += 1
+        tqdm.write(f" {query_im_name} only matches {count}/{count2}")
 
     def debug_2d_2d_matches(self, query_im_name):
         matches, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
@@ -188,6 +176,7 @@ class Localization:
             if query_im_id in m:
                 arr = matches[m]
                 if arr is not None:
+                    print(m)
                     id1, id2 = m
                     if id1 != query_im_id:
                         database_im_id = id1
@@ -225,7 +214,6 @@ class Localization:
                     cv2.imshow("", vis_img)
                     cv2.waitKey()
                     cv2.destroyAllWindows()
-        sys.exit()
 
     def read_2d_3d_matches(self, query_im_name):
         pairs = []
@@ -248,7 +236,7 @@ class Localization:
                     pairs.append((xy, xyz))
         return pairs
 
-    def read_2d_2d_matches(self, query_im_name, debug=True):
+    def read_2d_2d_matches(self, query_im_name):
         matches, geom_matrices = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
         id2kp, _, id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
 
@@ -258,8 +246,6 @@ class Localization:
         for m in matches:
             if query_im_id in m:
                 arr = matches[m]
-                conf, (f_mat, e_mat, h_mat) = geom_matrices[m]
-                print(m)
                 if arr is not None:
                     id1, id2 = m
                     if id1 != query_im_id:
@@ -267,7 +253,6 @@ class Localization:
                     else:
                         database_im_id = id2
                     kp_dict = {id1: [], id2: []}
-                    print(f"checking pair {m} for query {query_im_id}")
                     for u, v in arr:
                         kp_dict[id1].append(u)
                         kp_dict[id2].append(v)
@@ -286,50 +271,51 @@ class Localization:
                             point3d_candidate_pool.add(candidate)
 
         point3d_candidate_pool.filter()
-        point3d_candidate_pool.sort()
+        point3d_candidate_pool.sort(by_votes=True)
         pairs = []
-        for candidate in point3d_candidate_pool.pool[:-1]:
+        for candidate in point3d_candidate_pool.pool[:100]:
             print(candidate.pid, candidate.score, point3d_candidate_pool.pid2votes[candidate.pid])
             pid = candidate.pid
             xy = candidate.query_coord
             xyz = self.point3did2xyzrgb[pid][:3]
             pairs.append((xy, xyz))
-        _, _, score = localize(self.default_metadata, pairs)
+        tqdm.write(f" voting-based returns {len(pairs)} pairs for {query_im_name}")
+        return pairs, point3d_candidate_pool
+
+    def debug_3d_mode(self, query_im_name):
+        pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name)
+
+        localization_results = []
+        r_mat, t_vec, score = localize(self.default_metadata, pairs)
+        localization_results.append(((r_mat, t_vec), (0, 1, 0)))
         ind = 0
-        if score < 0.5 and debug:
-            print(f"{query_im_name} failed to loc (score={score}), debugging...")
-            pid_list = []
-            for candidate in point3d_candidate_pool.pool[:100]:
-                ind += 1
-                pid = candidate.pid
-                xy = candidate.query_coord
-                pid_list.append(pid)
 
-                query_image = cv2.imread(f"{self.workspace_queries_dir}/{query_im_name}")
-                x2, y2 = map(int, xy)
-                cv2.circle(query_image, (x2, y2), 50, (128, 128, 0), -1)
-                features = self.pid2features[pid]
-                images = visualize_matching_helper_with_pid2features(query_image, features, self.workspace_images_dir)
-                cv2.imwrite(f"debug/im-{ind}.jpg", images)
+        pid_list = []
+        for candidate in point3d_candidate_pool.pool[:100]:
+            ind += 1
+            pid = candidate.pid
+            pid_list.append(pid)
 
-            points_3d_list = []
-            for point3d_id in self.point3did2xyzrgb:
-                x, y, z, r, g, b = self.point3did2xyzrgb[point3d_id]
-                if point3d_id not in pid_list:
-                    points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
-                else:
-                    points_3d_list.append([x, y, z, 1, 0, 0])
+        points_3d_list = []
+        for point3d_id in self.point3did2xyzrgb:
+            x, y, z, r, g, b = self.point3did2xyzrgb[point3d_id]
+            if point3d_id not in pid_list:
+                points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
+            else:
+                points_3d_list.append([x, y, z, 1, 0, 0])
 
-            points_3d_list = np.vstack(points_3d_list)
-            point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
-            point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
-            point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
-            vis = o3d.visualization.Visualizer()
-            vis.create_window(width=1920, height=1025)
-            vis.add_geometry(point_cloud)
-            vis.run()
-            vis.destroy_window()
-            sys.exit()
+        points_3d_list = np.vstack(points_3d_list)
+        point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
+        point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
+        point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(width=1920, height=1025)
+        vis.add_geometry(point_cloud)
+        cameras = return_cam_mesh_with_pose(localization_results)
+        # for c in cameras:
+        #     vis.add_geometry(c)
+        vis.run()
+        vis.destroy_window()
         return pairs
 
     def prepare_visualization(self):
@@ -372,7 +358,9 @@ class Localization:
 
 if __name__ == '__main__':
     system = Localization()
-    # system.debug_2d_2d_matches("line-20.jpg")
+    # system.debug_2d_2d_matches("line-12.jpg")
+    system.debug_3d_mode("line-12.jpg")
+
     # system.read_2d_2d_matches("line-20.jpg")
-    system.main()
+    # system.main()
     # system.read_2d_3d_matches("line-20.jpg")
