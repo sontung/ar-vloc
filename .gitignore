@@ -11,6 +11,7 @@ Test line/*
 Test line small/*
 piazza_del_popolo/*
 debug/*
+debug2/*
 trash_code/*
 *.lprof
 colmap_sift/*.txt

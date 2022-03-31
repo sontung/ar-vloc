@@ -16,7 +16,7 @@ import shutil
 import point3d
 import open3d as o3d
 from vis_utils import visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose
-from vis_utils import concat_images_different_sizes
+from vis_utils import concat_images_different_sizes, visualize_matching_helper_with_pid2features
 from scipy.spatial import KDTree
 from distutils.dir_util import copy_tree
 from tqdm import tqdm
@@ -40,7 +40,6 @@ class Localization:
         self.database_dir = "colmap_loc"
         self.match_database_dir = "colmap_loc/database.db"  # dir to database containing matches between queries and database
         self.db_images_dir = "colmap_loc/images"
-        self.query_images_folder = "/home/sontung/work/ar-vloc/colmap_loc/new_images"
         self.sfm_images_folder = "/home/sontung/work/ar-vloc/colmap_loc/images"
         self.ground_truth_dir = "/home/sontung/work/recon_models/office/images.txt"
         self.existing_model = "colmap_loc/sparse/0"
@@ -125,13 +124,15 @@ class Localization:
 
     def main(self):
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
-        # name_list = ["line-20.jpg"]
+        # name_list = ["line-28.jpg", "line-22.jpg", "line-28.jpg"]
         localization_results = []
         failed = 0
+        colmap_failed = 0
         failed_images = []
         for idx in tqdm(range(len(name_list)), desc="Processing"):
             pairs = self.read_2d_3d_matches(name_list[idx])
             if not pairs:
+                colmap_failed += 1
                 tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
                 self.verbose_when_failed(name_list[idx])
                 pairs, _ = self.read_2d_2d_matches(name_list[idx])
@@ -139,13 +140,25 @@ class Localization:
                     failed += 1
                     failed_images.append(name_list[idx])
                     continue
-            r_mat, t_vec, score = localize(self.default_metadata, pairs)
-            if score < 0.5:
+
+            best_score = None
+            best_pose = None
+            for _ in range(10):
+                r_mat, t_vec, score = localize(self.default_metadata, pairs)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pose = (r_mat, t_vec)
+                    if best_score == 1.0:
+                        break
+            r_mat, t_vec = best_pose
+
+            if best_score < 0.2:
                 failed += 1
                 failed_images.append(name_list[idx])
                 continue
             localization_results.append(((r_mat, t_vec), (0, 1, 0)))
-        print(f"failed to loc {failed} images: {failed_images}")
+        print(f"Colmap failed {colmap_failed}, voting-based recovered {colmap_failed-failed}, total = {failed}"
+              f" images: {failed_images}")
         self.prepare_visualization()
         visualize_cam_pose_with_point_cloud(self.point_cloud, localization_results)
 
@@ -167,7 +180,7 @@ class Localization:
                     count2 += 1
         tqdm.write(f" {query_im_name} only matches {count}/{count2}")
 
-    def debug_2d_2d_matches(self, query_im_name):
+    def debug_2d_2d_matches(self, query_im_name, write_to_file=True):
         matches, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
         id2kp, _, id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
         name2id = {name: ind for ind, name in id2name.items()}
@@ -176,7 +189,6 @@ class Localization:
             if query_im_id in m:
                 arr = matches[m]
                 if arr is not None:
-                    print(m)
                     id1, id2 = m
                     if id1 != query_im_id:
                         database_im_id = id1
@@ -210,10 +222,13 @@ class Localization:
                         # cv2.imshow("1", query_img)
                         # cv2.imshow("2", database_img)
 
-                    vis_img = cv2.resize(vis_img, (vis_img.shape[1] // 4, vis_img.shape[0] // 4))
-                    cv2.imshow("", vis_img)
-                    cv2.waitKey()
-                    cv2.destroyAllWindows()
+                    if write_to_file:
+                        cv2.imwrite(f"debug/img-{database_im_id}.jpg", vis_img)
+                    else:
+                        vis_img = cv2.resize(vis_img, (vis_img.shape[1] // 4, vis_img.shape[0] // 4))
+                        cv2.imshow("", vis_img)
+                        cv2.waitKey()
+                        cv2.destroyAllWindows()
 
     def read_2d_3d_matches(self, query_im_name):
         pairs = []
@@ -236,9 +251,9 @@ class Localization:
                     pairs.append((xy, xyz))
         return pairs
 
-    def read_2d_2d_matches(self, query_im_name):
+    def read_2d_2d_matches(self, query_im_name, debug=False):
         matches, geom_matrices = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
-        id2kp, _, id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
+        id2kp, id2desc, id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
 
         name2id = {name: ind for ind, name in id2name.items()}
         query_im_id = name2id[query_im_name]
@@ -261,24 +276,38 @@ class Localization:
 
                         database_fid_coord = id2kp[database_im_id][database_fid]
                         query_fid_coord = id2kp[query_im_id][query_fid]
+                        query_fid_desc = id2desc[query_im_id][query_fid]
 
                         fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id]
                         distances, indices = tree.query(database_fid_coord, 10)
                         for idx, dis in enumerate(distances):
                             ind = indices[idx]
                             pid = pid_list[ind]
-                            candidate = MatchCandidate(query_fid_coord, pid, dis)
+                            fid = fid_list[ind]
+                            database_fid_desc = id2desc[database_im_id][fid]
+                            desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
+                            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
                             point3d_candidate_pool.add(candidate)
 
-        point3d_candidate_pool.filter()
-        point3d_candidate_pool.sort(by_votes=True)
+        if len(point3d_candidate_pool) > 0:
+            point3d_candidate_pool.count_votes()
+            point3d_candidate_pool.filter()
+            point3d_candidate_pool.sort(by_votes=True)
         pairs = []
-        for candidate in point3d_candidate_pool.pool[:100]:
-            print(candidate.pid, candidate.score, point3d_candidate_pool.pid2votes[candidate.pid])
+        pid2images = colmap_io.read_pid2images(self.image2pose)
+        for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:100]):
             pid = candidate.pid
             xy = candidate.query_coord
             xyz = self.point3did2xyzrgb[pid][:3]
             pairs.append((xy, xyz))
+
+            if debug:
+                print(candidate.pid, candidate.dis, point3d_candidate_pool.pid2votes[candidate.pid])
+                x2, y2 = map(int, xy)
+                query_img = cv2.imread(f"{self.workspace_queries_dir}/{query_im_name}")
+                cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+                vis_img = visualize_matching_helper_with_pid2features(query_img, pid2images[pid], self.workspace_images_dir)
+                cv2.imwrite(f"debug2/img-{cand_idx}.jpg", vis_img)
         tqdm.write(f" voting-based returns {len(pairs)} pairs for {query_im_name}")
         return pairs, point3d_candidate_pool
 
@@ -312,8 +341,8 @@ class Localization:
         vis.create_window(width=1920, height=1025)
         vis.add_geometry(point_cloud)
         cameras = return_cam_mesh_with_pose(localization_results)
-        # for c in cameras:
-        #     vis.add_geometry(c)
+        for c in cameras:
+            vis.add_geometry(c)
         vis.run()
         vis.destroy_window()
         return pairs
@@ -358,9 +387,9 @@ class Localization:
 
 if __name__ == '__main__':
     system = Localization()
-    # system.debug_2d_2d_matches("line-12.jpg")
-    system.debug_3d_mode("line-12.jpg")
+    # system.debug_2d_2d_matches("line-28.jpg")
+    # system.read_2d_2d_matches("line-28.jpg", debug=True)
 
-    # system.read_2d_2d_matches("line-20.jpg")
-    # system.main()
+    # system.debug_3d_mode("line-28.jpg")
+    system.main()
     # system.read_2d_3d_matches("line-20.jpg")

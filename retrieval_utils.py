@@ -1,11 +1,15 @@
 import sys
 from colmap_io import build_co_visibility_graph, read_images, read_name2id
+from scipy.spatial import KDTree
 
 
 class CandidatePool:
     def __init__(self):
         self.pool = []
         self.pid2votes = {}
+
+    def __len__(self):
+        return len(self.pool)
 
     def add(self, candidate):
         self.pool.append(candidate)
@@ -15,7 +19,30 @@ class CandidatePool:
         else:
             self.pid2votes[pid] += 1
 
+    def count_votes(self):
+        # normalize candidates' distances
+        max_dis = max([cand.dis for cand in self.pool])
+
+        # normalize candidates' desc differences
+        max_desc_diff = max([cand.desc_diff for cand in self.pool])
+
+        # populate votes
+        self.pid2votes = {}
+        for candidate in self.pool:
+            pid = candidate.pid
+            dis = candidate.dis
+            desc_diff = candidate.desc_diff
+            if pid not in self.pid2votes:
+                self.pid2votes[pid] = 0
+            norm_dis = 1-dis/max_dis
+            norm_desc_diff = 1-desc_diff/max_desc_diff
+            vote = norm_dis + norm_desc_diff
+            candidate.dis = norm_dis
+            candidate.desc_diff = norm_desc_diff
+            self.pid2votes[pid] += vote
+
     def filter(self):
+        # filters pid
         pid2scores = {}
         for candidate in self.pool:
             pid = candidate.pid
@@ -27,25 +54,51 @@ class CandidatePool:
         new_pool = []
         for pid in pid2scores:
             candidates = pid2scores[pid]
-            best_candidate = min(candidates, key=lambda x: x.score)
+            # best_candidate = min(candidates, key=lambda x: x.dis+x.desc_diff)
+            best_candidate = max(candidates, key=lambda x: x.dis+x.desc_diff)
             new_pool.append(best_candidate)
+        self.pool = new_pool
+
+        # filters fid
+        fid2scores = {}
+        coord_array = [candidate.query_coord for candidate in self.pool]
+        tree = KDTree(coord_array)
+        for candidate in self.pool:
+            dis, idx = tree.query(candidate.query_coord, 1)
+            if dis == 0:
+                key_ = f"{candidate.query_coord[0]}-{candidate.query_coord[1]}"
+                if key_ not in fid2scores:
+                    fid2scores[key_] = [candidate]
+                else:
+                    fid2scores[key_].append(candidate)
+
+        new_pool = []
+        for fid in fid2scores:
+            candidates = fid2scores[fid]
+            if len(candidates) > 1:
+                best_candidate = max(candidates, key=lambda x: x.dis + x.desc_diff)
+                new_pool.append(best_candidate)
+            else:
+                new_pool.extend(candidates)
         self.pool = new_pool
 
     def sort(self, by_votes=False):
         if by_votes:
             self.pool = sorted(self.pool, key=lambda x: self.pid2votes[x.pid], reverse=True)
         else:
-            self.pool = sorted(self.pool, key=lambda x: x.score)
+            self.pool = sorted(self.pool, key=lambda x: x.dis)
 
 
 class MatchCandidate:
-    def __init__(self, query_coord, pid, score):
+    def __init__(self, query_coord, fid, pid, dis, desc_diff):
         self.query_coord = query_coord
         self.pid = pid
-        self.score = score
+        self.fid = fid
+        self.dis = dis
+        self.desc_diff = desc_diff
 
     def __str__(self):
-        return f"matched to {self.pid} with score={self.score}"
+        return f"matched to {self.pid} with score={self.dis}"
 
 
 def enhance_retrieval_pairs(dir_to_retrieval_pairs, image2pose, out_dir, extra_retrieval=20):
