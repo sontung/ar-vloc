@@ -1,16 +1,9 @@
-import sys
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 from scipy.spatial import KDTree
 from feature_matching import build_vocabulary_of_descriptors
-from optimizer import exhaustive_search, run_qap, run_qap_final, exhaustive_filter_post_optim
 from vis_utils import visualize_matching_helper
-from sampling_utils import random_select
-from pnp_utils import filter_bad_matches
-import time
-import kmeans1d
 import cv2
-import open3d as o3d
 import numpy as np
 
 
@@ -374,118 +367,6 @@ class PointCloud:
             if smallest_dis is None or dis < smallest_dis:
                 smallest_dis = dis
         return smallest_dis
-
-    def search_neighborhood(self, database, point2d_cloud, image_ori,
-                            debug=True, using_gt=False, filtering=True):
-        ori_len = len(database)
-        ori_database = database[:]
-        only_neighborhood_database = []
-        start = time.time()
-        if using_gt:
-            solution = [(3337, 455), (5004, 5865), (4241, 8781), (3602, 9089), (4374, 5848), (4000, 9170),
-                        (4001, 8166),
-                        (4004, 9173), (3242, 9124), (4907, 7674), (3243, 4024), (3244, 9121), (4142, 7693),
-                        (4141, 4174),
-                        (5168, 7702), (4144, 453), (4018, 9119), (4019, 5896), (4017, 8935), (4021, 5940),
-                        (4022, 9090),
-                        (4535, 9207), (3251, 4267), (3527, 9175), (3400, 4164), (4167, 4117), (3282, 8486),
-                        (9810, 4190),
-                        (3544, 649), (4056, 8760), (4057, 5914), (3546, 7009), (4058, 8756), (3303, 928), (3306, 4307),
-                        (4205, 874), (4206, 6044), (8178, 385)]
-            for u, v in solution:
-                dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
-                database.append((u, v, dis, None))
-                only_neighborhood_database.append((u, v, dis, None))
-        else:
-            everything = {}
-            uv2dis = {}
-
-            # check if two points are close
-            neighbor_tracks = {}
-            for idx, (pid, fid, dis, ratio) in enumerate(ori_database):
-                merge = False
-                merge_key = None
-                for key_ in neighbor_tracks:
-                    center_list, pid_neighbors, fid_neighbors, correct_pairs = neighbor_tracks[key_]
-                    if pid in pid_neighbors:
-                        merge = True
-                        merge_key = key_
-                points = self.xyz_nearest_and_covisible(pid, nb_neighbors=10)
-                features = point2d_cloud.nearby_feature(fid, nb_neighbors=100)
-                print(f"Centers included: pid={pid in points} fid={fid in features}")
-
-                if not merge:
-                    correct_pairs = [(pid, fid)]
-                    neighbor_tracks[idx] = [[pid], points, features, correct_pairs]
-                else:
-                    center_list, pid_neighbors, fid_neighbors, correct_pairs = neighbor_tracks[merge_key]
-                    center_list.append(pid)
-                    pid_neighbors.extend(points)
-                    fid_neighbors.extend(features)
-                    correct_pairs.append((pid, fid))
-                    neighbor_tracks[merge_key] = center_list, pid_neighbors, fid_neighbors, correct_pairs
-
-            for count, key_ in enumerate(neighbor_tracks):
-                center_list, pid_neighbors, fid_neighbors, correct_pairs = neighbor_tracks[key_]
-
-                # filter duplicate
-                pid_neighbors = list(set(pid_neighbors))
-                fid_neighbors = list(set(fid_neighbors))
-                new_correct_pairs = correct_pairs[:]  # convert from global to local [(4004, 9173)] => [(0, 83)]
-                for index, (pid_, fid_) in enumerate(correct_pairs):
-                    new_correct_pairs[index] = (pid_neighbors.index(pid_), fid_neighbors.index(fid_))
-
-                if len(pid_neighbors) > 10:  # too many points, thus randomly select 10 points
-                    pid_neighbors2 = [pid2 for pid2 in pid_neighbors if pid2 not in center_list]
-                    pid_coord_list = np.vstack([self[pid2].xyz for pid2 in pid_neighbors2])
-                    pid_neighbors = random_select(pid_neighbors2, pid_coord_list, 10-len(center_list))
-                    pid_neighbors.extend(center_list)
-
-                pid_desc_list = np.vstack([self[pid2].desc for pid2 in pid_neighbors])
-                fid_desc_list = np.vstack([point2d_cloud[fid2].desc for fid2 in fid_neighbors])
-                pid_coord_list = np.vstack([self[pid2].xyz for pid2 in pid_neighbors])
-                fid_coord_list = np.vstack([point2d_cloud[fid2].xy for fid2 in fid_neighbors])
-
-                print(f"Solving smoothness for {len(pid_neighbors)} points and {len(fid_neighbors)} features")
-                solution = run_qap_final(pid_neighbors, fid_neighbors, pid_desc_list,
-                                         fid_desc_list, pid_coord_list, fid_coord_list, point2d_cloud,
-                                         new_correct_pairs, self.f, self.c1, self.c2, count)
-                everything[count] = solution
-                if debug:
-                    image = np.copy(image_ori)
-                    for u, v in solution:
-                        fx, fy = point2d_cloud[v].xy
-                        fx, fy = map(int, (fx, fy))
-                        cv2.circle(image, (fx, fy), 20, (128, 128, 0), -1)
-                    cv2.imwrite(f"debug/pw/all_features{count}.png", image)
-
-                    for idx, (u, v) in enumerate(solution):
-                        image = np.copy(image_ori)
-                        fx, fy = point2d_cloud[v].xy
-                        fx, fy = map(int, (fx, fy))
-                        cv2.circle(image, (fx, fy), 50, (128, 128, 0), 20)
-                        image = cv2.resize(image, (image.shape[1] // 4, image.shape[0] // 4))
-                        images = visualize_matching_helper(np.copy(image), point2d_cloud[v],
-                                                           self.points[u], "sfm_ws_hblab/images")
-                        cv2.imwrite(f"debug/all/im-{count}-{idx}.png", images)
-
-                for u, v in solution:
-                    dis = self.compute_feature_difference(point2d_cloud[v].desc, u)
-                    only_neighborhood_database.append((u, v, dis, None))
-                    uv2dis[(u, v)] = dis
-
-            # filtering bad matches
-            if filtering:
-                only_neighborhood_database_new = exhaustive_filter_post_optim(self, point2d_cloud, self.f,
-                                                                              self.c1, self.c2, everything)
-                ori_len2 = len(only_neighborhood_database)
-                del only_neighborhood_database[:]
-                only_neighborhood_database = [(u, v, uv2dis[(u, v)], 0) for u, v in only_neighborhood_database_new]
-                print(f"Filtering reduces {ori_len2} matches to {len(only_neighborhood_database)} matches")
-        database.extend(only_neighborhood_database)
-        print(f"Neighborhood search gains {len(database)-ori_len} extra matches, "
-              f"done in {time.time()-start}.")
-        return database, only_neighborhood_database
 
     def sample(self, point2d_cloud, image_ori, debug=True, fixed_database=True, create_fixed_database=True):
         if fixed_database:

@@ -1,6 +1,4 @@
 import sys
-sys.path.append("d2-net")
-from extract_features import extract_using_d2_net
 import os
 import random
 import torch
@@ -357,62 +355,6 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
         response_list = [(kp.response, 1.0) for kp in kp_list]
         return coords, des, response_list
     return coords, des
-
-
-def compute_kp_descriptors_opencv_with_d2_detector(img, nb_keypoints=None, root_sift=True, return_response=False):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    if nb_keypoints is not None:
-        sift = cv2.SIFT_create(edgeThreshold=10,
-                               nOctaveLayers=4,
-                               contrastThreshold=0.02,
-                               nfeatures=nb_keypoints)
-    else:
-        sift = cv2.SIFT_create(edgeThreshold=10,
-                               nOctaveLayers=4,
-                               contrastThreshold=0.02)
-    kp_list, des = sift.detectAndCompute(img, None)
-    des /= (np.linalg.norm(des, axis=1, ord=2, keepdims=True) + 1e-7)
-
-    if root_sift:
-        des /= (np.linalg.norm(des, axis=1, ord=1, keepdims=True) + 1e-7)
-        des = np.sqrt(des)
-
-    keypoints, responses = extract_using_d2_net(img)
-    keypoints = keypoints[:, :2]
-    tree = KDTree(keypoints)
-
-    coords = []
-    new_des = []
-    response_list = []
-    for idx, kp in enumerate(kp_list):
-        coord = list(kp.pt)
-        distance, idx2 = tree.query(coord, 1)
-        if distance < 4:
-            coords.append(coord)
-            new_des.append(des[idx])
-            response_list.append((responses[idx2], kp.response))
-
-    if return_response:
-        return coords, new_des, response_list
-    return coords, new_des
-
-
-def filter_using_d2_detector(img, desc_list, kp_list):
-    keypoints, responses = extract_using_d2_net(img)
-    keypoints = keypoints[:, :2]
-    tree = KDTree(keypoints)
-
-    coords = []
-    new_des = []
-    response_list = []
-    for idx, kp in enumerate(kp_list):
-        distance, idx2 = tree.query(kp, 1)
-        if distance < 4:
-            coords.append(kp)
-            new_des.append(desc_list[idx])
-            response_list.append(responses[idx2])
-    print(f"reduce from {desc_list.shape[0]} to {len(new_des)}")
-    return coords, new_des, response_list
 
 
 if __name__ == '__main__':

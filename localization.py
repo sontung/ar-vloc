@@ -5,7 +5,6 @@ import sys
 import pnp.build.pnp_python_binding
 import kmeans1d
 import sklearn.cluster
-from test_gosma import process_results
 from tqdm import tqdm
 
 
@@ -99,7 +98,3 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001, with_inliers
     if with_inliers_percent:
         return r_mat, t_vec, inliers/image_points.shape[0]
     return r_mat, t_vec
-
-
-def localization_dummy():
-    return process_results()
