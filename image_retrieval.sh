@@ -1,0 +1,2 @@
+cd Hierarchical-Localization
+python run_image_retrieval.py

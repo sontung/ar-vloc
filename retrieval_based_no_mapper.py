@@ -5,11 +5,14 @@ import pickle
 import random
 import subprocess
 import sys
+import time
+import pycolmap
 
 import cv2
 import numpy as np
 import colmap_db_read
 import colmap_io
+import colmap_read
 import feature_matching
 import localization
 import shutil
@@ -24,6 +27,7 @@ from os import listdir
 from os.path import isfile, join
 from pathlib import Path
 from retrieval_utils import CandidatePool, MatchCandidate
+from utils import rewrite_retrieval_output
 
 
 def localize(metadata, pairs):
@@ -34,15 +38,31 @@ def localize(metadata, pairs):
     r_mat, t_vec, score = localization.localize_single_image_lt_pnp(pairs, f, cx, cy, with_inliers_percent=True)
     return r_mat, t_vec, score
 
+def api_test():
+    system = Localization()
+    query_folder = "test_line_jpg"
+    name_list = [f for f in listdir(query_folder) if isfile(join(query_folder, f))]
+    query_folder_workspace1 = "vloc_workspace_retrieval/images"
+    query_folder_workspace2 = "vloc_workspace_retrieval/images_retrieval/query"
+    default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
+
+    start = time.time()
+    for name in name_list:
+        query_img = cv2.imread(f"{query_folder}/{name}")
+        cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
+        cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
+        system.main_for_api(default_metadata)
+        system.main_for_api2(default_metadata)
+        break
+    end = time.time()
+    print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
+    # system.visualize()
+
 
 class Localization:
     def __init__(self):
-        self.database_dir = "colmap_loc"
-        self.match_database_dir = "colmap_loc/database.db"  # dir to database containing matches between queries and database
-        self.db_images_dir = "colmap_loc/images"
-        self.sfm_images_folder = "/home/sontung/work/ar-vloc/colmap_loc/images"
-        self.ground_truth_dir = "/home/sontung/work/recon_models/office/images.txt"
-        self.existing_model = "colmap_loc/sparse/0"
+        self.database_dir = "vloc_workspace"
+        self.match_database_dir = f"{self.database_dir}/db.db"  # dir to database containing matches between queries and database
 
         self.all_queries_folder = "Test line"
         self.workspace_dir = "vloc_workspace_retrieval"
@@ -59,7 +79,14 @@ class Localization:
         self.point3d_cloud = None
         self.image_name_to_image_id = {}
         self.image2pose = None
+        self.image2pose_new = None
         self.pid2features = None
+        self.localization_results = []
+
+        # matching database
+        self.matches = None
+        self.id2kp, self.id2desc, self.id2name = None, None, None
+        self.pid2images = None
 
         self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
         self.build_tree()
@@ -108,33 +135,131 @@ class Localization:
             self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
 
     def create_folders(self):
-        pathlib.Path(self.workspace_images_dir).mkdir(parents=True, exist_ok=True)
         pathlib.Path(self.workspace_loc_dir).mkdir(parents=True, exist_ok=True)
-
-        shutil.copyfile(self.match_database_dir, f"{self.workspace_dir}/database.db")
-        shutil.copyfile(f"{self.database_dir}/test_images.txt", f"{self.workspace_dir}/test_images.txt")
-
-        copy_tree(self.db_images_dir, self.workspace_images_dir)
-        copy_tree(self.existing_model, self.workspace_existing_model)
+        shutil.copyfile(self.match_database_dir, f"{self.workspace_dir}/db.db")
 
     def delete_folders(self):
-        os.remove(f"{self.workspace_images_dir}/query.jpg")
-        os.remove(f"{self.workspace_dir}/database.db")
-        shutil.copyfile(self.match_database_dir, f"{self.workspace_dir}/database.db")
+        os.remove(f"{self.workspace_dir}/db.db")
 
-    def main(self):
+    def run_commands(self):
+        tqdm.write(" run image retrieval")
+        process = subprocess.Popen(["./image_retrieval.sh"], shell=True, stdout=subprocess.PIPE)
+        process.wait()
+        process.kill()
+        tqdm.write(" done")
+
+        rewrite_retrieval_output(f"{self.workspace_dir}/pairs.txt", f"{self.workspace_dir}/retrieval_pairs.txt")
+        tqdm.write(" run colmap")
+        process = subprocess.Popen(["./colmap_match_retrieval.sh"], shell=True, stdout=subprocess.PIPE)
+        process.wait()
+        process.kill()
+        tqdm.write(" done")
+
+    def main_for_api(self, metadata):
+        self.create_folders()
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
-        # name_list = ["line-28.jpg", "line-22.jpg", "line-28.jpg"]
+
+        self.run_commands()
+
+        # reading colmap database
+        self.image2pose_new = colmap_io.read_images(f"{self.workspace_loc_dir}/images.txt")
+        self.read_matching_database()
+
+        for idx in tqdm(range(len(name_list)), desc="Processing"):
+            pairs = self.read_2d_3d_matches(name_list[idx])
+            if not pairs:
+                tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
+                pairs, _ = self.read_2d_2d_matches(name_list[idx])
+                if len(pairs) == 0:
+                    continue
+
+            best_score = None
+            best_pose = None
+            for _ in range(10):
+                r_mat, t_vec, score = localize(metadata, pairs)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pose = (r_mat, t_vec)
+                    if best_score == 1.0:
+                        break
+            r_mat, t_vec = best_pose
+
+            if best_score < 0.2:
+                continue
+            self.localization_results.append(((r_mat, t_vec), (0, 1, 0)))
+        self.delete_folders()
+
+    def main_for_api2(self, metadata):
+        self.create_folders()
+        name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
+
+        tqdm.write(" run image retrieval")
+        process = subprocess.Popen(["./image_retrieval.sh"], shell=True, stdout=subprocess.PIPE)
+        process.wait()
+        process.kill()
+        tqdm.write(" done")
+
+        rewrite_retrieval_output(f"{self.workspace_dir}/pairs.txt", f"{self.workspace_dir}/retrieval_pairs.txt")
+        tqdm.write(" run colmap")
+        process = subprocess.Popen(["./colmap_match.sh"], shell=True, stdout=subprocess.PIPE)
+        process.wait()
+        process.kill()
+        tqdm.write(" done")
+
+        for idx in tqdm(range(len(name_list)), desc="Processing"):
+            loc_res = self.read_2d_3d_matches_pcm(name_list[idx])
+            if loc_res is None:
+                self.read_matching_database()
+                tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
+                pairs, _ = self.read_2d_2d_matches(name_list[idx])
+                if len(pairs) == 0:
+                    continue
+
+                best_score = None
+                best_pose = None
+                for _ in range(10):
+                    r_mat, t_vec, score = localize(metadata, pairs)
+                    if best_score is None or score > best_score:
+                        best_score = score
+                        best_pose = (r_mat, t_vec)
+                        if best_score == 1.0:
+                            break
+                r_mat, t_vec = best_pose
+
+                if best_score < 0.2:
+                    continue
+            else:
+                r_mat, t_vec = loc_res
+            self.localization_results.append(((r_mat, t_vec), (0, 1, 0)))
+        self.delete_folders()
+
+    def visualize(self):
+        self.prepare_visualization()
+        visualize_cam_pose_with_point_cloud(self.point_cloud, self.localization_results)
+        self.localization_results.clear()
+
+    def main(self, debug=False):
+        start = time.time()
+        self.create_folders()
+        name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
         localization_results = []
         failed = 0
         colmap_failed = 0
         failed_images = []
+
+        self.run_commands()
+
+        # reading colmap database
+        self.image2pose_new = colmap_io.read_images(f"{self.workspace_loc_dir}/images.txt")
+        self.read_matching_database()
+
         for idx in tqdm(range(len(name_list)), desc="Processing"):
             pairs = self.read_2d_3d_matches(name_list[idx])
             if not pairs:
                 colmap_failed += 1
                 tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
-                self.verbose_when_failed(name_list[idx])
+                if debug:
+                    self.verbose_when_failed(name_list[idx])
                 pairs, _ = self.read_2d_2d_matches(name_list[idx])
                 if len(pairs) == 0:
                     failed += 1
@@ -157,8 +282,12 @@ class Localization:
                 failed_images.append(name_list[idx])
                 continue
             localization_results.append(((r_mat, t_vec), (0, 1, 0)))
+        self.delete_folders()
+
+        end = time.time()
         print(f"Colmap failed {colmap_failed}, voting-based recovered {colmap_failed-failed}, total = {failed}"
               f" images: {failed_images}")
+        print(f"Done in {end-start} seconds, avg. {(end-start)/len(name_list)} s/image")
         self.prepare_visualization()
         visualize_cam_pose_with_point_cloud(self.point_cloud, localization_results)
 
@@ -233,16 +362,15 @@ class Localization:
     def read_2d_3d_matches(self, query_im_name):
         pairs = []
 
-        image2pose = colmap_io.read_images("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/new/images.txt")
         query_im_id = None
-        for img_id in image2pose:
-            image_name, points2d_meaningful, cam_pose, cam_id = image2pose[img_id]
+        for img_id in self.image2pose_new:
+            image_name, points2d_meaningful, cam_pose, cam_id = self.image2pose_new[img_id]
             if image_name == query_im_name:
                 query_im_id = img_id
         if query_im_id is None:
             return pairs
         else:
-            image_name, points2d_meaningful, cam_pose, cam_id = image2pose[query_im_id]
+            image_name, points2d_meaningful, cam_pose, cam_id = self.image2pose_new[query_im_id]
 
             for x, y, pid in points2d_meaningful:
                 if pid > -1:
@@ -251,16 +379,29 @@ class Localization:
                     pairs.append((xy, xyz))
         return pairs
 
-    def read_2d_2d_matches(self, query_im_name, debug=False):
-        matches, geom_matrices = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
-        id2kp, id2desc, id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
+    def read_2d_3d_matches_pcm(self, query_im_name):
+        reconstruction = pycolmap.Reconstruction(self.workspace_loc_dir)
+        res = None
+        for image_id, image in reconstruction.images.items():
+            if image.name == query_im_name:
+                qw, qx, qy, qz = image.qvec
+                tx, ty, tz = image.tvec
+                rot_mat = colmap_read.qvec2rotmat([qw, qx, qy, qz])
+                t_vec = np.array([tx, ty, tz])
+                res = (rot_mat, t_vec)
+        return res
 
-        name2id = {name: ind for ind, name in id2name.items()}
+    def read_matching_database(self):
+        self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
+        self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
+
+    def read_2d_2d_matches(self, query_im_name, debug=False):
+        name2id = {name: ind for ind, name in self.id2name.items()}
         query_im_id = name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
-        for m in matches:
+        for m in self.matches:
             if query_im_id in m:
-                arr = matches[m]
+                arr = self.matches[m]
                 if arr is not None:
                     id1, id2 = m
                     if id1 != query_im_id:
@@ -274,9 +415,9 @@ class Localization:
                         database_fid = kp_dict[database_im_id][-1]
                         query_fid = kp_dict[query_im_id][-1]
 
-                        database_fid_coord = id2kp[database_im_id][database_fid]
-                        query_fid_coord = id2kp[query_im_id][query_fid]
-                        query_fid_desc = id2desc[query_im_id][query_fid]
+                        database_fid_coord = self.id2kp[database_im_id][database_fid]
+                        query_fid_coord = self.id2kp[query_im_id][query_fid]
+                        query_fid_desc = self.id2desc[query_im_id][query_fid]
 
                         fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id]
                         distances, indices = tree.query(database_fid_coord, 10)
@@ -284,7 +425,7 @@ class Localization:
                             ind = indices[idx]
                             pid = pid_list[ind]
                             fid = fid_list[ind]
-                            database_fid_desc = id2desc[database_im_id][fid]
+                            database_fid_desc = self.id2desc[database_im_id][fid]
                             desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
                             candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
                             point3d_candidate_pool.add(candidate)
@@ -294,7 +435,6 @@ class Localization:
             point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
         pairs = []
-        pid2images = colmap_io.read_pid2images(self.image2pose)
         for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:100]):
             pid = candidate.pid
             xy = candidate.query_coord
@@ -302,11 +442,13 @@ class Localization:
             pairs.append((xy, xyz))
 
             if debug:
+                self.pid2images = colmap_io.read_pid2images(self.image2pose)
                 print(candidate.pid, candidate.dis, point3d_candidate_pool.pid2votes[candidate.pid])
                 x2, y2 = map(int, xy)
                 query_img = cv2.imread(f"{self.workspace_queries_dir}/{query_im_name}")
                 cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
-                vis_img = visualize_matching_helper_with_pid2features(query_img, pid2images[pid], self.workspace_images_dir)
+                vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
+                                                                      self.workspace_images_dir)
                 cv2.imwrite(f"debug2/img-{cand_idx}.jpg", vis_img)
         tqdm.write(f" voting-based returns {len(pairs)} pairs for {query_im_name}")
         return pairs, point3d_candidate_pool
@@ -353,43 +495,21 @@ class Localization:
         for point3d_id in self.point3did2xyzrgb:
             x, y, z, r, g, b = self.point3did2xyzrgb[point3d_id]
             points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
+
         points_3d_list = np.vstack(points_3d_list)
         self.point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
         self.point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
         self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
-    def test_colmap_loc(self, query_im_name,
-                        res_dir="colmap_loc/sparse/0/images.txt",
-                        db_dir="colmap_loc/not_full_database.db"):
-        image2pose = colmap_io.read_images(res_dir)
-        id2kp, _, id2name = colmap_db_read.extract_colmap_sift(db_dir)
-        name2id = {name: ind for ind, name in id2name.items()}
-        query_im_id = name2id[query_im_name]
-        image_name, points2d_meaningful, cam_pose, cam_id = image2pose[query_im_id]
-        fid_list = []
-        pid_list = []
-        f_coord_list = []
-        for fid, (fx, fy, pid) in enumerate(points2d_meaningful):
-            if pid >= 0:
-                fid_list.append(fid)
-                pid_list.append(pid)
-                f_coord_list.append([fx, fy])
-
-        query_image = cv2.imread(f"{self.db_images_dir}/{id2name[query_im_id]}")
-        for coord in f_coord_list:
-            x2, y2 = map(int, coord)
-            cv2.circle(query_image, (x2, y2), 20, (128, 128, 0), 10)
-        image = cv2.resize(query_image, (query_image.shape[1] // 4, query_image.shape[0] // 4))
-        cv2.imshow("", image)
-        cv2.waitKey()
-        cv2.destroyAllWindows()
-
 
 if __name__ == '__main__':
-    system = Localization()
+    api_test()
+    # system = Localization()
+    # default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
+    # system.main_for_api2(default_metadata)
     # system.debug_2d_2d_matches("line-28.jpg")
-    # system.read_2d_2d_matches("line-28.jpg", debug=True)
+    # system.read_2d_2d_matches("line-20.jpg", debug=True)
 
     # system.debug_3d_mode("line-28.jpg")
-    system.main()
+    # system.main()
     # system.read_2d_3d_matches("line-20.jpg")
