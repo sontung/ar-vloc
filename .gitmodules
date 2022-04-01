@@ -1,12 +1,3 @@
-[submodule "d2-net"]
-	path = d2-net
-	url = git@github.com:sontung/d2-net.git
 [submodule "pnp"]
 	path = pnp
 	url = git@github.com:sontung/pnp.git
-[submodule "libmpopt"]
-	path = libmpopt
-	url = git@github.com:sontung/libmpopt.git
-[submodule "pyrenderer"]
-	path = pyrenderer
-	url = git@github.com:sontung/pyrenderer.git
