@@ -90,31 +90,9 @@ class Localization:
 
         self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
         self.build_tree()
-        self.build_point3d_cloud()
         self.point_cloud = None
         self.default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
         return
-
-    def build_point3d_cloud(self):
-        my_file = Path(f"data/point3d_cloud.pkl")
-        if my_file.is_file():
-            with open(f"data/point3d_cloud.pkl", 'rb') as handle:
-                self.point3d_cloud = pickle.load(handle)
-        else:
-            point3d_id_list, point3d_desc_list, p3d_desc_list_multiple, point3did2descs = feature_matching.build_descriptors_2d_using_colmap_sift_no_verbose(
-                self.image2pose, self.workspace_database_dir)
-            self.point3d_cloud = point3d.PointCloud(point3did2descs, 0, 0, 0)
-
-            for i in range(len(point3d_id_list)):
-                point3d_id = point3d_id_list[i]
-                point3d_desc = point3d_desc_list[i]
-                xyzrgb = self.point3did2xyzrgb[point3d_id]
-                self.point3d_cloud.add_point(point3d_id, point3d_desc, p3d_desc_list_multiple[i], xyzrgb[:3], xyzrgb[3:])
-
-            self.point3d_cloud.commit(self.image2pose)
-
-            with open(f"data/point3d_cloud.pkl", 'wb') as handle:
-                pickle.dump(self.point3d_cloud, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     def build_tree(self):
         self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
@@ -494,17 +472,18 @@ class Localization:
 
         for point3d_id in self.point3did2xyzrgb:
             x, y, z, r, g, b = self.point3did2xyzrgb[point3d_id]
+            print(x, y, z, r, g, b)
             points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
 
-        points_3d_list = np.vstack(points_3d_list)
+        points_3d_list = np.vstack(points_3d_list)[:100, :]
         self.point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
         self.point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
         self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
 
 if __name__ == '__main__':
-    api_test()
-    # system = Localization()
+    # api_test()
+    system = Localization()
     # default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
     # system.main_for_api2(default_metadata)
     # system.debug_2d_2d_matches("line-28.jpg")
@@ -512,4 +491,5 @@ if __name__ == '__main__':
 
     # system.debug_3d_mode("line-28.jpg")
     # system.main()
+    system.prepare_visualization()
     # system.read_2d_3d_matches("line-20.jpg")
