@@ -234,7 +234,7 @@ def visualize_cam_pose_with_point_cloud(point_cloud, localization_results):
 
     point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
     coord_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
-    cameras = [point_cloud, coord_mesh]
+    cameras = [point_cloud, coord_mesh, produce_cam_mesh(color=(1, 0, 0))]
 
     # queried poses
     for result, color_cam in localization_results:

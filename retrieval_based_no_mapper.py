@@ -7,27 +7,33 @@ import subprocess
 import sys
 import time
 import pycolmap
-
+import torch
 import cv2
 import numpy as np
 import colmap_db_read
 import colmap_io
 import colmap_read
-import feature_matching
 import localization
 import shutil
-import point3d
 import open3d as o3d
 from vis_utils import visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose
 from vis_utils import concat_images_different_sizes, visualize_matching_helper_with_pid2features
 from scipy.spatial import KDTree
-from distutils.dir_util import copy_tree
 from tqdm import tqdm
 from os import listdir
 from os.path import isfile, join
-from pathlib import Path
 from retrieval_utils import CandidatePool, MatchCandidate
 from utils import rewrite_retrieval_output
+import os
+
+import sys
+sys.path.append("Hierarchical-Localization")
+
+from pathlib import Path
+from hloc import extractors
+from hloc import extract_features, pairs_from_retrieval
+from hloc.utils.base_model import dynamic_load
+from hloc.utils.io import list_h5_names
 
 
 def localize(metadata, pairs):
@@ -37,6 +43,7 @@ def localize(metadata, pairs):
 
     r_mat, t_vec, score = localization.localize_single_image_lt_pnp(pairs, f, cx, cy, with_inliers_percent=True)
     return r_mat, t_vec, score
+
 
 def api_test():
     system = Localization()
@@ -52,11 +59,10 @@ def api_test():
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
         system.main_for_api(default_metadata)
-        system.main_for_api2(default_metadata)
         break
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
-    # system.visualize()
+    system.visualize()
 
 
 class Localization:
@@ -92,6 +98,18 @@ class Localization:
         self.build_tree()
         self.point_cloud = None
         self.default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
+
+        # image retrieval variables
+        self.retrieval_dataset = Path('vloc_workspace_retrieval')  # change this if your dataset is somewhere else
+        self.retrieval_images_dir = self.retrieval_dataset / 'images_retrieval'
+        self.retrieval_loc_pairs_dir = self.retrieval_dataset / 'pairs.txt'  # top 20 retrieved by NetVLAD
+        self.retrieval_conf = extract_features.confs['netvlad']
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model_class = dynamic_load(extractors, self.retrieval_conf['model']['name'])
+        self.retrieval_model = model_class(self.retrieval_conf['model']).eval().to(self.device)
+        self.feature_path = Path(self.retrieval_dataset, self.retrieval_conf['output'] + '.h5')
+        self.feature_path.parent.mkdir(exist_ok=True, parents=True)
+        self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
         return
 
     def build_tree(self):
@@ -116,72 +134,62 @@ class Localization:
         pathlib.Path(self.workspace_loc_dir).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(self.match_database_dir, f"{self.workspace_dir}/db.db")
 
+    def create_folders2(self):
+        pathlib.Path(self.workspace_loc_dir).mkdir(parents=True, exist_ok=True)
+        process = subprocess.Popen(["cp", self.match_database_dir, f"{self.workspace_dir}/db.db"])
+        return process
+
     def delete_folders(self):
         os.remove(f"{self.workspace_dir}/db.db")
 
-    def run_commands(self):
-        tqdm.write(" run image retrieval")
-        process = subprocess.Popen(["./image_retrieval.sh"], shell=True, stdout=subprocess.PIPE)
-        process.wait()
-        process.kill()
-        tqdm.write(" done")
+    def run_colmap(self, metadata):
+        focal = metadata["f"] * 100
+        cx = metadata["cx"]
+        cy = metadata["cy"]
+        os.chdir(self.workspace_dir)
+        subprocess.run(["colmap", "feature_extractor",
+                        "--database_path", "db.db",
+                        "--image_path", "images",
+                        "--image_list_path", "test_image.txt",
+                        "--ImageReader.single_camera", "1",
+                        "--ImageReader.camera_model", "PINHOLE",
+                        "--ImageReader.camera_params", f"{focal}, {focal}, {cx}, {cy}"
+                        ])
+        subprocess.run(["colmap", "matches_importer",
+                        "--database_path", "db.db",
+                        "--match_list_path", "retrieval_pairs.txt",
+                        ])
+        subprocess.run(["colmap", "image_registrator",
+                        "--database_path", "db.db",
+                        "--input_path", "sparse",
+                        "--output_path", "new",
+                        "--Mapper.ba_refine_focal_length", "0",
+                        "--Mapper.ba_refine_extra_params", "0",
+                        ])
+        os.chdir("..")
 
-        rewrite_retrieval_output(f"{self.workspace_dir}/pairs.txt", f"{self.workspace_dir}/retrieval_pairs.txt")
-        tqdm.write(" run colmap")
-        process = subprocess.Popen(["./colmap_match_retrieval.sh"], shell=True, stdout=subprocess.PIPE)
-        process.wait()
-        process.kill()
-        tqdm.write(" done")
+    def run_image_retrieval(self):
+        global_descriptors = extract_features.main_wo_model_loading(self.retrieval_model, self.device, self.skip_names,
+                                                                    self.retrieval_conf, self.retrieval_images_dir,
+                                                                    feature_path=self.feature_path)
+        pairs_from_retrieval.main(global_descriptors, self.retrieval_loc_pairs_dir, num_matched=40,
+                                  db_prefix="db", query_prefix="query")
 
     def main_for_api(self, metadata):
-        self.create_folders()
-        name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
-
-        self.run_commands()
-
-        # reading colmap database
-        self.image2pose_new = colmap_io.read_images(f"{self.workspace_loc_dir}/images.txt")
-        self.read_matching_database()
-
-        for idx in tqdm(range(len(name_list)), desc="Processing"):
-            pairs = self.read_2d_3d_matches(name_list[idx])
-            if not pairs:
-                tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
-                pairs, _ = self.read_2d_2d_matches(name_list[idx])
-                if len(pairs) == 0:
-                    continue
-
-            best_score = None
-            best_pose = None
-            for _ in range(10):
-                r_mat, t_vec, score = localize(metadata, pairs)
-                if best_score is None or score > best_score:
-                    best_score = score
-                    best_pose = (r_mat, t_vec)
-                    if best_score == 1.0:
-                        break
-            r_mat, t_vec = best_pose
-
-            if best_score < 0.2:
-                continue
-            self.localization_results.append(((r_mat, t_vec), (0, 1, 0)))
-        self.delete_folders()
-
-    def main_for_api2(self, metadata):
-        self.create_folders()
+        copy_process = self.create_folders2()
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
 
         tqdm.write(" run image retrieval")
-        process = subprocess.Popen(["./image_retrieval.sh"], shell=True, stdout=subprocess.PIPE)
-        process.wait()
-        process.kill()
+        self.run_image_retrieval()
         tqdm.write(" done")
 
         rewrite_retrieval_output(f"{self.workspace_dir}/pairs.txt", f"{self.workspace_dir}/retrieval_pairs.txt")
+
+        copy_process.wait()
+        copy_process.kill()
+
         tqdm.write(" run colmap")
-        process = subprocess.Popen(["./colmap_match.sh"], shell=True, stdout=subprocess.PIPE)
-        process.wait()
-        process.kill()
+        self.run_colmap(metadata)
         tqdm.write(" done")
 
         for idx in tqdm(range(len(name_list)), desc="Processing"):
@@ -208,8 +216,7 @@ class Localization:
                     continue
             else:
                 r_mat, t_vec = loc_res
-            self.localization_results.append(((r_mat, t_vec), (0, 1, 0)))
-        self.delete_folders()
+            self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
 
     def visualize(self):
         self.prepare_visualization()
@@ -472,18 +479,18 @@ class Localization:
 
         for point3d_id in self.point3did2xyzrgb:
             x, y, z, r, g, b = self.point3did2xyzrgb[point3d_id]
-            print(x, y, z, r, g, b)
             points_3d_list.append([x, y, z, r / 255, g / 255, b / 255])
 
-        points_3d_list = np.vstack(points_3d_list)[:100, :]
+        points_3d_list = np.vstack(points_3d_list)
         self.point_cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_3d_list[:, :3]))
         self.point_cloud.colors = o3d.utility.Vector3dVector(points_3d_list[:, 3:])
         self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
 
 if __name__ == '__main__':
-    # api_test()
-    system = Localization()
+    api_test()
+    # system = Localization()
+
     # default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
     # system.main_for_api2(default_metadata)
     # system.debug_2d_2d_matches("line-28.jpg")
@@ -491,5 +498,5 @@ if __name__ == '__main__':
 
     # system.debug_3d_mode("line-28.jpg")
     # system.main()
-    system.prepare_visualization()
+    # system.prepare_visualization()
     # system.read_2d_3d_matches("line-20.jpg")
