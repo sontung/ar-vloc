@@ -1,10 +1,6 @@
-import glob
-import os
 import pathlib
-import pickle
 import random
 import subprocess
-import sys
 import time
 import pycolmap
 import torch
@@ -32,6 +28,7 @@ sys.path.append("Hierarchical-Localization")
 from pathlib import Path
 from hloc import extractors
 from hloc import extract_features, pairs_from_retrieval
+
 from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names
 
@@ -59,7 +56,6 @@ def api_test():
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
         system.main_for_api(default_metadata)
-        break
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     system.visualize()
@@ -110,6 +106,21 @@ class Localization:
         self.feature_path = Path(self.retrieval_dataset, self.retrieval_conf['output'] + '.h5')
         self.feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
+
+        # pairs from retrieval variables
+        db_descriptors = self.feature_path
+        if isinstance(db_descriptors, (Path, str)):
+            db_descriptors = [db_descriptors]
+        name2db = {n: i for i, p in enumerate(db_descriptors)
+                   for n in list_h5_names(p)}
+        db_names_h5 = list(name2db.keys())
+        query_names_h5 = list_h5_names(self.feature_path)
+        self.db_names = pairs_from_retrieval.parse_names("db", None, db_names_h5)
+        if len(self.db_names) == 0:
+            raise ValueError('Could not find any database image.')
+        self.query_names = pairs_from_retrieval.parse_names("query", None, query_names_h5)
+        self.db_desc = pairs_from_retrieval.get_descriptors(self.db_names, db_descriptors, name2db)
+        self.db_desc = self.db_desc.to(self.device)
         return
 
     def build_tree(self):
@@ -166,14 +177,15 @@ class Localization:
                         "--Mapper.ba_refine_focal_length", "0",
                         "--Mapper.ba_refine_extra_params", "0",
                         ])
+        # subprocess.run(["sh", "colmap_match.sh"])
         os.chdir("..")
 
     def run_image_retrieval(self):
         global_descriptors = extract_features.main_wo_model_loading(self.retrieval_model, self.device, self.skip_names,
                                                                     self.retrieval_conf, self.retrieval_images_dir,
                                                                     feature_path=self.feature_path)
-        pairs_from_retrieval.main(global_descriptors, self.retrieval_loc_pairs_dir, num_matched=40,
-                                  db_prefix="db", query_prefix="query")
+        pairs_from_retrieval.main_wo_loading(global_descriptors, self.retrieval_loc_pairs_dir, 40,
+                                             self.db_names, self.db_desc, self.query_names, self.device)
 
     def main_for_api(self, metadata):
         copy_process = self.create_folders2()
