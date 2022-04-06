@@ -262,13 +262,44 @@ def extract_colmap_sift(database_path):
     db = COLMAPDatabase.connect(database_path)
 
     # Read and check keypoints.
+    try:
+        keypoints = dict(
+            (image_id, blob_to_array(data, np.float32, (-1, 6)))
+            for image_id, data in db.execute(
+                "SELECT image_id, data FROM keypoints") if data is not None)
+    except ValueError:
+        keypoints = dict(
+            (image_id, blob_to_array(data, np.float32, (-1, 2)))
+            for image_id, data in db.execute(
+                "SELECT image_id, data FROM keypoints") if data is not None)
+
+    desc = dict(
+        (image_id, blob_to_array(data, np.uint8, (-1, 128)))
+        for image_id, data in db.execute(
+            "SELECT image_id, data FROM descriptors") if data is not None)
+
+    id2name = dict(
+        (image_id, name)
+        for image_id, name in db.execute(
+            "SELECT image_id, name FROM images"))
+    for im in keypoints:
+        keypoints[im] = keypoints[im][:, :2]
+    db.close()
+    return keypoints, desc, id2name
+
+
+def extract_colmap_hloc(database_path):
+    # Open the database.
+    db = COLMAPDatabase.connect(database_path)
+
+    # Read and check keypoints.
     keypoints = dict(
-        (image_id, blob_to_array(data, np.float32, (-1, 6)))
+        (image_id, blob_to_array(data, np.float32, (-1, 2)))
         for image_id, data in db.execute(
             "SELECT image_id, data FROM keypoints") if data is not None)
 
     desc = dict(
-        (image_id, blob_to_array(data, np.uint8, (-1, 128)))
+        (image_id, np.transpose(blob_to_array(data, np.uint8, (128, -1))))
         for image_id, data in db.execute(
             "SELECT image_id, data FROM descriptors") if data is not None)
 

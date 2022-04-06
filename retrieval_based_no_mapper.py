@@ -165,19 +165,20 @@ class Localization:
                         "--ImageReader.single_camera", "1",
                         "--ImageReader.camera_model", "PINHOLE",
                         "--ImageReader.camera_params", f"{focal}, {focal}, {cx}, {cy}"
-                        ])
-        subprocess.run(["colmap", "matches_importer",
-                        "--database_path", "db.db",
-                        "--match_list_path", "retrieval_pairs.txt",
-                        ])
-        subprocess.run(["colmap", "image_registrator",
-                        "--database_path", "db.db",
-                        "--input_path", "sparse",
-                        "--output_path", "new",
-                        "--Mapper.ba_refine_focal_length", "0",
-                        "--Mapper.ba_refine_extra_params", "0",
-                        ])
-        # subprocess.run(["sh", "colmap_match.sh"])
+                        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        # subprocess.run(["colmap", "matches_importer",
+        #                 "--database_path", "db.db",
+        #                 "--match_list_path", "retrieval_pairs.txt",
+        #                 ])
+        # subprocess.run(["colmap", "image_registrator",
+        #                 "--database_path", "db.db",
+        #                 "--input_path", "sparse",
+        #                 "--output_path", "new",
+        #                 "--Mapper.ba_refine_focal_length", "0",
+        #                 "--Mapper.ba_refine_extra_params", "0",
+        #                 ])
+        subprocess.run(["sh", "colmap_match.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       stdin=subprocess.DEVNULL)
         os.chdir("..")
 
     def run_image_retrieval(self):
@@ -204,31 +205,30 @@ class Localization:
         self.run_colmap(metadata)
         tqdm.write(" done")
 
-        for idx in tqdm(range(len(name_list)), desc="Processing"):
-            loc_res = self.read_2d_3d_matches_pcm(name_list[idx])
-            if loc_res is None:
-                self.read_matching_database()
-                tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
-                pairs, _ = self.read_2d_2d_matches(name_list[idx])
-                if len(pairs) == 0:
-                    continue
+        loc_res = self.read_2d_3d_matches_pcm(name_list[0])
+        if loc_res is None:
+            self.read_matching_database()
+            tqdm.write(f" {name_list[0]} failed to loc, try voting-based...")
+            pairs, _ = self.read_2d_2d_matches(name_list[0])
+            if len(pairs) == 0:
+                return
 
-                best_score = None
-                best_pose = None
-                for _ in range(10):
-                    r_mat, t_vec, score = localize(metadata, pairs)
-                    if best_score is None or score > best_score:
-                        best_score = score
-                        best_pose = (r_mat, t_vec)
-                        if best_score == 1.0:
-                            break
-                r_mat, t_vec = best_pose
+            best_score = None
+            best_pose = None
+            for _ in range(10):
+                r_mat, t_vec, score = localize(metadata, pairs)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pose = (r_mat, t_vec)
+                    if best_score == 1.0:
+                        break
+            r_mat, t_vec = best_pose
 
-                if best_score < 0.2:
-                    continue
-            else:
-                r_mat, t_vec = loc_res
-            self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
+            if best_score < 0.2:
+                return
+        else:
+            r_mat, t_vec = loc_res
+        self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
 
     def visualize(self):
         self.prepare_visualization()
@@ -388,12 +388,19 @@ class Localization:
                 res = (rot_mat, t_vec)
         return res
 
-    def read_matching_database(self):
-        self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
-        self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
+    def read_matching_database(self, database_dir=None):
+        if database_dir is None:
+            self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
+            self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_sift(self.workspace_database_dir)
+        else:
+            self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
+            self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_sift(database_dir)
 
-    def read_2d_2d_matches(self, query_im_name, debug=False):
+    def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
+        desc_heuristics = False
+        if len(self.id2desc) > 0:
+            desc_heuristics = True
         query_im_id = name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
         for m in self.matches:
@@ -414,7 +421,10 @@ class Localization:
 
                         database_fid_coord = self.id2kp[database_im_id][database_fid]
                         query_fid_coord = self.id2kp[query_im_id][query_fid]
-                        query_fid_desc = self.id2desc[query_im_id][query_fid]
+                        query_fid_desc = None
+
+                        if desc_heuristics:
+                            query_fid_desc = self.id2desc[query_im_id][query_fid]
 
                         fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id]
                         distances, indices = tree.query(database_fid_coord, 10)
@@ -422,8 +432,12 @@ class Localization:
                             ind = indices[idx]
                             pid = pid_list[ind]
                             fid = fid_list[ind]
-                            database_fid_desc = self.id2desc[database_im_id][fid]
-                            desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
+                            if desc_heuristics:
+                                print(self.id2desc[database_im_id].shape, fid)
+                                database_fid_desc = self.id2desc[database_im_id][fid]
+                                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
+                            else:
+                                desc_diff = 1
                             candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
                             point3d_candidate_pool.add(candidate)
 
@@ -432,7 +446,7 @@ class Localization:
             point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
         pairs = []
-        for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:100]):
+        for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:max_pool_size]):
             pid = candidate.pid
             xy = candidate.query_coord
             xyz = self.point3did2xyzrgb[pid][:3]
