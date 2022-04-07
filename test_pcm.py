@@ -2,6 +2,7 @@ import torch
 import pycolmap
 import colmap_db_read
 import retrieval_based_no_mapper
+import cv2
 import sys
 sys.path.append("Hierarchical-Localization")
 
@@ -12,6 +13,7 @@ from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names
 from hloc.triangulation import (import_features, import_matches, geometric_verification)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
+from vis_utils import visualize_matching_pairs
 
 
 def main():
@@ -67,5 +69,31 @@ def main():
     system.visualize()
 
 
+def debug_matching():
+    images_dir = "vloc_workspace_retrieval/images_retrieval"
+    database_dir = "vloc_workspace_retrieval/database_hloc.db"
+    matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
+    id2kp, id2desc, id2name = colmap_db_read.extract_colmap_hloc(database_dir)
+    for m in matches:
+        img_id1, img_id2 = m
+        print(id2name[img_id1], id2name[img_id2])
+        img1 = cv2.imread(f"{images_dir}/{id2name[img_id1]}")
+        img2 = cv2.imread(f"{images_dir}/{id2name[img_id2]}")
+        pairs = []
+        for fid1, fid2 in matches[m]:
+            x1, y1 = id2kp[img_id1][fid1]
+            x2, y2 = id2kp[img_id2][fid2]
+            x1, y1 = map(int, (x1, y1))
+            x2, y2 = map(int, (x2, y2))
+            pair = ((x1, y1), (x2, y2))
+            pairs.append(pair)
+        img = visualize_matching_pairs(img1, img2, pairs)
+        img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
+        cv2.imshow("", img)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
+
+
 if __name__ == '__main__':
-    main()
+    # main()
+    debug_matching()

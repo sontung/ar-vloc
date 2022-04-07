@@ -216,15 +216,16 @@ def visualize_matching_and_save(results, query_image_ori, sfm_image_folder, debu
 
 
 def visualize_matching_pairs(image1, image2, pairs):
-    image = np.hstack([image1, image2])
+    image = concat_images_different_sizes([image1, image2])
     for pair in pairs:
+        color = (random.random()*255, random.random()*255, random.random()*255)
         fid1, fid2 = pair[:2]
         x1, y1 = fid1
-        cv2.circle(image, (x1, y1), 20, (128, 128, 0), -1)
+        cv2.circle(image, (x1, y1), 20, color, 5)
 
         x2, y2 = fid2
-        cv2.circle(image, (x2 + image1.shape[1], y2), 20, (128, 128, 0), -1)
-        cv2.line(image, (x1, y1), (x2 + image1.shape[1], y2), (0, 0, 0), 5)
+        cv2.circle(image, (x2 + image1.shape[1], y2), 20, color, 5)
+        cv2.line(image, (x1, y1), (x2 + image1.shape[1], y2), color, 5)
     return image
 
 

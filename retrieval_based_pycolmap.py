@@ -12,7 +12,7 @@ import colmap_read
 import localization
 import shutil
 import open3d as o3d
-from vis_utils import visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose
+from vis_utils import visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose, visualize_matching_pairs
 from vis_utils import concat_images_different_sizes, visualize_matching_helper_with_pid2features
 from scipy.spatial import KDTree
 from tqdm import tqdm
@@ -27,10 +27,12 @@ sys.path.append("Hierarchical-Localization")
 
 from pathlib import Path
 from hloc import extractors
-from hloc import extract_features, pairs_from_retrieval
+from hloc import extract_features, pairs_from_retrieval, match_features_bare
 
 from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names
+from hloc.triangulation import (import_features, import_matches, geometric_verification)
+from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
 
 def localize(metadata, pairs):
@@ -64,15 +66,16 @@ def api_test():
 
 class Localization:
     def __init__(self):
-        self.database_dir = "vloc_workspace"
-        self.match_database_dir = f"{self.database_dir}/db.db"  # dir to database containing matches between queries and database
+        self.database_dir = Path("vloc_workspace")
+        self.match_database_dir = self.database_dir / "db.db"  # dir to database containing matches between queries and database
+        self.workspace_original_database_dir = self.database_dir / "ori_database_hloc.db"
 
         self.all_queries_folder = "Test line"
-        self.workspace_dir = "vloc_workspace_retrieval"
+        self.workspace_dir = Path('vloc_workspace_retrieval')
         self.workspace_images_dir = f"{self.workspace_dir}/images"
         self.workspace_loc_dir = f"{self.workspace_dir}/new"
 
-        self.workspace_database_dir = f"{self.workspace_dir}/database_hloc.db"
+        self.workspace_database_dir = self.workspace_dir / "database_hloc.db"
         self.workspace_queries_dir = f"{self.workspace_dir}/query"
         self.workspace_existing_model = f"{self.workspace_dir}/sparse"
         self.workspace_sfm_images_dir = f"{self.workspace_existing_model}/images.txt"
@@ -92,7 +95,6 @@ class Localization:
         self.matches = None
         self.id2kp, self.id2desc, self.id2name = None, None, None
         self.pid2images = None
-
         self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
         self.point_cloud = None
         self.default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
@@ -108,6 +110,18 @@ class Localization:
         self.feature_path = Path(self.retrieval_dataset, self.retrieval_conf['output'] + '.h5')
         self.feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
+
+        # matching variables
+        self.skip_geometric_verification = False
+        self.matching_conf = extract_features.confs['sift']
+        model_class = dynamic_load(extractors, self.matching_conf['model']['name'])
+        self.matching_model = model_class(self.matching_conf['model']).eval().to(self.device)
+        self.matching_feature_path = Path(self.retrieval_dataset, self.matching_conf['output'] + '.h5')
+        self.matching_feature_path.parent.mkdir(exist_ok=True, parents=True)
+        self.matching_skip_names = set(list_h5_names(self.matching_feature_path)
+                                       if self.matching_feature_path.exists() else ())
+        create_empty_db(self.workspace_original_database_dir)
+        import_images(self.retrieval_images_dir, self.workspace_original_database_dir, "PER_FOLDER", None)
 
         # pairs from retrieval variables
         db_descriptors = self.feature_path
@@ -143,23 +157,42 @@ class Localization:
                     f_coord_list.append([fx, fy])
             self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
 
-    def create_folders2(self):
-        pathlib.Path(self.workspace_loc_dir).mkdir(parents=True, exist_ok=True)
-        process = subprocess.Popen(["cp", self.match_database_dir, f"{self.workspace_dir}/db.db"])
+    def create_folders(self):
+        process = subprocess.Popen(["cp", self.workspace_original_database_dir, self.workspace_database_dir])
         return process
 
-    def delete_folders(self):
-        os.remove(f"{self.workspace_dir}/db.db")
-
-    def run_image_retrieval(self):
+    @profile
+    def run_image_retrieval_and_matching(self):
+        copy_process = self.create_folders()
+        # retrieve
         global_descriptors = extract_features.main_wo_model_loading(self.retrieval_model, self.device, self.skip_names,
                                                                     self.retrieval_conf, self.retrieval_images_dir,
                                                                     feature_path=self.feature_path)
         pairs_from_retrieval.main_wo_loading(global_descriptors, self.retrieval_loc_pairs_dir, 40,
                                              self.db_names, self.db_desc, self.query_names, self.device)
 
+        # match
+        extract_features.main_wo_model_loading(self.matching_model, self.device, self.matching_skip_names,
+                                               self.matching_conf, self.retrieval_images_dir,
+                                               feature_path=self.matching_feature_path)
+        matching_conf = match_features_bare.confs["NN-ratio"]
+        match_features_bare.main(matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
+                                 matches=self.retrieval_dataset / "matches.h5", overwrite=True)
+        copy_process.wait()
+        copy_process.kill()
+        # create_empty_db(self.workspace_database_dir)
+        # import_images(self.retrieval_images_dir, self.workspace_database_dir, "PER_FOLDER", None)
+        image_ids = get_image_ids(self.workspace_database_dir)
+        import_features(image_ids, self.workspace_database_dir, self.matching_feature_path)
+        import_matches(image_ids, self.workspace_database_dir, self.retrieval_loc_pairs_dir,
+                       self.retrieval_dataset / "matches.h5", None, self.skip_geometric_verification)
+        if not self.skip_geometric_verification:
+            geometric_verification(self.workspace_database_dir, self.retrieval_loc_pairs_dir)
+
+    @profile
     def main_for_api(self, metadata):
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
+        self.run_image_retrieval_and_matching()
         self.read_matching_database(self.workspace_database_dir)
 
         pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}")
@@ -205,6 +238,10 @@ class Localization:
                     else:
                         database_im_id = id2
                     kp_dict = {id1: [], id2: []}
+
+                    database_im_id_sfm = self.image_name_to_image_id[self.id2name[database_im_id].split("/")[-1]]
+
+                    pairs = []
                     for u, v in arr:
                         kp_dict[id1].append(u)
                         kp_dict[id2].append(v)
@@ -215,24 +252,36 @@ class Localization:
                         query_fid_coord = self.id2kp[query_im_id][query_fid]  # hloc
                         query_fid_desc = None
 
+                        x1, y1 = map(int, query_fid_coord)
+                        x2, y2 = map(int, database_fid_coord)
+                        pair = ((x1, y1), (x2, y2))
+                        pairs.append(pair)
+
                         if desc_heuristics:
                             query_fid_desc = self.id2desc[query_im_id][query_fid]  # hloc
 
-                        fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id]  # sfm
+                        fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
                         distances, indices = tree.query(database_fid_coord, 10)  # sfm
                         for idx, dis in enumerate(distances):
-                            ind = indices[idx]  # sfm
-                            pid = pid_list[ind]
-                            fid = fid_list[ind]
-                            if desc_heuristics:
-                                database_fid_desc = self.id2desc_sfm[database_im_id][ind]
-                                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
-                            else:
-                                desc_diff = 1
-                            print(dis, desc_diff)
-                            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
-                            point3d_candidate_pool.add(candidate)
-
+                            if dis < 10:
+                                ind = indices[idx]  # sfm
+                                pid = pid_list[ind]
+                                fid = fid_list[ind]
+                                if desc_heuristics:
+                                    database_fid_desc = self.id2desc_sfm[database_im_id_sfm][ind]  # sfm
+                                    desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
+                                else:
+                                    desc_diff = 1
+                                candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
+                                point3d_candidate_pool.add(candidate)
+                    # if debug:
+                    #     db_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}")
+                    #     query_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}")
+                    #     img = visualize_matching_pairs(query_img, db_img, pairs)
+                    #     img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+                    #     cv2.imshow("", img)
+                    #     cv2.waitKey()
+                    #     cv2.destroyAllWindows()
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
             point3d_candidate_pool.filter()
@@ -248,7 +297,10 @@ class Localization:
                 self.pid2images = colmap_io.read_pid2images(self.image2pose)
                 print(candidate.pid, candidate.dis, point3d_candidate_pool.pid2votes[candidate.pid])
                 x2, y2 = map(int, xy)
-                query_img = cv2.imread(f"{self.workspace_queries_dir}/{query_im_name}")
+                query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
+                if query_img is None:
+                    print(f"{self.retrieval_images_dir}/{query_im_name}")
+                    raise ValueError
                 cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
                 vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
                                                                       self.workspace_images_dir)
