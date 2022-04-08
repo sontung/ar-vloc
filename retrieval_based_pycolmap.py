@@ -1,5 +1,3 @@
-import pathlib
-import random
 import subprocess
 import time
 import pycolmap
@@ -8,19 +6,15 @@ import cv2
 import numpy as np
 import colmap_db_read
 import colmap_io
-import colmap_read
 import localization
-import shutil
 import open3d as o3d
-from vis_utils import visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose, visualize_matching_pairs
-from vis_utils import concat_images_different_sizes, visualize_matching_helper_with_pid2features
+from vis_utils import (visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose, visualize_matching_pairs,
+                       concat_images_different_sizes, visualize_matching_helper_with_pid2features)
 from scipy.spatial import KDTree
 from tqdm import tqdm
 from os import listdir
 from os.path import isfile, join
 from retrieval_utils import CandidatePool, MatchCandidate
-from utils import rewrite_retrieval_output
-import os
 
 import sys
 sys.path.append("Hierarchical-Localization")
@@ -58,7 +52,7 @@ def api_test():
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
         system.main_for_api(default_metadata)
-        break
+        # break
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     system.visualize()
@@ -120,8 +114,9 @@ class Localization:
         self.matching_feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.matching_skip_names = set(list_h5_names(self.matching_feature_path)
                                        if self.matching_feature_path.exists() else ())
-        create_empty_db(self.workspace_original_database_dir)
-        import_images(self.retrieval_images_dir, self.workspace_original_database_dir, "PER_FOLDER", None)
+        self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path,
+                                                            matches=self.retrieval_dataset / "matches.h5")
+        # self.create_hloc_database()
 
         # pairs from retrieval variables
         db_descriptors = self.feature_path
@@ -161,6 +156,16 @@ class Localization:
         process = subprocess.Popen(["cp", self.workspace_original_database_dir, self.workspace_database_dir])
         return process
 
+    def create_hloc_database(self):
+        create_empty_db(self.workspace_original_database_dir)
+        import_images(self.retrieval_images_dir, self.workspace_original_database_dir, "PER_FOLDER", None)
+        extract_features.main_wo_model_loading(self.matching_model, self.device, self.matching_skip_names,
+                                               self.matching_conf, self.retrieval_images_dir,
+                                               feature_path=self.matching_feature_path)
+        image_ids = get_image_ids(self.workspace_original_database_dir)
+        database_image_ids = {u: v for u, v in image_ids.items() if "db" in u}
+        import_features(database_image_ids, self.workspace_original_database_dir, self.matching_feature_path)
+
     @profile
     def run_image_retrieval_and_matching(self):
         copy_process = self.create_folders()
@@ -176,14 +181,17 @@ class Localization:
                                                self.matching_conf, self.retrieval_images_dir,
                                                feature_path=self.matching_feature_path)
         matching_conf = match_features_bare.confs["NN-ratio"]
-        match_features_bare.main(matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
+        match_features_bare.main(self.name2ref, matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
                                  matches=self.retrieval_dataset / "matches.h5", overwrite=True)
         copy_process.wait()
         copy_process.kill()
+
         # create_empty_db(self.workspace_database_dir)
         # import_images(self.retrieval_images_dir, self.workspace_database_dir, "PER_FOLDER", None)
         image_ids = get_image_ids(self.workspace_database_dir)
-        import_features(image_ids, self.workspace_database_dir, self.matching_feature_path)
+        query_image_ids = {u: v for u, v in image_ids.items() if "query" in u}
+
+        import_features(query_image_ids, self.workspace_database_dir, self.matching_feature_path)
         import_matches(image_ids, self.workspace_database_dir, self.retrieval_loc_pairs_dir,
                        self.retrieval_dataset / "matches.h5", None, self.skip_geometric_verification)
         if not self.skip_geometric_verification:
