@@ -1,6 +1,5 @@
 import subprocess
 import time
-import pycolmap
 import torch
 import cv2
 import numpy as np
@@ -8,8 +7,8 @@ import colmap_db_read
 import colmap_io
 import localization
 import open3d as o3d
-from vis_utils import (visualize_cam_pose_with_point_cloud, return_cam_mesh_with_pose, visualize_matching_pairs,
-                       concat_images_different_sizes, visualize_matching_helper_with_pid2features)
+from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features,
+                       visualize_matching_pairs)
 from scipy.spatial import KDTree
 from tqdm import tqdm
 from os import listdir
@@ -39,7 +38,7 @@ def localize(metadata, pairs):
 
 
 def api_test():
-    system = Localization()
+    system = Localization(skip_geometric_verification=False)
     query_folder = "test_line_jpg"
     name_list = [f for f in listdir(query_folder) if isfile(join(query_folder, f))]
     query_folder_workspace1 = "vloc_workspace_retrieval/images"
@@ -47,19 +46,31 @@ def api_test():
     default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
 
     start = time.time()
+    # name_list = ["line-22.jpg"]
+    # name_list = ["line-12.jpg"]
+    scores = []
     for name in name_list:
+        print(name)
         query_img = cv2.imread(f"{query_folder}/{name}")
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
-        system.main_for_api(default_metadata)
+        score = system.main_for_api(default_metadata)
+        if score is None:
+            score = 0
+        scores.append(score)
+        # system.visualize()
+        # if len(system.localization_results) > 0:
+        #     system.localization_results.pop()
+
         # break
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
+    print(f"Avg. inlier ratio = {np.mean(scores)}")
     system.visualize()
 
 
 class Localization:
-    def __init__(self):
+    def __init__(self, skip_geometric_verification=False):
         self.database_dir = Path("vloc_workspace")
         self.match_database_dir = self.database_dir / "db.db"  # dir to database containing matches between queries and database
         self.workspace_original_database_dir = self.database_dir / "ori_database_hloc.db"
@@ -106,7 +117,7 @@ class Localization:
         self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
 
         # matching variables
-        self.skip_geometric_verification = False
+        self.skip_geometric_verification = skip_geometric_verification
         self.matching_conf = extract_features.confs['sift']
         model_class = dynamic_load(extractors, self.matching_conf['model']['name'])
         self.matching_model = model_class(self.matching_conf['model']).eval().to(self.device)
@@ -166,7 +177,6 @@ class Localization:
         database_image_ids = {u: v for u, v in image_ids.items() if "db" in u}
         import_features(database_image_ids, self.workspace_original_database_dir, self.matching_feature_path)
 
-    @profile
     def run_image_retrieval_and_matching(self):
         copy_process = self.create_folders()
         # retrieve
@@ -197,13 +207,12 @@ class Localization:
         if not self.skip_geometric_verification:
             geometric_verification(self.workspace_database_dir, self.retrieval_loc_pairs_dir)
 
-    @profile
     def main_for_api(self, metadata):
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
         self.run_image_retrieval_and_matching()
         self.read_matching_database(self.workspace_database_dir)
 
-        pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}")
+        pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=False)
         if len(pairs) == 0:
             return
 
@@ -219,6 +228,7 @@ class Localization:
         r_mat, t_vec = best_pose
 
         self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
+        return best_score
 
     def visualize(self):
         self.prepare_visualization()
@@ -226,7 +236,10 @@ class Localization:
         self.localization_results.clear()
 
     def read_matching_database(self, database_dir):
-        self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
+        if not self.skip_geometric_verification:
+            self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
+        else:
+            self.matches = colmap_db_read.extract_colmap_matches(database_dir)
         self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_hloc(database_dir)
 
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
@@ -271,25 +284,26 @@ class Localization:
                         fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
                         distances, indices = tree.query(database_fid_coord, 10)  # sfm
                         for idx, dis in enumerate(distances):
-                            if dis < 10:
-                                ind = indices[idx]  # sfm
-                                pid = pid_list[ind]
-                                fid = fid_list[ind]
-                                if desc_heuristics:
-                                    database_fid_desc = self.id2desc_sfm[database_im_id_sfm][ind]  # sfm
-                                    desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
-                                else:
-                                    desc_diff = 1
-                                candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
-                                point3d_candidate_pool.add(candidate)
-                    # if debug:
-                    #     db_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}")
-                    #     query_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}")
-                    #     img = visualize_matching_pairs(query_img, db_img, pairs)
-                    #     img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
-                    #     cv2.imshow("", img)
-                    #     cv2.waitKey()
-                    #     cv2.destroyAllWindows()
+                            ind = indices[idx]  # sfm
+                            pid = pid_list[ind]
+                            fid = fid_list[ind]
+                            if desc_heuristics:
+                                database_fid_desc = self.id2desc_sfm[database_im_id_sfm][ind]  # sfm
+                                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
+                            else:
+                                desc_diff = 1
+                            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
+                            point3d_candidate_pool.add(candidate)
+
+                    print(f"registering {self.id2name[database_im_id]}")
+                    if debug:
+                        db_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}")
+                        query_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}")
+                        img = visualize_matching_pairs(query_img, db_img, pairs)
+                        img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+                        cv2.imshow("", img)
+                        cv2.waitKey()
+                        cv2.destroyAllWindows()
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
             point3d_candidate_pool.filter()
@@ -331,3 +345,8 @@ class Localization:
 
 if __name__ == '__main__':
     api_test()
+    # system = Localization()
+    # system.run_image_retrieval_and_matching()
+    # system.read_matching_database(system.workspace_database_dir)
+    # system.read_2d_2d_matches(f"query/query.jpg", debug=True)
+
