@@ -6,6 +6,7 @@ import numpy as np
 import colmap_db_read
 import colmap_io
 import localization
+import pydegensac
 import open3d as o3d
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features,
                        visualize_matching_pairs)
@@ -13,7 +14,8 @@ from scipy.spatial import KDTree
 from tqdm import tqdm
 from os import listdir
 from os.path import isfile, join
-from retrieval_utils import CandidatePool, MatchCandidate
+from retrieval_utils import (CandidatePool, MatchCandidate,
+                             extract_retrieval_pairs, geometric_verify_pydegensac, filter_pairs)
 
 import sys
 sys.path.append("Hierarchical-Localization")
@@ -38,7 +40,7 @@ def localize(metadata, pairs):
 
 
 def api_test():
-    system = Localization(skip_geometric_verification=False)
+    system = Localization(skip_geometric_verification=True)
     query_folder = "test_line_jpg"
     name_list = [f for f in listdir(query_folder) if isfile(join(query_folder, f))]
     query_folder_workspace1 = "vloc_workspace_retrieval/images"
@@ -49,24 +51,31 @@ def api_test():
     # name_list = ["line-22.jpg"]
     # name_list = ["line-12.jpg"]
     scores = []
+    distances = []
+    images_with_scores = []
     for name in name_list:
         print(name)
         query_img = cv2.imread(f"{query_folder}/{name}")
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
-        score = system.main_for_api(default_metadata)
-        if score is None:
-            score = 0
+        score, mean_distance = system.main_for_api(default_metadata)
+        if mean_distance is not None:
+            distances.append(mean_distance)
         scores.append(score)
+        images_with_scores.append((name, score))
         # system.visualize()
         # if len(system.localization_results) > 0:
         #     system.localization_results.pop()
-
         # break
+
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
+    print(f"Avg. distance to 3d points = {np.mean(distances)}")
     system.visualize()
+    images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
+    for du in images_with_scores:
+        print(du)
 
 
 class Localization:
@@ -180,11 +189,17 @@ class Localization:
     def run_image_retrieval_and_matching(self):
         copy_process = self.create_folders()
         # retrieve
-        global_descriptors = extract_features.main_wo_model_loading(self.retrieval_model, self.device, self.skip_names,
-                                                                    self.retrieval_conf, self.retrieval_images_dir,
-                                                                    feature_path=self.feature_path)
-        pairs_from_retrieval.main_wo_loading(global_descriptors, self.retrieval_loc_pairs_dir, 40,
-                                             self.db_names, self.db_desc, self.query_names, self.device)
+        # global_descriptors = extract_features.main_wo_model_loading(self.retrieval_model, self.device, self.skip_names,
+        #                                                             self.retrieval_conf, self.retrieval_images_dir,
+        #                                                             feature_path=self.feature_path)
+        # pairs_from_retrieval.main_wo_loading(global_descriptors, self.retrieval_loc_pairs_dir, 40,
+        #                                      self.db_names, self.db_desc, self.query_names, self.device)
+
+        extract_retrieval_pairs("vloc_workspace_retrieval/database_global_descriptors_0.pkl",
+                                "vloc_workspace_retrieval/images_retrieval/query/query.jpg",
+                                "vloc_workspace_retrieval/retrieval_pairs.txt",
+                                multi_scale=False,
+                                nb_neighbors=40)
 
         # match
         extract_features.main_wo_model_loading(self.matching_model, self.device, self.matching_skip_names,
@@ -212,9 +227,9 @@ class Localization:
         self.run_image_retrieval_and_matching()
         self.read_matching_database(self.workspace_database_dir)
 
-        pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=False)
+        pairs, _, mean_distance = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=False)
         if len(pairs) == 0:
-            return
+            return 0, None
 
         best_score = None
         best_pose = None
@@ -228,7 +243,7 @@ class Localization:
         r_mat, t_vec = best_pose
 
         self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
-        return best_score
+        return best_score, mean_distance
 
     def visualize(self):
         self.prepare_visualization()
@@ -249,6 +264,7 @@ class Localization:
             desc_heuristics = True
         query_im_id = name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
+        mean_distances = []
         for m in self.matches:
             if query_im_id in m:
                 arr = self.matches[m]
@@ -258,31 +274,44 @@ class Localization:
                         database_im_id = id1
                     else:
                         database_im_id = id2
-                    kp_dict = {id1: [], id2: []}
-
                     database_im_id_sfm = self.image_name_to_image_id[self.id2name[database_im_id].split("/")[-1]]
-
                     pairs = []
+                    points1 = []
+                    points2 = []
                     for u, v in arr:
-                        kp_dict[id1].append(u)
-                        kp_dict[id2].append(v)
-                        database_fid = kp_dict[database_im_id][-1]
-                        query_fid = kp_dict[query_im_id][-1]
+                        if id1 == database_im_id:
+                            database_fid = u
+                            query_fid = v
+                        else:
+                            database_fid = v
+                            query_fid = u
 
                         database_fid_coord = self.id2kp[database_im_id][database_fid]  # hloc
                         query_fid_coord = self.id2kp[query_im_id][query_fid]  # hloc
-                        query_fid_desc = None
 
                         x1, y1 = map(int, query_fid_coord)
                         x2, y2 = map(int, database_fid_coord)
-                        pair = ((x1, y1), (x2, y2))
-                        pairs.append(pair)
-
+                        query_fid_desc = None
                         if desc_heuristics:
                             query_fid_desc = self.id2desc[query_im_id][query_fid]  # hloc
 
+                        pair = ((x1, y1), (x2, y2), query_fid_desc)
+                        pairs.append(pair)
+                        points1.append(query_fid_coord)
+                        points2.append(database_fid_coord)
+
+                    points1 = np.vstack(points1)
+                    points2 = np.vstack(points2)
+                    if points1.shape[0] < 4:  # too few matches
+                        continue
+                    h_mat, mask, s1, s2 = geometric_verify_pydegensac(points1, points2)
+                    pairs = filter_pairs(pairs, mask)
+
+                    for pair in pairs:
+                        query_fid_coord, database_fid_coord, query_fid_desc = pair
                         fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
                         distances, indices = tree.query(database_fid_coord, 10)  # sfm
+                        mean_distances.append(np.mean(distances))
                         for idx, dis in enumerate(distances):
                             ind = indices[idx]  # sfm
                             pid = pid_list[ind]
@@ -295,7 +324,6 @@ class Localization:
                             candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
                             point3d_candidate_pool.add(candidate)
 
-                    print(f"registering {self.id2name[database_im_id]}")
                     if debug:
                         db_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}")
                         query_img = cv2.imread(f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}")
@@ -328,7 +356,7 @@ class Localization:
                                                                       self.workspace_images_dir)
                 cv2.imwrite(f"debug2/img-{cand_idx}.jpg", vis_img)
         tqdm.write(f" voting-based returns {len(pairs)} pairs for {query_im_name}")
-        return pairs, point3d_candidate_pool
+        return pairs, point3d_candidate_pool, np.mean(mean_distances)
 
     def prepare_visualization(self):
         points_3d_list = []

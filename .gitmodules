@@ -4,3 +4,9 @@
 [submodule "Hierarchical-Localization"]
 	path = Hierarchical-Localization
 	url = git@github.com:sontung/Hierarchical-Localization.git
+[submodule "cnnimageretrieval-pytorch"]
+	path = cnnimageretrieval-pytorch
+	url = git@github.com:filipradenovic/cnnimageretrieval-pytorch.git
+[submodule "pydegensac"]
+	path = pydegensac
+	url = git@github.com:ducha-aiki/pydegensac.git

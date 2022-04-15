@@ -1,6 +1,33 @@
+import copy
 import sys
+
+import pydegensac
+
+sys.path.append("cnnimageretrieval-pytorch")
+import cv2
+import os
+import numpy as np
+import pickle
+import faiss
 from colmap_io import build_co_visibility_graph, read_images, read_name2id
+from vis_utils import concat_images_different_sizes
 from scipy.spatial import KDTree
+from tqdm import tqdm
+
+from os.path import isfile, join
+from torch.utils.model_zoo import load_url
+from torchvision import transforms
+
+from cirtorch.networks.imageretrievalnet import init_network, extract_ms, extract_ss
+from cirtorch.datasets.datahelpers import imresize, default_loader
+from cirtorch.utils.general import get_data_root
+from cirtorch.utils.whiten import whitenapply
+
+
+TRAINED = {
+    'rSfM120k-tl-resnet101-gem-w': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
+    'retrievalSfM120k-resnet101-gem': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
+}
 
 
 class CandidatePool:
@@ -151,7 +178,128 @@ def enhance_retrieval_pairs(dir_to_retrieval_pairs, image2pose, out_dir, extra_r
                 print(query_name, name, file=a_file)
 
 
+def extract_global_descriptors_on_database_images(database_folder, save_folder, multi_scale=True):
+    all_images = [f for f in os.listdir(database_folder) if isfile(join(database_folder, f))]
+
+    # setting up the visible GPU
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+    input_res = 1024
+    scales = [1, 1 / np.sqrt(2), 1 / 2]  # re-scaling factors for multi-scale extraction
+
+    # sample image
+    state = load_url(TRAINED['retrievalSfM120k-resnet101-gem'], model_dir=os.path.join(get_data_root(), 'networks'))
+    net = init_network({'architecture': state['meta']['architecture'], 'pooling': state['meta']['pooling'],
+                        'whitening': state['meta'].get('whitening')})
+    net.load_state_dict(state['state_dict'])
+    net.eval()
+    net.cuda()
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(mean=state['meta']['mean'], std=state['meta']['std'])])
+    names = []
+    descriptors = []
+    for img_file in tqdm(all_images):
+        img = default_loader(join(database_folder, img_file))
+
+        if not multi_scale:
+            # single-scale extraction
+            vec = extract_ss(net, transform(imresize(img, input_res)).unsqueeze(0).cuda())
+            vec = vec.data.cpu().numpy()
+            whiten_ss = state['meta']['Lw']['retrieval-SfM-120k']['ss']
+            vec = whitenapply(vec.reshape(-1, 1), whiten_ss['m'], whiten_ss['P']).reshape(-1)
+        else:
+            # multi-scale extraction
+            vec = extract_ms(net, transform(imresize(img, input_res)).unsqueeze(0).cuda(), ms=scales, msp=net.pool.p.item())
+            vec = vec.data.cpu().numpy()
+            whiten_ms = state['meta']['Lw']['retrieval-SfM-120k']['ms']
+            vec = whitenapply(vec.reshape(-1, 1), whiten_ms['m'], whiten_ms['P']).reshape(-1)
+
+        names.append(img_file)
+        descriptors.append(vec)
+
+    data = {"name": names, "desc": descriptors}
+    with open(f'{save_folder}/database_global_descriptors_{int(multi_scale)}.pkl', 'wb') as handle:
+        pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def extract_retrieval_pairs(database_descriptors_file, query_im_file, output_file_dir,
+                            multi_scale=True, nb_neighbors=40, debug=False):
+    with open(database_descriptors_file, 'rb') as handle:
+        database_descriptors = pickle.load(handle)
+    img_names = database_descriptors["name"]
+    img_descriptors = database_descriptors["desc"]
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+    input_res = 1024
+    scales = [1, 1 / np.sqrt(2), 1 / 2]  # re-scaling factors for multi-scale extraction
+
+    # sample image
+    state = load_url(TRAINED['retrievalSfM120k-resnet101-gem'], model_dir=os.path.join(get_data_root(), 'networks'))
+    net = init_network({'architecture': state['meta']['architecture'], 'pooling': state['meta']['pooling'],
+                        'whitening': state['meta'].get('whitening')})
+    net.load_state_dict(state['state_dict'])
+    net.eval()
+    net.cuda()
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(mean=state['meta']['mean'], std=state['meta']['std'])])
+
+    img = default_loader(query_im_file)
+
+    if not multi_scale:
+        # single-scale extraction
+        vec = extract_ss(net, transform(imresize(img, input_res)).unsqueeze(0).cuda())
+        vec = vec.data.cpu().numpy()
+        whiten_ss = state['meta']['Lw']['retrieval-SfM-120k']['ss']
+        vec = whitenapply(vec.reshape(-1, 1), whiten_ss['m'], whiten_ss['P']).reshape(-1)
+    else:
+        # multi-scale extraction
+        vec = extract_ms(net, transform(imresize(img, input_res)).unsqueeze(0).cuda(), ms=scales,
+                         msp=net.pool.p.item())
+        vec = vec.data.cpu().numpy()
+        whiten_ms = state['meta']['Lw']['retrieval-SfM-120k']['ms']
+        vec = whitenapply(vec.reshape(-1, 1), whiten_ms['m'], whiten_ms['P']).reshape(-1)
+    img_descriptors = np.vstack(img_descriptors).astype(np.float32)
+    vec = np.vstack([vec]).astype(np.float32)
+
+    dim = img_descriptors.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(img_descriptors)
+    distances, indices = index.search(vec, nb_neighbors)
+    if debug:
+        db_img_root = "/home/sontung/work/ar-vloc/vloc_workspace_retrieval/images_retrieval/db"
+        query_im = cv2.imread(query_im_file)
+        for ind2, ind in enumerate(indices[0]):
+            print(distances[0][ind2], img_names[ind])
+            img = cv2.imread(f"{db_img_root}/{img_names[ind]}")
+            img = concat_images_different_sizes([img, query_im])
+            img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
+            cv2.imshow("", img)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
+    with open(output_file_dir, "w") as a_file:
+        for ind in indices[0]:
+            print(f"query.jpg {img_names[ind]}", file=a_file)
+
+
+def geometric_verify_pydegensac(src_pts, dst_pts, th=4.0, n_iter=2000):
+    h_mat, mask = pydegensac.findHomography(src_pts, dst_pts, th, 0.99, n_iter)
+    nb_inliers = int(copy.deepcopy(mask).astype(np.float32).sum())
+    return h_mat, mask, nb_inliers, nb_inliers / src_pts.shape[0]
+
+
+def filter_pairs(ori_pairs, mask_):
+    return [ori_pairs[idx] for idx in range(len(ori_pairs)) if mask_[idx]]
+
+
 if __name__ == '__main__':
-    image2pose_ = read_images("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/new/images.txt")
-    enhance_retrieval_pairs("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/retrieval_pairs.txt", image2pose_,
-                            "/home/sontung/work/ar-vloc/vloc_workspace_retrieval/retrieval_pairs2.txt")
+    # extract_global_descriptors_on_database_images("vloc_workspace_retrieval/images_retrieval/db",
+    #                                               "vloc_workspace_retrieval")
+    # extract_global_descriptors_on_database_images("vloc_workspace_retrieval/images_retrieval/db",
+    #                                               "vloc_workspace_retrieval",
+    #                                               multi_scale=False)
+    extract_retrieval_pairs("vloc_workspace_retrieval/database_global_descriptors_0.pkl",
+                            "vloc_workspace_retrieval/images_retrieval/query/query.jpg",
+                            "vloc_workspace_retrieval/retrieval_pairs.txt",
+                            multi_scale=False,
+                            nb_neighbors=40)
