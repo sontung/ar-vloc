@@ -1,8 +1,4 @@
-import copy
 import sys
-
-import pydegensac
-
 sys.path.append("cnnimageretrieval-pytorch")
 import cv2
 import os
@@ -10,7 +6,7 @@ import numpy as np
 import pickle
 import faiss
 from colmap_io import build_co_visibility_graph, read_images, read_name2id
-from vis_utils import concat_images_different_sizes
+from vis_utils import concat_images_different_sizes, visualize_matching_pairs
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
@@ -282,14 +278,11 @@ def extract_retrieval_pairs(database_descriptors_file, query_im_file, output_fil
             print(f"query.jpg {img_names[ind]}", file=a_file)
 
 
-def geometric_verify_pydegensac(src_pts, dst_pts, th=4.0, n_iter=2000):
-    h_mat, mask = pydegensac.findHomography(src_pts, dst_pts, th, 0.99, n_iter)
-    nb_inliers = int(copy.deepcopy(mask).astype(np.float32).sum())
-    return h_mat, mask, nb_inliers, nb_inliers / src_pts.shape[0]
-
-
-def filter_pairs(ori_pairs, mask_):
-    return [ori_pairs[idx] for idx in range(len(ori_pairs)) if mask_[idx]]
+def log_matching(pairs, name1, name2, name3):
+    db_img = cv2.imread(name1)
+    query_img = cv2.imread(name2)
+    img = visualize_matching_pairs(query_img, db_img, pairs)
+    cv2.imwrite(name3, img)
 
 
 if __name__ == '__main__':
