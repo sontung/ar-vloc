@@ -29,7 +29,6 @@ from hloc.utils.io import list_h5_names
 from hloc.triangulation import (import_features, import_matches, geometric_verification)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
-
 DEBUG = True
 GLOBAL_COUNT = 1
 
@@ -52,19 +51,18 @@ def api_test():
     default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
 
     start = time.time()
+    name_list = ["line-14.jpg"]
+    # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
-    # name_list = ["line-20.jpg"]
+
     scores = []
-    distances = []
     images_with_scores = []
     for name in name_list:
         print(name)
         query_img = cv2.imread(f"{query_folder}/{name}")
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
-        score, mean_distance = system.main_for_api(default_metadata)
-        if mean_distance is not None:
-            distances.append(mean_distance)
+        score = system.main_for_api(default_metadata)
         scores.append(score)
         images_with_scores.append((name, score))
         # system.visualize()
@@ -75,8 +73,7 @@ def api_test():
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
-    print(f"Avg. distance to 3d points = {np.mean(distances)}")
-    system.visualize()
+    # system.visualize()
     images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
     for du in images_with_scores:
         print(du)
@@ -231,7 +228,7 @@ class Localization:
         self.run_image_retrieval_and_matching()
         self.read_matching_database(self.workspace_database_dir)
 
-        pairs, _, mean_distance = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=DEBUG)
+        pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=DEBUG)
         if len(pairs) == 0:
             return 0, None
 
@@ -242,12 +239,12 @@ class Localization:
             if best_score is None or score > best_score:
                 best_score = score
                 best_pose = (r_mat, t_vec)
-                if best_score == 1.0:
+                if best_score > 0.9:
                     break
         r_mat, t_vec = best_pose
 
         self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
-        return best_score, mean_distance
+        return best_score
 
     def visualize(self):
         self.prepare_visualization()
@@ -261,6 +258,107 @@ class Localization:
             self.matches = colmap_db_read.extract_colmap_matches(database_dir)
         self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_hloc(database_dir)
 
+    def gather_matches(self, arr, id1, query_im_id, database_im_id, desc_heuristics):
+        pairs = []
+        points1 = []
+        points2 = []
+        for u, v in arr:
+            if id1 == database_im_id:
+                database_fid = u
+                query_fid = v
+            else:
+                database_fid = v
+                query_fid = u
+
+            database_fid_coord = self.id2kp[database_im_id][database_fid]  # hloc
+            query_fid_coord = self.id2kp[query_im_id][query_fid]  # hloc
+
+            x1, y1 = map(int, query_fid_coord)
+            x2, y2 = map(int, database_fid_coord)
+            query_fid_desc = None
+            if desc_heuristics:
+                query_fid_desc = self.id2desc[query_im_id][query_fid]  # hloc
+
+            pair = ((x1, y1), (x2, y2), query_fid_desc)
+            pairs.append(pair)
+            points1.append(query_fid_coord)
+            points2.append(database_fid_coord)
+        return points1, points2, pairs
+
+    def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
+        if points1.shape[0] < 4:  # too few matches
+            if DEBUG:
+                log_matching(pairs,
+                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
+                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-few.jpg")
+            return False, None
+        h_mat, mask, s1, s2 = geometric_verify_pydegensac(points1, points2)
+        if np.sum(mask) == 0:  # homography is degenerate
+            if DEBUG:
+                log_matching(pairs,
+                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
+                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-mask0.jpg")
+            return False, mask
+        h, w = 4032, 2268
+        pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
+        dst = cv2.perspectiveTransform(pts, h_mat)
+        dst = np.int64(dst)
+
+        # normalize to center
+        w3, h3 = np.min(dst[:, 0, 0]), np.min(dst[:, 0, 1])
+        if w3 < 0:
+            dst[:, 0, 0] -= w3
+        if h3 < 0:
+            dst[:, 0, 1] -= h3
+
+        w2, h2 = np.max(dst[:, 0, 0]), np.max(dst[:, 0, 1])
+        if max(w2, h2) > 10000:  # too large homography
+            if DEBUG:
+                log_matching(pairs,
+                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
+                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-large.jpg")
+            return False, mask
+        if w2 == 0 or h2 == 0:  # homography is degenerate
+            if DEBUG:
+                log_matching(pairs,
+                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
+                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-00.jpg")
+            return False, mask
+
+        # check if homography is degenerate
+        self_intersect = quadrilateral_self_intersect_test(dst[0, 0, :], dst[1, 0, :],
+                                                           dst[2, 0, :], dst[3, 0, :])
+        if self_intersect:
+            if DEBUG:
+                log_matching(pairs,
+                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
+                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-intersect.jpg")
+            return False, mask
+
+        return True, mask
+
+    def register_matches(self, pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics):
+        for pair in pairs:
+            query_fid_coord, database_fid_coord, query_fid_desc = pair
+            fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+            distances, indices = tree.query(database_fid_coord, 10)  # sfm
+            for idx, dis in enumerate(distances):
+                ind = indices[idx]  # sfm
+                pid = pid_list[ind]
+                fid = fid_list[ind]
+                if desc_heuristics:
+                    database_fid_desc = self.id2desc_sfm[database_im_id_sfm][ind]  # sfm
+                    desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
+                else:
+                    desc_diff = 1
+                candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
+                point3d_candidate_pool.add(candidate)
+
     # @profile
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
@@ -269,114 +367,45 @@ class Localization:
             desc_heuristics = True
         query_im_id = name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
-        mean_distances = []
         global GLOBAL_COUNT
-        GLOBAL_COUNT += 1
+        nb_skipped = 0
+        using = 0
+        total = 0
         for m in self.matches:
             if query_im_id in m:
                 arr = self.matches[m]
                 if arr is not None:
+                    GLOBAL_COUNT += 1
+                    total += 1
                     id1, id2 = m
                     if id1 != query_im_id:
                         database_im_id = id1
                     else:
                         database_im_id = id2
                     database_im_id_sfm = self.image_name_to_image_id[self.id2name[database_im_id].split("/")[-1]]
-                    pairs = []
-                    points1 = []
-                    points2 = []
-                    for u, v in arr:
-                        if id1 == database_im_id:
-                            database_fid = u
-                            query_fid = v
-                        else:
-                            database_fid = v
-                            query_fid = u
 
-                        database_fid_coord = self.id2kp[database_im_id][database_fid]  # hloc
-                        query_fid_coord = self.id2kp[query_im_id][query_fid]  # hloc
-
-                        x1, y1 = map(int, query_fid_coord)
-                        x2, y2 = map(int, database_fid_coord)
-                        query_fid_desc = None
-                        if desc_heuristics:
-                            query_fid_desc = self.id2desc[query_im_id][query_fid]  # hloc
-
-                        pair = ((x1, y1), (x2, y2), query_fid_desc)
-                        pairs.append(pair)
-                        points1.append(query_fid_coord)
-                        points2.append(database_fid_coord)
-
-                    # homography ransac loop checking
+                    points1, points2, pairs = self.gather_matches(arr, id1, query_im_id,
+                                                                  database_im_id, desc_heuristics)
                     points1 = np.vstack(points1)
                     points2 = np.vstack(points2)
-                    if points1.shape[0] < 4:  # too few matches
-                        log_matching(pairs,
-                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                                     f"debug2/{GLOBAL_COUNT}-few.jpg")
-                        continue
-                    h_mat, mask, s1, s2 = geometric_verify_pydegensac(points1, points2)
-                    if np.sum(mask) == 0:  # homography is degenerate
-                        log_matching(pairs,
-                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                                     f"debug2/{GLOBAL_COUNT}-mask0.jpg")
-                        continue
-                    h, w = 4032, 2268
-                    pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
-                    dst = cv2.perspectiveTransform(pts, h_mat)
-                    dst = np.int64(dst)
 
-                    # normalize to center
-                    w3, h3 = np.min(dst[:, 0, 0]), np.min(dst[:, 0, 1])
-                    if w3 < 0:
-                        dst[:, 0, 0] -= w3
-                    if h3 < 0:
-                        dst[:, 0, 1] -= h3
-
-                    w2, h2 = np.max(dst[:, 0, 0]), np.max(dst[:, 0, 1])
-                    if max(w2, h2) > 10000:  # too large homography
-                        log_matching(pairs,
-                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                                     f"debug2/{GLOBAL_COUNT}-large.jpg")
-                        continue
-                    if w2 == 0 or h2 == 0:  # homography is degenerate
-                        log_matching(pairs,
-                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                                     f"debug2/{GLOBAL_COUNT}-00.jpg")
-                        continue
-
-                    # check if homography is degenerate
-                    self_intersect = quadrilateral_self_intersect_test(dst[0, 0, :], dst[1, 0, :],
-                                                                       dst[2, 0, :], dst[3, 0, :])
-                    if self_intersect:
-                        log_matching(pairs,
-                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                                     f"debug2/{GLOBAL_COUNT}-intersect.jpg")
+                    # homography ransac loop checking
+                    verified, mask = self.verify_matches(points1, points2, pairs, query_im_id, database_im_id)
+                    if not verified:
+                        nb_skipped += 1
                         continue
 
                     pairs = filter_pairs(pairs, mask)
-                    for pair in pairs:
-                        query_fid_coord, database_fid_coord, query_fid_desc = pair
-                        fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
-                        distances, indices = tree.query(database_fid_coord, 10)  # sfm
-                        mean_distances.append(np.mean(distances))
-                        for idx, dis in enumerate(distances):
-                            ind = indices[idx]  # sfm
-                            pid = pid_list[ind]
-                            fid = fid_list[ind]
-                            if desc_heuristics:
-                                database_fid_desc = self.id2desc_sfm[database_im_id_sfm][ind]  # sfm
-                                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc-database_fid_desc)))/128
-                            else:
-                                desc_diff = 1
-                            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
-                            point3d_candidate_pool.add(candidate)
+                    using += 1
+                    if DEBUG:
+                        log_matching(pairs,
+                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
+                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                                     f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-useful.jpg")
 
+                    self.register_matches(pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
+
+        print(f" found {total} pairs, skipped {nb_skipped} pairs, used {using} pairs")
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
             point3d_candidate_pool.filter()
@@ -402,7 +431,7 @@ class Localization:
             #     cv2.imwrite(f"debug2/img-{cand_idx}.jpg", vis_img)
 
         tqdm.write(f" voting-based returns {len(pairs)} pairs for {query_im_name}")
-        return pairs, point3d_candidate_pool, np.mean(mean_distances)
+        return pairs, point3d_candidate_pool
 
     def prepare_visualization(self):
         points_3d_list = []
@@ -423,4 +452,3 @@ if __name__ == '__main__':
     # system.run_image_retrieval_and_matching()
     # system.read_matching_database(system.workspace_database_dir)
     # system.read_2d_2d_matches(f"query/query.jpg", debug=True)
-
