@@ -235,7 +235,7 @@ def extract_global_descriptors_on_database_images(database_folder, save_folder, 
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def extract_retrieval_pairs(database_descriptors_file, query_im_file, output_file_dir,
+def extract_retrieval_pairs(net, state, database_descriptors_file, query_im_file, output_file_dir,
                             multi_scale=True, nb_neighbors=40, debug=False):
     with open(database_descriptors_file, 'rb') as handle:
         database_descriptors = pickle.load(handle)
@@ -247,13 +247,6 @@ def extract_retrieval_pairs(database_descriptors_file, query_im_file, output_fil
     input_res = 1024
     scales = [1, 1 / np.sqrt(2), 1 / 2]  # re-scaling factors for multi-scale extraction
 
-    # sample image
-    state = load_url(TRAINED['retrievalSfM120k-resnet101-gem'], model_dir=os.path.join(get_data_root(), 'networks'))
-    net = init_network({'architecture': state['meta']['architecture'], 'pooling': state['meta']['pooling'],
-                        'whitening': state['meta'].get('whitening')})
-    net.load_state_dict(state['state_dict'])
-    net.eval()
-    net.cuda()
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize(mean=state['meta']['mean'], std=state['meta']['std'])])
 

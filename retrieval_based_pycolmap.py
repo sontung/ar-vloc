@@ -19,6 +19,8 @@ from retrieval_utils import (CandidatePool, MatchCandidate, extract_retrieval_pa
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
 
 sys.path.append("Hierarchical-Localization")
+sys.path.append("cnnimageretrieval-pytorch")
+
 
 from pathlib import Path
 from hloc import extractors
@@ -28,6 +30,9 @@ from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names
 from hloc.triangulation import (import_features, import_matches, geometric_verification)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
+
+from torch.utils.model_zoo import load_url
+from cirtorch.networks.imageretrievalnet import init_network, extract_ms, extract_ss
 
 DEBUG = False
 GLOBAL_COUNT = 1
@@ -54,7 +59,7 @@ def api_test():
     # name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
-    name_list = name_list[:10]
+    # name_list = name_list[:10]
 
     scores = []
     images_with_scores = []
@@ -74,7 +79,7 @@ def api_test():
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
-    # system.visualize()
+    system.visualize()
     images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
     for du in images_with_scores:
         print(du)
@@ -127,6 +132,21 @@ class Localization:
         self.feature_path = Path(self.retrieval_dataset, self.retrieval_conf['output'] + '.h5')
         self.feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
+
+        # cnn image retrieval
+        training_weights = {
+            '0': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
+            '1': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
+        }
+        weights_folder = "cnnimageretrieval-pytorch/data/networks"
+        self.state = load_url(training_weights['0'], model_dir=weights_folder)
+        self.cnn_retrieval_net = init_network({'architecture': self.state['meta']['architecture'],
+                                               'pooling': self.state['meta']['pooling'],
+                                               'whitening': self.state['meta'].get('whitening')})
+        print(list(self.state["meta"]["whitening"].keys()))
+        self.cnn_retrieval_net.load_state_dict(self.state['state_dict'])
+        self.cnn_retrieval_net.eval()
+        self.cnn_retrieval_net.cuda()
 
         # matching variables
         self.desc_type = None
@@ -199,7 +219,8 @@ class Localization:
         # pairs_from_retrieval.main_wo_loading(global_descriptors, self.retrieval_loc_pairs_dir, 40,
         #                                      self.db_names, self.db_desc, self.query_names, self.device)
 
-        extract_retrieval_pairs("vloc_workspace_retrieval/database_global_descriptors_0.pkl",
+        extract_retrieval_pairs(self.cnn_retrieval_net, self.state,
+                                "vloc_workspace_retrieval/database_global_descriptors_0.pkl",
                                 "vloc_workspace_retrieval/images_retrieval/query/query.jpg",
                                 "vloc_workspace_retrieval/retrieval_pairs.txt",
                                 multi_scale=False,
