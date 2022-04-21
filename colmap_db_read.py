@@ -52,7 +52,7 @@ CREATE_DESCRIPTORS_TABLE = """CREATE TABLE IF NOT EXISTS descriptors (
     image_id INTEGER PRIMARY KEY NOT NULL,
     rows INTEGER NOT NULL,
     cols INTEGER NOT NULL,
-    data BLOB,
+    data MEDIUMBLOB,
     FOREIGN KEY(image_id) REFERENCES images(image_id) ON DELETE CASCADE)"""
 
 CREATE_IMAGES_TABLE = """CREATE TABLE IF NOT EXISTS images (
@@ -125,17 +125,11 @@ def pair_id_to_image_ids(pair_id):
 
 
 def array_to_blob(array):
-    if IS_PYTHON3:
-        return array.tostring()
-    else:
-        return np.getbuffer(array)
+    return array.tobytes()
 
 
 def blob_to_array(blob, dtype, shape=(-1,)):
-    if IS_PYTHON3:
-        return np.frombuffer(blob, dtype=dtype).reshape(*shape)
-    else:
-        return np.frombuffer(blob, dtype=dtype).reshape(*shape)
+    return np.frombuffer(blob, dtype=dtype).reshape(*shape)
 
 
 class COLMAPDatabase(sqlite3.Connection):
@@ -189,7 +183,7 @@ class COLMAPDatabase(sqlite3.Connection):
             (image_id,) + keypoints.shape + (array_to_blob(keypoints),))
 
     def add_descriptors(self, image_id, descriptors):
-        descriptors = np.ascontiguousarray(descriptors, np.uint8)
+        descriptors = np.ascontiguousarray(descriptors, type(descriptors[0][0]))
         self.execute(
             "INSERT INTO descriptors VALUES (?, ?, ?, ?)",
             (image_id,) + descriptors.shape + (array_to_blob(descriptors),))
@@ -288,18 +282,18 @@ def extract_colmap_sift(database_path):
     return keypoints, desc, id2name
 
 
-def extract_colmap_hloc(database_path):
+def extract_colmap_hloc(database_path, kp_type, desc_type):
     # Open the database.
     db = COLMAPDatabase.connect(database_path)
 
     # Read and check keypoints.
     keypoints = dict(
-        (image_id, blob_to_array(data, np.float32, (-1, 2)))
+        (image_id, blob_to_array(data, kp_type[0], (-1, kp_type[1])))
         for image_id, data in db.execute(
             "SELECT image_id, data FROM keypoints") if data is not None)
 
     desc = dict(
-        (image_id, np.transpose(blob_to_array(data, np.uint8, (128, -1))))
+        (image_id, np.transpose(blob_to_array(data, desc_type[0], (desc_type[1], -1))))
         for image_id, data in db.execute(
             "SELECT image_id, data FROM descriptors") if data is not None)
 

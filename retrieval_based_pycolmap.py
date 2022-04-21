@@ -16,7 +16,7 @@ import colmap_io
 import localization
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate, extract_retrieval_pairs, log_matching)
-from vis_utils import (visualize_cam_pose_with_point_cloud)
+from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
 
 sys.path.append("Hierarchical-Localization")
 
@@ -29,7 +29,7 @@ from hloc.utils.io import list_h5_names
 from hloc.triangulation import (import_features, import_matches, geometric_verification)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
-DEBUG = True
+DEBUG = False
 GLOBAL_COUNT = 1
 
 
@@ -51,9 +51,10 @@ def api_test():
     default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
 
     start = time.time()
-    name_list = ["line-14.jpg"]
+    # name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
+    name_list = name_list[:10]
 
     scores = []
     images_with_scores = []
@@ -109,6 +110,7 @@ class Localization:
         # matching database
         self.matches = None
         self.id2kp, self.id2desc, self.id2name = None, None, None
+        self.desc_tree = None
         self.pid2images = None
         self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
         self.point_cloud = None
@@ -127,6 +129,8 @@ class Localization:
         self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
 
         # matching variables
+        self.desc_type = None
+        self.kp_type = None
         self.skip_geometric_verification = skip_geometric_verification
         self.matching_conf = extract_features.confs['sift']
         model_class = dynamic_load(extractors, self.matching_conf['model']['name'])
@@ -137,7 +141,6 @@ class Localization:
                                        if self.matching_feature_path.exists() else ())
         self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path,
                                                             matches=self.retrieval_dataset / "matches.h5")
-        # self.create_hloc_database()
 
         # pairs from retrieval variables
         db_descriptors = self.feature_path
@@ -217,7 +220,8 @@ class Localization:
         image_ids = get_image_ids(self.workspace_database_dir)
         query_image_ids = {u: v for u, v in image_ids.items() if "query" in u}
 
-        import_features(query_image_ids, self.workspace_database_dir, self.matching_feature_path)
+        self.desc_type, self.kp_type = import_features(query_image_ids, self.workspace_database_dir,
+                                                       self.matching_feature_path)
         import_matches(image_ids, self.workspace_database_dir, self.retrieval_loc_pairs_dir,
                        self.retrieval_dataset / "matches.h5", None, self.skip_geometric_verification)
         if not self.skip_geometric_verification:
@@ -256,7 +260,14 @@ class Localization:
             self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
         else:
             self.matches = colmap_db_read.extract_colmap_matches(database_dir)
-        self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_hloc(database_dir)
+        self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_hloc(database_dir,
+                                                                                    self.kp_type, self.desc_type)
+        if self.desc_tree is None:
+            self.desc_tree = {}
+            for ind in self.id2desc:
+                if "query" not in self.id2name[ind]:
+                    assert self.id2desc[ind].shape[0] == self.id2kp[ind].shape[0]
+                    self.desc_tree[ind] = KDTree(self.id2desc[ind])
 
     def gather_matches(self, arr, id1, query_im_id, database_im_id, desc_heuristics):
         pairs = []
@@ -276,30 +287,37 @@ class Localization:
             x1, y1 = map(int, query_fid_coord)
             x2, y2 = map(int, database_fid_coord)
             query_fid_desc = None
+            database_fid_desc = None
+            ratio_test = None
             if desc_heuristics:
                 query_fid_desc = self.id2desc[query_im_id][query_fid]  # hloc
+                database_fid_desc = self.id2desc[database_im_id][database_fid]  # hloc
+                dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 2)
+                ratio_test = dis[0] / dis[1]
 
-            pair = ((x1, y1), (x2, y2), query_fid_desc)
+            pair = ((x1, y1), (x2, y2), query_fid_desc, database_fid_desc, ratio_test)
             pairs.append(pair)
             points1.append(query_fid_coord)
             points2.append(database_fid_coord)
         return points1, points2, pairs
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
-        if points1.shape[0] < 4:  # too few matches
+        if points1.shape[0] < 10:  # too few matches
             if DEBUG:
                 log_matching(pairs,
                              f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
                              f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
                              f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-few.jpg")
-            return False, None
+            return True, [True] * points1.shape[0]
         h_mat, mask, s1, s2 = geometric_verify_pydegensac(points1, points2)
+        pairs = filter_pairs(pairs, mask)
+        s2 = round(s2, 2)
         if np.sum(mask) == 0:  # homography is degenerate
             if DEBUG:
                 log_matching(pairs,
                              f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
                              f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-mask0.jpg")
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-mask0.jpg")
             return False, mask
         h, w = 4032, 2268
         pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
@@ -319,14 +337,14 @@ class Localization:
                 log_matching(pairs,
                              f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
                              f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-large.jpg")
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-large.jpg")
             return False, mask
         if w2 == 0 or h2 == 0:  # homography is degenerate
             if DEBUG:
                 log_matching(pairs,
                              f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
                              f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-00.jpg")
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-00.jpg")
             return False, mask
 
         # check if homography is degenerate
@@ -337,29 +355,25 @@ class Localization:
                 log_matching(pairs,
                              f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
                              f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
-                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-intersect.jpg")
+                             f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-intersect.jpg")
             return False, mask
 
         return True, mask
 
     def register_matches(self, pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics):
         for pair in pairs:
-            query_fid_coord, database_fid_coord, query_fid_desc = pair
+            query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test = pair
+            if desc_heuristics:
+                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
+            else:
+                desc_diff = 1
             fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
-            distances, indices = tree.query(database_fid_coord, 10)  # sfm
-            for idx, dis in enumerate(distances):
-                ind = indices[idx]  # sfm
-                pid = pid_list[ind]
-                fid = fid_list[ind]
-                if desc_heuristics:
-                    database_fid_desc = self.id2desc_sfm[database_im_id_sfm][ind]  # sfm
-                    desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
-                else:
-                    desc_diff = 1
-                candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff)
-                point3d_candidate_pool.add(candidate)
+            dis, ind = tree.query(database_fid_coord, 1)  # sfm
+            pid = pid_list[ind]
+            fid = fid_list[ind]
+            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test)
+            point3d_candidate_pool.add(candidate)
 
-    # @profile
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
         desc_heuristics = False
@@ -417,20 +431,22 @@ class Localization:
             xyz = self.point3did2xyzrgb[pid][:3]
             pairs.append((xy, xyz))
 
-            # if debug:
-            #     self.pid2images = colmap_io.read_pid2images(self.image2pose)
-            #     print(candidate.pid, candidate.dis, point3d_candidate_pool.pid2votes[candidate.pid])
-            #     x2, y2 = map(int, xy)
-            #     query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
-            #     if query_img is None:
-            #         print(f"{self.retrieval_images_dir}/{query_im_name}")
-            #         raise ValueError
-            #     cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
-            #     vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
-            #                                                           self.workspace_images_dir)
-            #     cv2.imwrite(f"debug2/img-{cand_idx}.jpg", vis_img)
+            if DEBUG:
+                self.pid2images = colmap_io.read_pid2images(self.image2pose)
+                print(cand_idx, candidate.dis,
+                      candidate.desc_diff, point3d_candidate_pool.pid2votes[candidate.pid],
+                      candidate.ratio_test, candidate.ratio_test_old)
+                x2, y2 = map(int, xy)
+                query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
+                if query_img is None:
+                    print(f"{self.retrieval_images_dir}/{query_im_name}")
+                    raise ValueError
+                cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+                vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
+                                                                      self.workspace_images_dir)
+                cv2.imwrite(f"debug/img-{cand_idx}.jpg", vis_img)
 
-        tqdm.write(f" voting-based returns {len(pairs)} pairs for {query_im_name}")
+        tqdm.write(f" voting-based filters {len(pairs)} pairs from {len(point3d_candidate_pool.pool)}")
         return pairs, point3d_candidate_pool
 
     def prepare_visualization(self):
@@ -449,6 +465,7 @@ class Localization:
 if __name__ == '__main__':
     api_test()
     # system = Localization()
+    # system.create_hloc_database()
     # system.run_image_retrieval_and_matching()
     # system.read_matching_database(system.workspace_database_dir)
     # system.read_2d_2d_matches(f"query/query.jpg", debug=True)

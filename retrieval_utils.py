@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append("cnnimageretrieval-pytorch")
 import cv2
 import os
@@ -18,7 +19,6 @@ from cirtorch.networks.imageretrievalnet import init_network, extract_ms, extrac
 from cirtorch.datasets.datahelpers import imresize, default_loader
 from cirtorch.utils.general import get_data_root
 from cirtorch.utils.whiten import whitenapply
-
 
 TRAINED = {
     'rSfM120k-tl-resnet101-gem-w': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
@@ -42,12 +42,15 @@ class CandidatePool:
         else:
             self.pid2votes[pid] += 1
 
-    def count_votes(self):
+    def count_votes(self, vote_normalization=False):
         # normalize candidates' distances
         max_dis = max([cand.dis for cand in self.pool])
 
         # normalize candidates' desc differences
         max_desc_diff = max([cand.desc_diff for cand in self.pool])
+
+        # normalize candidates' desc differences
+        max_ratio_test = max([cand.ratio_test for cand in self.pool])
 
         # populate votes
         self.pid2votes = {}
@@ -55,14 +58,25 @@ class CandidatePool:
             pid = candidate.pid
             dis = candidate.dis
             desc_diff = candidate.desc_diff
+            ratio_test = candidate.ratio_test
             if pid not in self.pid2votes:
-                self.pid2votes[pid] = 0
-            norm_dis = 1-dis/max_dis
-            norm_desc_diff = 1-desc_diff/max_desc_diff
-            vote = norm_dis + norm_desc_diff
+                self.pid2votes[pid] = []
+            norm_dis = 1 - dis / max_dis
+            norm_desc_diff = 1 - desc_diff / max_desc_diff
+            norm_ratio_test = 1 - ratio_test / max_ratio_test
+            vote = norm_desc_diff + norm_dis + norm_ratio_test
             candidate.dis = norm_dis
+            candidate.ratio_test = norm_ratio_test
             candidate.desc_diff = norm_desc_diff
-            self.pid2votes[pid] += vote
+            candidate.ratio_test_old = ratio_test
+            self.pid2votes[pid].append(vote)
+
+        for pid in self.pid2votes:
+            votes = self.pid2votes[pid]
+            if not vote_normalization:
+                self.pid2votes[pid] = np.sum(votes)
+            else:
+                self.pid2votes[pid] = np.mean(votes)
 
     def filter(self):
         # filters pid
@@ -78,7 +92,7 @@ class CandidatePool:
         for pid in pid2scores:
             candidates = pid2scores[pid]
             # best_candidate = min(candidates, key=lambda x: x.dis+x.desc_diff)
-            best_candidate = max(candidates, key=lambda x: x.dis+x.desc_diff)
+            best_candidate = max(candidates, key=lambda x: x.dis + x.desc_diff)
             new_pool.append(best_candidate)
         self.pool = new_pool
 
@@ -113,12 +127,14 @@ class CandidatePool:
 
 
 class MatchCandidate:
-    def __init__(self, query_coord, fid, pid, dis, desc_diff):
+    def __init__(self, query_coord, fid, pid, dis, desc_diff, ratio_test):
         self.query_coord = query_coord
         self.pid = pid
         self.fid = fid
         self.dis = dis
         self.desc_diff = desc_diff
+        self.ratio_test = ratio_test
+        self.ratio_test_old = None
 
     def __str__(self):
         return f"matched to {self.pid} with score={self.dis}"
@@ -148,7 +164,7 @@ def enhance_retrieval_pairs(dir_to_retrieval_pairs, image2pose, out_dir, extra_r
             top_k_database_ids = image_id_to_top_k[database_id]
             contribution = []
             for database_id2 in top_k_database_ids:
-                if len(contribution) >= extra_retrieval*2:
+                if len(contribution) >= extra_retrieval * 2:
                     break
                 else:
                     if database_id2 not in existing_ids:
@@ -205,7 +221,8 @@ def extract_global_descriptors_on_database_images(database_folder, save_folder, 
             vec = whitenapply(vec.reshape(-1, 1), whiten_ss['m'], whiten_ss['P']).reshape(-1)
         else:
             # multi-scale extraction
-            vec = extract_ms(net, transform(imresize(img, input_res)).unsqueeze(0).cuda(), ms=scales, msp=net.pool.p.item())
+            vec = extract_ms(net, transform(imresize(img, input_res)).unsqueeze(0).cuda(), ms=scales,
+                             msp=net.pool.p.item())
             vec = vec.data.cpu().numpy()
             whiten_ms = state['meta']['Lw']['retrieval-SfM-120k']['ms']
             vec = whitenapply(vec.reshape(-1, 1), whiten_ms['m'], whiten_ms['P']).reshape(-1)
@@ -269,7 +286,7 @@ def extract_retrieval_pairs(database_descriptors_file, query_im_file, output_fil
             print(distances[0][ind2], img_names[ind])
             img = cv2.imread(f"{db_img_root}/{img_names[ind]}")
             img = concat_images_different_sizes([img, query_im])
-            img = cv2.resize(img, (img.shape[1]//4, img.shape[0]//4))
+            img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
             cv2.imshow("", img)
             cv2.waitKey()
             cv2.destroyAllWindows()

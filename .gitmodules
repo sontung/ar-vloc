@@ -10,3 +10,6 @@
 [submodule "pydegensac"]
 	path = pydegensac
 	url = git@github.com:ducha-aiki/pydegensac.git
+[submodule "AdaLAM"]
+	path = AdaLAM
+	url = git@github.com:cavalli1234/AdaLAM.git
