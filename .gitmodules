@@ -7,9 +7,6 @@
 [submodule "cnnimageretrieval-pytorch"]
 	path = cnnimageretrieval-pytorch
 	url = git@github.com:filipradenovic/cnnimageretrieval-pytorch.git
-[submodule "pydegensac"]
-	path = pydegensac
-	url = git@github.com:ducha-aiki/pydegensac.git
-[submodule "AdaLAM"]
-	path = AdaLAM
-	url = git@github.com:cavalli1234/AdaLAM.git
+[submodule "d2-net"]
+	path = d2-net
+	url = git@github.com:sontung/d2-net.git
