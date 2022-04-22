@@ -1,7 +1,10 @@
-import sys
 import os
-import random
-import torch
+import sys
+
+import kmeans1d
+
+sys.path.append("d2-net")
+from extract_features import extract_using_d2_net
 import pickle
 from tqdm import tqdm
 from PIL import Image
@@ -48,8 +51,8 @@ def load_2d_queries_generic(folder):
                 f = open(im_name, 'rb')
                 tags = exifread.process_file(f)
                 metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
-                metadata["cx"] = im.shape[1]/2
-                metadata["cy"] = im.shape[0]/2
+                metadata["cx"] = im.shape[1] / 2
+                metadata["cy"] = im.shape[0] / 2
             elif ".pkl" in name:
                 continue
             else:
@@ -96,8 +99,8 @@ def load_2d_queries_minimal(folder):
             f = open(im_name, 'rb')
             tags = exifread.process_file(f)
             metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
-            metadata["cx"] = im.shape[1]/2
-            metadata["cy"] = im.shape[0]/2
+            metadata["cx"] = im.shape[1] / 2
+            metadata["cy"] = im.shape[0] / 2
         elif ".pkl" in name:
             continue
         else:
@@ -190,8 +193,8 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
                         else:
                             point3did2descs[p3d_id].append([image_id, desc[idx]])
 
-            matching_ratio.append(nb_points/nb_3d_points)
-        print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
+            matching_ratio.append(nb_points / nb_3d_points)
+        print(f"{round(np.mean(matching_ratio) * 100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
               f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
         p3d_id_list = []
         p3d_desc_list = []
@@ -203,7 +206,7 @@ def build_descriptors_2d(images, images_folder="sfm_models/images"):
             p3d_desc_list_multiple.append(desc_list)
             desc = np.mean(desc_list, axis=0)
             if len(desc_list) > 1:
-                mean_diff.extend([np.sqrt(np.sum(np.square(desc-du))) for du in desc_list])
+                mean_diff.extend([np.sqrt(np.sum(np.square(desc - du))) for du in desc_list])
             p3d_desc_list.append(desc)
         print(f"Mean var. = {np.mean(mean_diff)}")
         with open(f"{images_folder}/sfm_data.pkl", 'wb') as handle:
@@ -243,8 +246,8 @@ def build_descriptors_2d_using_colmap_sift(images,
                     else:
                         point3did2descs[p3d_id].append([image_id, desc[idx]])
 
-        matching_ratio.append(nb_points/nb_3d_points)
-    print(f"{round(np.mean(matching_ratio)*100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
+        matching_ratio.append(nb_points / nb_3d_points)
+    print(f"{round(np.mean(matching_ratio) * 100, 3)}% of {len(point3did2descs)} 3D points found descriptors with "
           f"{round(np.mean([len(point3did2descs[du]) for du in point3did2descs]), 3)} descriptors/point")
     p3d_id_list = []
     p3d_desc_list = []
@@ -256,7 +259,7 @@ def build_descriptors_2d_using_colmap_sift(images,
         p3d_desc_list_multiple.append(desc_list)
         desc = np.mean(desc_list, axis=0)
         if len(desc_list) > 1:
-            mean_diff.extend([np.sqrt(np.sum(np.square(desc-du))) for du in desc_list])
+            mean_diff.extend([np.sqrt(np.sum(np.square(desc - du))) for du in desc_list])
         p3d_desc_list.append(desc)
     print(f"Mean var. = {np.mean(mean_diff)}")
     return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
@@ -292,7 +295,7 @@ def build_descriptors_2d_using_colmap_sift_no_verbose(images,
                     else:
                         point3did2descs[p3d_id].append([image_id, desc[idx]])
 
-        matching_ratio.append(nb_points/nb_3d_points)
+        matching_ratio.append(nb_points / nb_3d_points)
     p3d_id_list = []
     p3d_desc_list = []
     p3d_desc_list_multiple = []
@@ -303,7 +306,7 @@ def build_descriptors_2d_using_colmap_sift_no_verbose(images,
         p3d_desc_list_multiple.append(desc_list)
         desc = np.mean(desc_list, axis=0)
         if len(desc_list) > 1:
-            mean_diff.extend([np.sqrt(np.sum(np.square(desc-du))) for du in desc_list])
+            mean_diff.extend([np.sqrt(np.sum(np.square(desc - du))) for du in desc_list])
         p3d_desc_list.append(desc)
     return p3d_id_list, p3d_desc_list, p3d_desc_list_multiple, point3did2descs
 
@@ -357,8 +360,64 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
     return coords, des
 
 
-if __name__ == '__main__':
-    query_images_folder = "Test line small"
-    desc_list, coord_list = load_2d_queries_using_colmap_sift(query_images_folder)
-    print(desc_list[0].shape, coord_list[0].shape)
+def filter_using_d2_keypoints(kp_dict, d2_keypoints):
+    with open(d2_keypoints, 'rb') as handle:
+        name2kp = pickle.load(handle)
 
+
+def run_d2_detector_on_folder(images_folder, save_folder):
+    precomputed_file = f"{save_folder}/d2_keypoints_db.pkl"
+    my_file = Path(precomputed_file)
+    if my_file.is_file():
+        pass
+    else:
+        im_names = os.listdir(images_folder)
+        name2kp = {}
+        for name in tqdm(im_names, desc="Running D2 detector on database images"):
+            im_name = os.path.join(images_folder, name)
+            img = cv2.imread(im_name)
+            keypoints = d2_feature_detection(img)
+            name2kp[im_name] = keypoints
+        with open(precomputed_file, 'wb') as handle:
+            pickle.dump(name2kp, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return precomputed_file
+
+
+def d2_feature_detection(img):
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    keypoints, responses = extract_using_d2_net(img)
+    clusters, centroids = kmeans1d.cluster(responses, 2)
+    clusters = np.array(clusters, dtype=bool)
+    if centroids[0] < centroids[1]:
+        select_ind = 1
+    else:
+        select_ind = 0
+    strongest_keypoints = keypoints[clusters == select_ind, :2]
+    for idx, (x2, y2) in enumerate(strongest_keypoints):
+        x2, y2 = map(int, (x2, y2))
+        cv2.circle(img, (x2, y2), 10, (128, 128, 0), -1)
+    return strongest_keypoints
+
+    # img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+    # cv2.imshow("", img)
+    # cv2.waitKey()
+    # cv2.destroyAllWindows()
+
+    # tree = KDTree(keypoints)
+    #
+    # coords = []
+    # new_des = []
+    # response_list = []
+    # for idx, kp in enumerate(kp_list):
+    #     distance, idx2 = tree.query(kp, 1)
+    #     if distance < 4:
+    #         coords.append(kp)
+    #         new_des.append(desc_list[idx])
+    #         response_list.append(responses[idx2])
+    # print(f"reduce from {desc_list.shape[0]} to {len(new_des)}")
+    # return coords, new_des, response_list
+
+
+if __name__ == '__main__':
+    run_d2_detector_on_folder("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/images_retrieval/db",
+                              "/home/sontung/work/ar-vloc/vloc_workspace_retrieval")

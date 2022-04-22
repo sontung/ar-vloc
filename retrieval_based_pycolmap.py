@@ -27,7 +27,7 @@ from hloc import extractors
 from hloc import extract_features, pairs_from_retrieval, match_features_bare
 
 from hloc.utils.base_model import dynamic_load
-from hloc.utils.io import list_h5_names
+from hloc.utils.io import list_h5_names, get_matches
 from hloc.triangulation import (import_features, import_matches, geometric_verification)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
@@ -56,10 +56,10 @@ def api_test():
     default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
 
     start = time.time()
-    # name_list = ["line-14.jpg"]
+    name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
-    # name_list = name_list[:10]
+    # name_list = name_list[:5]
 
     scores = []
     images_with_scores = []
@@ -139,11 +139,10 @@ class Localization:
             '1': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
         }
         weights_folder = "cnnimageretrieval-pytorch/data/networks"
-        self.state = load_url(training_weights['0'], model_dir=weights_folder)
+        self.state = load_url(training_weights['1'], model_dir=weights_folder)
         self.cnn_retrieval_net = init_network({'architecture': self.state['meta']['architecture'],
                                                'pooling': self.state['meta']['pooling'],
                                                'whitening': self.state['meta'].get('whitening')})
-        print(list(self.state["meta"]["whitening"].keys()))
         self.cnn_retrieval_net.load_state_dict(self.state['state_dict'])
         self.cnn_retrieval_net.eval()
         self.cnn_retrieval_net.cuda()
@@ -201,9 +200,12 @@ class Localization:
         return process
 
     def create_hloc_database(self):
+        """
+        Run this when hloc database needs to be reset
+        """
         create_empty_db(self.workspace_original_database_dir)
         import_images(self.retrieval_images_dir, self.workspace_original_database_dir, "PER_FOLDER", None)
-        extract_features.main_wo_model_loading(self.matching_model, self.device, self.matching_skip_names,
+        extract_features.main_wo_model_loading(self.matching_model, self.device, [],
                                                self.matching_conf, self.retrieval_images_dir,
                                                feature_path=self.matching_feature_path)
         image_ids = get_image_ids(self.workspace_original_database_dir)
@@ -236,8 +238,6 @@ class Localization:
         copy_process.wait()
         copy_process.kill()
 
-        # create_empty_db(self.workspace_database_dir)
-        # import_images(self.retrieval_images_dir, self.workspace_database_dir, "PER_FOLDER", None)
         image_ids = get_image_ids(self.workspace_database_dir)
         query_image_ids = {u: v for u, v in image_ids.items() if "query" in u}
 
@@ -247,6 +247,27 @@ class Localization:
                        self.retrieval_dataset / "matches.h5", None, self.skip_geometric_verification)
         if not self.skip_geometric_verification:
             geometric_verification(self.workspace_database_dir, self.retrieval_loc_pairs_dir)
+
+    def read_matches(self):
+        with open(self.retrieval_loc_pairs_dir, 'r') as f:
+            pairs = [p.split() for p in f.readlines()]
+        image_ids = get_image_ids(self.workspace_database_dir)
+        self.matches2 = {}
+        for p1, p2 in pairs:
+            m1, m2 = get_matches(self.retrieval_dataset / "matches.h5", p1, p2)
+            key_ = image_ids[p1], image_ids[p2]
+            self.matches2[key_] = m1
+        for key_ in self.matches2:
+            a1 = self.matches2[key_]
+            try:
+                a2 = self.matches[key_]
+            except KeyError:
+                key_2 = (key_[1], key_[0])
+                a2 = self.matches[key_2]
+                print(a1)
+                print(a2)
+
+            print(np.sum(np.abs(a1-a2)))
 
     def main_for_api(self, metadata):
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
@@ -281,6 +302,8 @@ class Localization:
             self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
         else:
             self.matches = colmap_db_read.extract_colmap_matches(database_dir)
+        self.read_matches()
+
         self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_hloc(database_dir,
                                                                                     self.kp_type, self.desc_type)
         if self.desc_tree is None:
@@ -484,9 +507,28 @@ class Localization:
 
 
 if __name__ == '__main__':
+    # import h5py
+
+    # image_ids = get_image_ids("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/database_hloc.db")
+    # print(image_ids)
+    # with h5py.File("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/feats-sift.h5", 'r') as hfile:
+    #     print(list(hfile["db/image1267.jpg"].keys()))
+    # with open("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/pairs.txt", 'r') as f:
+    #     pairs = [p.split() for p in f.readlines()]
+    # print(pairs)
+    # image_ids = get_image_ids("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/database_hloc.db")
+    # # print(image_ids)
+    # for p1, p2 in pairs:
+    #     m1, m2 = get_matches("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/matches.h5", p1, p2)
+    #     print(m1)
     api_test()
+
     # system = Localization()
-    # system.create_hloc_database()
+    # # system.create_hloc_database()
+    # copy_process = system.create_folders()
+    # copy_process.wait()
+    # copy_process.kill()
     # system.run_image_retrieval_and_matching()
     # system.read_matching_database(system.workspace_database_dir)
-    # system.read_2d_2d_matches(f"query/query.jpg", debug=True)
+    # for img_id in system.id2kp:
+    #     print(img_id)
