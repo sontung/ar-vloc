@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import open3d as o3d
 import torch
+import h5py
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
@@ -27,7 +28,7 @@ from hloc import extractors
 from hloc import extract_features, pairs_from_retrieval, match_features_bare
 
 from hloc.utils.base_model import dynamic_load
-from hloc.utils.io import list_h5_names, get_matches
+from hloc.utils.io import list_h5_names, get_matches, get_matches_wo_loading
 from hloc.triangulation import (import_features, import_matches, geometric_verification)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
@@ -56,7 +57,7 @@ def api_test():
     default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
 
     start = time.time()
-    name_list = ["line-14.jpg"]
+    # name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
     # name_list = name_list[:5]
@@ -102,6 +103,11 @@ class Localization:
         self.workspace_sfm_images_dir = f"{self.workspace_existing_model}/images.txt"
         self.workspace_sfm_point_cloud_dir = f"{self.workspace_existing_model}/points3D.txt"
 
+        if self.workspace_database_dir.exists():
+            print("Precomputed database found")
+        else:
+            self.create_hloc_database()
+
         self.image_to_kp_tree = {}
         self.point3d_cloud = None
         self.image_name_to_image_id = {}
@@ -114,7 +120,9 @@ class Localization:
 
         # matching database
         self.matches = None
-        self.id2kp, self.id2desc, self.id2name = None, None, None
+        self.id2kp, self.id2desc, self.id2name, self.id2score = None, None, None, None
+        self.h5_file_features = None
+
         self.desc_tree = None
         self.pid2images = None
         self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
@@ -148,6 +156,7 @@ class Localization:
         self.cnn_retrieval_net.cuda()
 
         # matching variables
+        self.image_ids = get_image_ids(self.workspace_database_dir)
         self.desc_type = None
         self.kp_type = None
         self.skip_geometric_verification = skip_geometric_verification
@@ -175,6 +184,8 @@ class Localization:
         self.query_names = pairs_from_retrieval.parse_names("query", None, query_names_h5)
         self.db_desc = pairs_from_retrieval.get_descriptors(self.db_names, db_descriptors, name2db)
         self.db_desc = self.db_desc.to(self.device)
+        self.build_desc_tree()
+
         return
 
     def build_tree(self):
@@ -213,14 +224,7 @@ class Localization:
         import_features(database_image_ids, self.workspace_original_database_dir, self.matching_feature_path)
 
     def run_image_retrieval_and_matching(self):
-        copy_process = self.create_folders()
         # retrieve
-        # global_descriptors = extract_features.main_wo_model_loading(self.retrieval_model, self.device, self.skip_names,
-        #                                                             self.retrieval_conf, self.retrieval_images_dir,
-        #                                                             feature_path=self.feature_path)
-        # pairs_from_retrieval.main_wo_loading(global_descriptors, self.retrieval_loc_pairs_dir, 40,
-        #                                      self.db_names, self.db_desc, self.query_names, self.device)
-
         extract_retrieval_pairs(self.cnn_retrieval_net, self.state,
                                 "vloc_workspace_retrieval/database_global_descriptors_0.pkl",
                                 "vloc_workspace_retrieval/images_retrieval/query/query.jpg",
@@ -235,44 +239,50 @@ class Localization:
         matching_conf = match_features_bare.confs["NN-ratio"]
         match_features_bare.main(self.name2ref, matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
                                  matches=self.retrieval_dataset / "matches.h5", overwrite=True)
-        copy_process.wait()
-        copy_process.kill()
-
-        image_ids = get_image_ids(self.workspace_database_dir)
-        query_image_ids = {u: v for u, v in image_ids.items() if "query" in u}
-
-        self.desc_type, self.kp_type = import_features(query_image_ids, self.workspace_database_dir,
-                                                       self.matching_feature_path)
-        import_matches(image_ids, self.workspace_database_dir, self.retrieval_loc_pairs_dir,
-                       self.retrieval_dataset / "matches.h5", None, self.skip_geometric_verification)
-        if not self.skip_geometric_verification:
-            geometric_verification(self.workspace_database_dir, self.retrieval_loc_pairs_dir)
 
     def read_matches(self):
         with open(self.retrieval_loc_pairs_dir, 'r') as f:
             pairs = [p.split() for p in f.readlines()]
         image_ids = get_image_ids(self.workspace_database_dir)
-        self.matches2 = {}
-        for p1, p2 in pairs:
-            m1, m2 = get_matches(self.retrieval_dataset / "matches.h5", p1, p2)
-            key_ = image_ids[p1], image_ids[p2]
-            self.matches2[key_] = m1
-        for key_ in self.matches2:
-            a1 = self.matches2[key_]
-            try:
-                a2 = self.matches[key_]
-            except KeyError:
-                key_2 = (key_[1], key_[0])
-                a2 = self.matches[key_2]
-                print(a1)
-                print(a2)
+        self.matches = {}
+        with h5py.File(str(self.retrieval_dataset / "matches.h5"), 'r') as hfile:
+            for p1, p2 in pairs:
+                m1, score = get_matches_wo_loading(hfile, p1, p2)
+                key_ = image_ids[p1], image_ids[p2]
+                self.matches[key_] = (m1, score)
 
-            print(np.sum(np.abs(a1-a2)))
+    def terminate(self):
+        if self.h5_file_features is not None:
+            self.h5_file_features.close()
+        self.h5_file_features = None
+
+    def read_features(self):
+        self.h5_file_features = h5py.File(self.matching_feature_path, 'r')
+
+    def build_desc_tree(self):
+        self.id2name = {}
+        with h5py.File(self.matching_feature_path, 'r') as hfile:
+            if self.desc_tree is None:
+                self.desc_tree = {}
+                for name in self.image_ids:
+                    img_id = self.image_ids[name]
+                    self.id2name[img_id] = name
+                    if "query" not in name:
+                        desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
+                        self.desc_tree[img_id] = KDTree(desc_mat)
+
+    def get_kp(self, img_id, fid):
+        name = self.id2name[img_id]
+        return self.h5_file_features[name]["keypoints"][fid]
+
+    def get_desc(self, img_id, fid):
+        name = self.id2name[img_id]
+        return self.h5_file_features[name]["descriptors"][:, fid]
 
     def main_for_api(self, metadata):
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
         self.run_image_retrieval_and_matching()
-        self.read_matching_database(self.workspace_database_dir)
+        self.read_matching_database()
 
         pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=DEBUG)
         if len(pairs) == 0:
@@ -290,6 +300,7 @@ class Localization:
         r_mat, t_vec = best_pose
 
         self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
+        self.terminate()
         return best_score
 
     def visualize(self):
@@ -297,21 +308,9 @@ class Localization:
         visualize_cam_pose_with_point_cloud(self.point_cloud, self.localization_results)
         self.localization_results.clear()
 
-    def read_matching_database(self, database_dir):
-        if not self.skip_geometric_verification:
-            self.matches, _ = colmap_db_read.extract_colmap_two_view_geometries(database_dir)
-        else:
-            self.matches = colmap_db_read.extract_colmap_matches(database_dir)
+    def read_matching_database(self):
         self.read_matches()
-
-        self.id2kp, self.id2desc, self.id2name = colmap_db_read.extract_colmap_hloc(database_dir,
-                                                                                    self.kp_type, self.desc_type)
-        if self.desc_tree is None:
-            self.desc_tree = {}
-            for ind in self.id2desc:
-                if "query" not in self.id2name[ind]:
-                    assert self.id2desc[ind].shape[0] == self.id2kp[ind].shape[0]
-                    self.desc_tree[ind] = KDTree(self.id2desc[ind])
+        self.read_features()
 
     def gather_matches(self, arr, id1, query_im_id, database_im_id, desc_heuristics):
         pairs = []
@@ -325,8 +324,8 @@ class Localization:
                 database_fid = v
                 query_fid = u
 
-            database_fid_coord = self.id2kp[database_im_id][database_fid]  # hloc
-            query_fid_coord = self.id2kp[query_im_id][query_fid]  # hloc
+            database_fid_coord = self.get_kp(database_im_id, database_fid)  # hloc
+            query_fid_coord = self.get_kp(query_im_id, query_fid)  # hloc
 
             x1, y1 = map(int, query_fid_coord)
             x2, y2 = map(int, database_fid_coord)
@@ -334,8 +333,8 @@ class Localization:
             database_fid_desc = None
             ratio_test = None
             if desc_heuristics:
-                query_fid_desc = self.id2desc[query_im_id][query_fid]  # hloc
-                database_fid_desc = self.id2desc[database_im_id][database_fid]  # hloc
+                query_fid_desc = self.get_desc(database_im_id, database_fid)  # hloc
+                database_fid_desc = self.get_desc(query_im_id, query_fid)  # hloc
                 dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 2)
                 ratio_test = dis[0] / dis[1]
 
@@ -420,9 +419,7 @@ class Localization:
 
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
-        desc_heuristics = False
-        if len(self.id2desc) > 0:
-            desc_heuristics = True
+        desc_heuristics = True
         query_im_id = name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
         global GLOBAL_COUNT
@@ -431,7 +428,7 @@ class Localization:
         total = 0
         for m in self.matches:
             if query_im_id in m:
-                arr = self.matches[m]
+                arr, score_mat = self.matches[m]
                 if arr is not None:
                     GLOBAL_COUNT += 1
                     total += 1
@@ -507,20 +504,6 @@ class Localization:
 
 
 if __name__ == '__main__':
-    # import h5py
-
-    # image_ids = get_image_ids("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/database_hloc.db")
-    # print(image_ids)
-    # with h5py.File("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/feats-sift.h5", 'r') as hfile:
-    #     print(list(hfile["db/image1267.jpg"].keys()))
-    # with open("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/pairs.txt", 'r') as f:
-    #     pairs = [p.split() for p in f.readlines()]
-    # print(pairs)
-    # image_ids = get_image_ids("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/database_hloc.db")
-    # # print(image_ids)
-    # for p1, p2 in pairs:
-    #     m1, m2 = get_matches("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/matches.h5", p1, p2)
-    #     print(m1)
     api_test()
 
     # system = Localization()

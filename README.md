@@ -1,5 +1,9 @@
 # Visual localization for augmented reality
 
+## to do
+- there are scores for features and matching pairs
+- integrate d2 net features
+
 ## main script = `retrieval_based.py`
 
 ## how to use colmap
