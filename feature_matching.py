@@ -20,62 +20,6 @@ from colmap_db_read import extract_colmap_sift
 MATCHING_BENCHMARK = True
 
 
-def load_2d_queries_generic(folder):
-    my_file = Path(f"{folder}/queries.pkl")
-    if my_file.is_file():
-        with open(f"{folder}/queries.pkl", 'rb') as handle:
-            descriptors, coordinates, name_list, md_list, im_list, response_list = pickle.load(handle)
-    else:
-        im_names = os.listdir(folder)
-        descriptors = []
-        coordinates = []
-        md_list = []
-        im_list = []
-        response_list = []
-        name_list = []
-        for name in tqdm(im_names, desc="Reading query images"):
-            metadata = {}
-            im_name = os.path.join(folder, name)
-            if "HEIC" in name:
-                heif_file = pyheif.read(im_name)
-                image = Image.frombytes(
-                    heif_file.mode,
-                    heif_file.size,
-                    heif_file.data,
-                    "raw",
-                    heif_file.mode,
-                    heif_file.stride,
-                )
-                im = np.array(image)
-                im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-                f = open(im_name, 'rb')
-                tags = exifread.process_file(f)
-                metadata["f"] = float(tags["EXIF FocalLengthIn35mmFilm"].values[0])
-                metadata["cx"] = im.shape[1] / 2
-                metadata["cy"] = im.shape[0] / 2
-            elif ".pkl" in name:
-                continue
-            else:
-                im = cv2.imread(im_name)
-            coord, desc, response = compute_kp_descriptors_opencv_with_d2_detector(im,
-                                                                                   return_response=True,
-                                                                                   nb_keypoints=None)
-
-            assert len(coord) == len(desc) == len(response)
-            coord = np.array(coord)
-            coordinates.append(coord)
-            descriptors.append(desc)
-            md_list.append(metadata)
-            im_list.append(im)
-            response_list.append(response)
-            name_list.append(name)
-
-        with open(f"{folder}/queries.pkl", 'wb') as handle:
-            pickle.dump([descriptors, coordinates, name_list, md_list, im_list, response_list],
-                        handle, protocol=pickle.HIGHEST_PROTOCOL)
-    return descriptors, coordinates, name_list, md_list, im_list, response_list
-
-
 def load_2d_queries_minimal(folder):
     im_names = os.listdir(folder)
     md_list = []
@@ -360,11 +304,6 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
     return coords, des
 
 
-def filter_using_d2_keypoints(kp_dict, d2_keypoints):
-    with open(d2_keypoints, 'rb') as handle:
-        name2kp = pickle.load(handle)
-
-
 def run_d2_detector_on_folder(images_folder, save_folder):
     precomputed_file = f"{save_folder}/d2_keypoints_db.pkl"
     my_file = Path(precomputed_file)
@@ -377,13 +316,13 @@ def run_d2_detector_on_folder(images_folder, save_folder):
             im_name = os.path.join(images_folder, name)
             img = cv2.imread(im_name)
             keypoints = d2_feature_detection(img)
-            name2kp[im_name] = keypoints
+            name2kp[name] = keypoints
         with open(precomputed_file, 'wb') as handle:
             pickle.dump(name2kp, handle, protocol=pickle.HIGHEST_PROTOCOL)
     return precomputed_file
 
 
-def d2_feature_detection(img):
+def d2_feature_detection(img, vis=False):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     keypoints, responses = extract_using_d2_net(img)
     clusters, centroids = kmeans1d.cluster(responses, 2)
@@ -393,31 +332,19 @@ def d2_feature_detection(img):
     else:
         select_ind = 0
     strongest_keypoints = keypoints[clusters == select_ind, :2]
-    for idx, (x2, y2) in enumerate(strongest_keypoints):
-        x2, y2 = map(int, (x2, y2))
-        cv2.circle(img, (x2, y2), 10, (128, 128, 0), -1)
+    if vis:
+        for idx, (x2, y2) in enumerate(strongest_keypoints):
+            x2, y2 = map(int, (x2, y2))
+            cv2.circle(img, (x2, y2), 10, (128, 128, 0), -1)
+        img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
+        cv2.imshow("", img)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
     return strongest_keypoints
-
-    # img = cv2.resize(img, (img.shape[1] // 4, img.shape[0] // 4))
-    # cv2.imshow("", img)
-    # cv2.waitKey()
-    # cv2.destroyAllWindows()
-
-    # tree = KDTree(keypoints)
-    #
-    # coords = []
-    # new_des = []
-    # response_list = []
-    # for idx, kp in enumerate(kp_list):
-    #     distance, idx2 = tree.query(kp, 1)
-    #     if distance < 4:
-    #         coords.append(kp)
-    #         new_des.append(desc_list[idx])
-    #         response_list.append(responses[idx2])
-    # print(f"reduce from {desc_list.shape[0]} to {len(new_des)}")
-    # return coords, new_des, response_list
 
 
 if __name__ == '__main__':
+    # img = cv2.imread("/home/sontung/work/ar-vloc/test_line_jpg/line-14.jpg")
+    # d2_feature_detection(img, vis=True)
     run_d2_detector_on_folder("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/images_retrieval/db",
                               "/home/sontung/work/ar-vloc/vloc_workspace_retrieval")

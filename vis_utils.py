@@ -1,21 +1,19 @@
-import open3d as o3d
-import random
-import sys
-import numpy as np
-import time
-import cv2
-import os
 import glob
 import json
-import tqdm
 import os
+import random
+
+import cv2
 import moviepy.video.io.ImageSequenceClip
+import numpy as np
+import open3d as o3d
+import tqdm
+from PIL import Image
+from pykdtree.kdtree import KDTree
+from scipy.spatial import KDTree
+
 import colmap_read
 from colmap_io import read_images, read_points3D_coordinates
-from PIL import Image
-from scipy.spatial import KDTree
-from pathlib import Path
-from pykdtree.kdtree import KDTree
 
 
 def produce_cam_mesh(color=None, res=4, mat=None):
@@ -102,7 +100,7 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
             ctr.set_zoom(0.5)
             vis.capture_screen_image("trash_code/test.png", do_render=True)
 
-            img_vis = cv2.resize(img, (img.shape[1]//2, img.shape[0]//2))
+            img_vis = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
             for m in meshes:
                 vis.remove_geometry(m, reset_bounding_box=False)
             cv2.imshow("t", img_vis)
@@ -116,7 +114,6 @@ def visualize_2d_3d_matching_single(p2d2p3d, coord_2d_list, im_name_list,
 
 
 def concat_images_different_sizes(images):
-
     # get maximum width
     ww = max([du.shape[0] for du in images])
 
@@ -187,7 +184,7 @@ def visualize_all_point_images(point, sfm_image_folder):
 def visualize_matching(bf_results, results, query_image_ori, sfm_image_folder):
     for ind in range(len(results)):
         # print(results[ind][0].xy, bf_results[ind][0].xy)
-        assert np.sum(results[ind][0].xy-bf_results[ind][0].xy) < 0.1
+        assert np.sum(results[ind][0].xy - bf_results[ind][0].xy) < 0.1
         feature, point, dist1 = results[ind]
         query_image = np.copy(query_image_ori)
         l1 = visualize_matching_helper(query_image, feature, point, sfm_image_folder)
@@ -218,7 +215,7 @@ def visualize_matching_and_save(results, query_image_ori, sfm_image_folder, debu
 def visualize_matching_pairs(image1, image2, pairs):
     image = concat_images_different_sizes([image1, image2])
     for pair in pairs:
-        color = (random.random()*255, random.random()*255, random.random()*255)
+        color = (random.random() * 255, random.random() * 255, random.random() * 255)
         fid1, fid2 = pair[:2]
         x1, y1 = fid1
         cv2.circle(image, (x1, y1), 20, color, 5)
@@ -342,8 +339,8 @@ def produce_o3d_cam2(mat=None, cam_intrinsic=None):
             width=width, height=height, fx=K[0][0], fy=K[1][1], cx=K[0][2], cy=K[1][2])
         pass
     else:
-        K = [[focal * width, 0, width / 2-0.5],
-             [0, focal * width, height / 2-0.5],
+        K = [[focal * width, 0, width / 2 - 0.5],
+             [0, focal * width, height / 2 - 0.5],
              [0, 0, 1]]
 
         camera_parameters.extrinsic = mat
@@ -544,7 +541,8 @@ def visualize_dense_reconstruction_process(sfm_image_dir, images_dir, sfm_dense_
                                            vid="/home/sontung/work/ar-vloc/data/indoor_video",
                                            vid2="/home/sontung/work/ar-vloc/data/test"):
     mesh = o3d.io.read_triangle_mesh("/home/sontung/work/recon_models/indoor_all/meshed-poisson.ply")
-    point3did2xyzrgb_dense, dense_coord_mat, dense_color_mat, dense_id_mat = read_points3D_coordinates(sfm_dense_point_cloud_dir, return_mat=True)
+    point3did2xyzrgb_dense, dense_coord_mat, dense_color_mat, dense_id_mat = read_points3D_coordinates(
+        sfm_dense_point_cloud_dir, return_mat=True)
     print("Done reading.")
 
     image2pose = read_images(sfm_image_dir)

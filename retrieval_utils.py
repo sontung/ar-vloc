@@ -6,7 +6,7 @@ import os
 import numpy as np
 import pickle
 import faiss
-from colmap_io import build_co_visibility_graph, read_images, read_name2id
+from colmap_io import build_co_visibility_graph, read_name2id
 from vis_utils import concat_images_different_sizes, visualize_matching_pairs
 from scipy.spatial import KDTree
 from tqdm import tqdm
@@ -24,6 +24,7 @@ TRAINED = {
     'rSfM120k-tl-resnet101-gem-w': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
     'retrievalSfM120k-resnet101-gem': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
 }
+DEBUG = True
 
 
 class CandidatePool:
@@ -42,7 +43,7 @@ class CandidatePool:
         else:
             self.pid2votes[pid] += 1
 
-    def count_votes(self, vote_normalization=False):
+    def count_votes(self, vote_normalization=True):
         # normalize candidates' distances
         max_dis = max([cand.dis for cand in self.pool])
 
@@ -51,6 +52,8 @@ class CandidatePool:
 
         # normalize candidates' desc differences
         max_ratio_test = max([cand.ratio_test for cand in self.pool])
+
+        max_d2_distance = max([cand.d2_distance for cand in self.pool])
 
         # populate votes
         self.pid2votes = {}
@@ -64,11 +67,16 @@ class CandidatePool:
             norm_dis = 1 - dis / max_dis
             norm_desc_diff = 1 - desc_diff / max_desc_diff
             norm_ratio_test = 1 - ratio_test / max_ratio_test
-            vote = norm_desc_diff + norm_dis + norm_ratio_test
+            norm_d2_distance = 1 - candidate.d2_distance / max_d2_distance
+            if not DEBUG:
+                vote = norm_desc_diff + norm_dis + norm_ratio_test + norm_d2_distance
+            else:
+                vote = norm_desc_diff + norm_d2_distance
             candidate.dis = norm_dis
             candidate.ratio_test = norm_ratio_test
             candidate.desc_diff = norm_desc_diff
             candidate.ratio_test_old = ratio_test
+            candidate.d2_distance = norm_d2_distance
             self.pid2votes[pid].append(vote)
 
         for pid in self.pid2votes:
@@ -127,7 +135,7 @@ class CandidatePool:
 
 
 class MatchCandidate:
-    def __init__(self, query_coord, fid, pid, dis, desc_diff, ratio_test):
+    def __init__(self, query_coord, fid, pid, dis, desc_diff, ratio_test, d2_distance):
         self.query_coord = query_coord
         self.pid = pid
         self.fid = fid
@@ -135,6 +143,7 @@ class MatchCandidate:
         self.desc_diff = desc_diff
         self.ratio_test = ratio_test
         self.ratio_test_old = None
+        self.d2_distance = d2_distance
 
     def __str__(self):
         return f"matched to {self.pid} with score={self.dis}"
