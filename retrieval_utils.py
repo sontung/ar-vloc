@@ -24,7 +24,7 @@ TRAINED = {
     'rSfM120k-tl-resnet101-gem-w': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
     'retrievalSfM120k-resnet101-gem': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
 }
-DEBUG = True
+DEBUG = False
 
 
 class CandidatePool:
@@ -304,14 +304,50 @@ def log_matching(pairs, name1, name2, name3):
     cv2.imwrite(name3, img)
 
 
-if __name__ == '__main__':
-    # extract_global_descriptors_on_database_images("vloc_workspace_retrieval/images_retrieval/db",
-    #                                               "vloc_workspace_retrieval")
-    # extract_global_descriptors_on_database_images("vloc_workspace_retrieval/images_retrieval/db",
-    #                                               "vloc_workspace_retrieval",
-    #                                               multi_scale=False)
-    extract_retrieval_pairs("vloc_workspace_retrieval/database_global_descriptors_0.pkl",
-                            "vloc_workspace_retrieval/images_retrieval/query/query.jpg",
-                            "vloc_workspace_retrieval/retrieval_pairs.txt",
-                            multi_scale=False,
-                            nb_neighbors=40)
+def verify_matches_cross_compare(matches, pairs, pid2features, name2id, h5_file_features):
+    """
+    verify matches based on cross comparing pairs with sfm pairs
+    matches: (img id1, img id2) => [(fid1, fid2), ...]
+    pairs: [(fid, pid), ...]
+    pid2features: pid => [(img id, img name, x, y), ...]
+    h5_file_features: h5 file from hloc matcher
+    """
+    res = []
+    query_img_id = name2id["query/query.jpg"]
+    query_img_name = "query/query.jpg"
+    for query_fid_coord, pid, db_im_name in pairs:
+        score = 0
+        total = 0
+        for _, name, cx, cy in pid2features[pid]:
+            total += 1
+            database_fid_coord2 = np.array([cx, cy])
+            name = f"db/{name}"
+            if name == db_im_name:
+                continue
+            img_id = name2id[name]
+            key1 = (query_img_id, img_id)
+            key2 = (img_id, query_img_id)
+            id0 = 0
+            id1 = 1
+            if key1 in matches:
+                arr = matches[key1]
+            elif key2 in matches:
+                arr = matches[key2]
+                id0 = 1
+                id1 = 0
+            else:
+                continue
+            diff = query_fid_coord - h5_file_features[query_img_name]["keypoints"][arr[:, id0]]
+            diff = np.sum(np.square(diff), axis=1)
+            idx = np.argmin(diff)
+            if diff[idx] < 4:
+                database_fid_coord3 = h5_file_features[name]["keypoints"][arr[idx, id1]]
+                dis2 = np.sum(np.abs(database_fid_coord2 - database_fid_coord3)) / 2
+                if dis2 < 10:
+                    score += 1
+        if score / total > 0:
+            print(score / total, score, total)
+            res.append(True)
+        else:
+            res.append(False)
+    return res

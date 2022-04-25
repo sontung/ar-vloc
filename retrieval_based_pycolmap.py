@@ -17,7 +17,8 @@ import colmap_db_read
 import colmap_io
 import localization
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
-from retrieval_utils import (CandidatePool, MatchCandidate, extract_retrieval_pairs, log_matching)
+from retrieval_utils import (CandidatePool, MatchCandidate, extract_retrieval_pairs,
+                             log_matching, verify_matches_cross_compare)
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
 
 sys.path.append("Hierarchical-Localization")
@@ -82,7 +83,7 @@ def api_test():
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
-    # system.visualize()
+    system.visualize()
     images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
     for du in images_with_scores:
         print(du)
@@ -115,7 +116,7 @@ class Localization:
         self.image_name_to_image_id = {}
         self.image2pose = None
         self.image2pose_new = None
-        self.pid2features = None
+        self.pid2features = None  # maps pid to list of images that observes this point
         self.localization_results = []
         self.build_tree()
         self.id2kp_sfm, self.id2desc_sfm, self.id2name_sfm = colmap_db_read.extract_colmap_sift(self.match_database_dir)
@@ -133,14 +134,13 @@ class Localization:
         self.default_metadata = {'f': 26.0, 'cx': 1134.0, 'cy': 2016.0}
 
         # image retrieval variables
-        self.retrieval_dataset = Path('vloc_workspace_retrieval')  # change this if your dataset is somewhere else
-        self.retrieval_images_dir = self.retrieval_dataset / 'images_retrieval'
-        self.retrieval_loc_pairs_dir = self.retrieval_dataset / 'pairs.txt'  # top 20 retrieved by NetVLAD
+        self.retrieval_images_dir = self.workspace_dir / 'images_retrieval'
+        self.retrieval_loc_pairs_dir = self.workspace_dir / 'pairs.txt'  # top 20 retrieved by NetVLAD
         self.retrieval_conf = extract_features.confs['netvlad']
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model_class = dynamic_load(extractors, self.retrieval_conf['model']['name'])
         self.retrieval_model = model_class(self.retrieval_conf['model']).eval().to(self.device)
-        self.feature_path = Path(self.retrieval_dataset, self.retrieval_conf['output'] + '.h5')
+        self.feature_path = Path(self.workspace_dir, self.retrieval_conf['output'] + '.h5')
         self.feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.skip_names = set(list_h5_names(self.feature_path) if self.feature_path.exists() else ())
 
@@ -159,19 +159,19 @@ class Localization:
         self.cnn_retrieval_net.cuda()
 
         # matching variables
-        self.image_ids = get_image_ids(self.workspace_database_dir)
+        self.name2id = get_image_ids(self.workspace_database_dir)
         self.desc_type = None
         self.kp_type = None
         self.skip_geometric_verification = skip_geometric_verification
         self.matching_conf = extract_features.confs['sift']
         model_class = dynamic_load(extractors, self.matching_conf['model']['name'])
         self.matching_model = model_class(self.matching_conf['model']).eval().to(self.device)
-        self.matching_feature_path = Path(self.retrieval_dataset, self.matching_conf['output'] + '.h5')
+        self.matching_feature_path = Path(self.workspace_dir, self.matching_conf['output'] + '.h5')
         self.matching_feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.matching_skip_names = set(list_h5_names(self.matching_feature_path)
                                        if self.matching_feature_path.exists() else ())
         self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path,
-                                                            matches=self.retrieval_dataset / "matches.h5")
+                                                            matches=self.workspace_dir / "matches.h5")
 
         # pairs from retrieval variables
         db_descriptors = self.feature_path
@@ -241,14 +241,14 @@ class Localization:
                                                feature_path=self.matching_feature_path)
         matching_conf = match_features_bare.confs["NN-ratio"]
         match_features_bare.main(self.name2ref, matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
-                                 matches=self.retrieval_dataset / "matches.h5", overwrite=True)
+                                 matches=self.workspace_dir / "matches.h5", overwrite=True)
 
     def read_matches(self):
         with open(self.retrieval_loc_pairs_dir, 'r') as f:
             pairs = [p.split() for p in f.readlines()]
         image_ids = get_image_ids(self.workspace_database_dir)
         self.matches = {}
-        with h5py.File(str(self.retrieval_dataset / "matches.h5"), 'r') as hfile:
+        with h5py.File(str(self.workspace_dir / "matches.h5"), 'r') as hfile:
             for p1, p2 in pairs:
                 m1, _ = get_matches_wo_loading(hfile, p1, p2)
                 key_ = image_ids[p1], image_ids[p2]
@@ -274,10 +274,9 @@ class Localization:
         d2_file = run_d2_detector_on_folder(str(self.workspace_dir / "images_retrieval/db"), str(self.workspace_dir))
         with open(d2_file, 'rb') as handle:
             name2kp = pickle.load(handle)
-
-            for name in self.image_ids:
+            for name in self.name2id:
                 if "query" not in name:
-                    img_id = self.image_ids[name]
+                    img_id = self.name2id[name]
                     kp_mat = self.h5_file_features[name]["keypoints"].__array__()
                     kp_mat_d2 = name2kp[name.split("/")[-1]]
                     tree = KDTree(kp_mat_d2)
@@ -294,8 +293,8 @@ class Localization:
         with h5py.File(self.matching_feature_path, 'r') as hfile:
             if self.desc_tree is None:
                 self.desc_tree = {}
-                for name in self.image_ids:
-                    img_id = self.image_ids[name]
+                for name in self.name2id:
+                    img_id = self.name2id[name]
                     self.id2name[img_id] = name
                     if "query" not in name:
                         desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
@@ -350,6 +349,7 @@ class Localization:
         pairs = []
         points1 = []
         points2 = []
+        pairs2 = []
         for u, v in arr:
             if id1 == database_im_id:
                 database_fid = u
@@ -381,10 +381,12 @@ class Localization:
                 dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
                 ratio_test = dis[1] / dis[2]
 
-            pair = ((x1, y1), (x2, y2), query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature)
+            pair = ((x1, y1), (x2, y2), query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature,
+                    self.id2name[database_im_id])
             pairs.append(pair)
             points1.append(query_fid_coord)
             points2.append(database_fid_coord)
+            pairs2.append((query_fid_coord, database_fid_coord))
         return points1, points2, pairs
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
@@ -447,18 +449,27 @@ class Localization:
         return True, mask
 
     def register_matches(self, pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics):
+        pairs2 = []
         for pair in pairs:
-            query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature = pair
-            if desc_heuristics:
-                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
-            else:
-                desc_diff = 1
+            query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
             fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
             pid = pid_list[ind]
-            fid = fid_list[ind]
-            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test, distance_to_d2_feature)
-            point3d_candidate_pool.add(candidate)
+            pairs2.append((query_fid_coord, pid, db_im_name))
+        verified = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, self.name2id, self.h5_file_features)
+        for idx, pair in enumerate(pairs):
+            if verified[idx]:
+                query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
+                if desc_heuristics:
+                    desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
+                else:
+                    desc_diff = 1
+                fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+                dis, ind = tree.query(database_fid_coord, 1)  # sfm
+                pid = pid_list[ind]
+                fid = fid_list[ind]
+                candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test, distance_to_d2_feature)
+                point3d_candidate_pool.add(candidate)
 
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
@@ -510,6 +521,7 @@ class Localization:
             point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
         pairs = []
+        image_tracks = {}
         for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:max_pool_size]):
             pid = candidate.pid
             xy = candidate.query_coord
