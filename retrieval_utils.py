@@ -311,7 +311,9 @@ def log_matching(pairs, name1, name2, name3):
     cv2.imwrite(name3, img)
 
 
-def verify_matches_cross_compare(matches, pairs, pid2features, name2id, h5_file_features):
+@profile
+def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
+                                 query_img_kp, kp_mat):
     """
     verify matches based on cross comparing pairs with sfm pairs
     matches: (img id1, img id2) => [(fid1, fid2), ...]
@@ -322,7 +324,6 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id, h5_file_
     res = []
     scores = []
     query_img_id = name2id["query/query.jpg"]
-    query_img_name = "query/query.jpg"
     for query_fid_coord, pid, db_im_name in pairs:
         score = 0
         total = 0
@@ -345,13 +346,21 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id, h5_file_
                 id1 = 0
             else:
                 continue
-            diff = query_fid_coord - h5_file_features[query_img_name]["keypoints"][arr[:, id0]]
+
+            t0 = arr[:, id0]
+            t0 = query_img_kp[t0]
+            t0 = query_fid_coord - t0
+            t0 = np.square(t0)
+            t0 = np.sum(t0, axis=1)
+            idx = np.argmin(t0)
+
+            diff = query_fid_coord - query_img_kp[arr[:, id0]]
             diff = np.sum(np.square(diff), axis=1)
             idx = np.argmin(diff)
             if diff[idx] < 4:
-                database_fid_coord3 = h5_file_features[name]["keypoints"][arr[idx, id1]]
-                dis2 = np.sum(np.abs(database_fid_coord2 - database_fid_coord3)) / 2
-                if dis2 < 10:
+                database_fid_coord3 = kp_mat[name][arr[idx, id1]]
+                dis2 = np.sum(np.abs(database_fid_coord2 - database_fid_coord3))
+                if dis2 < 20:
                     score += 1
         scores.append(score)
         if score > 1:
