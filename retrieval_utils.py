@@ -55,6 +55,8 @@ class CandidatePool:
 
         max_d2_distance = max([cand.d2_distance for cand in self.pool])
 
+        max_cc_score = max([cand.cc_score for cand in self.pool])
+
         # populate votes
         self.pid2votes = {}
         for candidate in self.pool:
@@ -68,8 +70,10 @@ class CandidatePool:
             norm_desc_diff = 1 - desc_diff / max_desc_diff
             norm_ratio_test = 1 - ratio_test / max_ratio_test
             norm_d2_distance = 1 - candidate.d2_distance / max_d2_distance
+            norm_cc_score = candidate.cc_score / max_cc_score
+
             if not DEBUG:
-                vote = norm_desc_diff + norm_dis + norm_ratio_test + norm_d2_distance
+                vote = norm_desc_diff + norm_dis + norm_ratio_test + norm_d2_distance + norm_cc_score
             else:
                 vote = norm_desc_diff + norm_d2_distance
             candidate.dis = norm_dis
@@ -77,6 +81,8 @@ class CandidatePool:
             candidate.desc_diff = norm_desc_diff
             candidate.ratio_test_old = ratio_test
             candidate.d2_distance = norm_d2_distance
+            # candidate.cc_score = norm_cc_score
+
             self.pid2votes[pid].append(vote)
 
         for pid in self.pid2votes:
@@ -135,7 +141,7 @@ class CandidatePool:
 
 
 class MatchCandidate:
-    def __init__(self, query_coord, fid, pid, dis, desc_diff, ratio_test, d2_distance):
+    def __init__(self, query_coord, fid, pid, dis, desc_diff, ratio_test, d2_distance, cc_score):
         self.query_coord = query_coord
         self.pid = pid
         self.fid = fid
@@ -144,6 +150,7 @@ class MatchCandidate:
         self.ratio_test = ratio_test
         self.ratio_test_old = None
         self.d2_distance = d2_distance
+        self.cc_score = cc_score
 
     def __str__(self):
         return f"matched to {self.pid} with score={self.dis}"
@@ -313,6 +320,7 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id, h5_file_
     h5_file_features: h5 file from hloc matcher
     """
     res = []
+    scores = []
     query_img_id = name2id["query/query.jpg"]
     query_img_name = "query/query.jpg"
     for query_fid_coord, pid, db_im_name in pairs:
@@ -345,9 +353,9 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id, h5_file_
                 dis2 = np.sum(np.abs(database_fid_coord2 - database_fid_coord3)) / 2
                 if dis2 < 10:
                     score += 1
-        if score / total > 0:
-            print(score / total, score, total)
+        scores.append(score)
+        if score > 1:
             res.append(True)
         else:
             res.append(False)
-    return res
+    return res, scores

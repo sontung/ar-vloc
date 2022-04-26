@@ -47,8 +47,9 @@ def localize(metadata, pairs):
     cx = metadata["cx"]
     cy = metadata["cy"]
 
-    r_mat, t_vec, score = localization.localize_single_image_lt_pnp(pairs, f, cx, cy, with_inliers_percent=True)
-    return r_mat, t_vec, score
+    r_mat, t_vec, score, mask = localization.localize_single_image_lt_pnp(pairs, f, cx, cy,
+                                                                    with_inliers_percent=True, return_inlier_mask=True)
+    return r_mat, t_vec, score, mask
 
 
 def api_test():
@@ -191,24 +192,6 @@ class Localization:
         self.build_d2_masks()
         return
 
-    def build_tree(self):
-        self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
-        self.pid2features = colmap_io.read_pid2images(self.image2pose)
-        for img_id in self.image2pose:
-            self.image_to_kp_tree[img_id] = []
-        for img_id in self.image2pose:
-            image_name, points2d_meaningful, cam_pose, cam_id = self.image2pose[img_id]
-            self.image_name_to_image_id[image_name] = img_id
-            fid_list = []
-            pid_list = []
-            f_coord_list = []
-            for fid, (fx, fy, pid) in enumerate(points2d_meaningful):
-                if pid >= 0:
-                    fid_list.append(fid)
-                    pid_list.append(pid)
-                    f_coord_list.append([fx, fy])
-            self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
-
     def create_folders(self):
         process = subprocess.Popen(["cp", self.workspace_original_database_dir, self.workspace_database_dir])
         return process
@@ -243,6 +226,11 @@ class Localization:
         match_features_bare.main(self.name2ref, matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
                                  matches=self.workspace_dir / "matches.h5", overwrite=True)
 
+    def terminate(self):
+        if self.h5_file_features is not None:
+            self.h5_file_features.close()
+        self.h5_file_features = None
+
     def read_matches(self):
         with open(self.retrieval_loc_pairs_dir, 'r') as f:
             pairs = [p.split() for p in f.readlines()]
@@ -254,16 +242,29 @@ class Localization:
                 key_ = image_ids[p1], image_ids[p2]
                 self.matches[key_] = m1
 
-    def terminate(self):
-        if self.h5_file_features is not None:
-            self.h5_file_features.close()
-        self.h5_file_features = None
-
     def read_features(self):
         """
         h5 file maps img name => ['descriptors', 'image_size', 'keypoints', 'scores']
         """
         self.h5_file_features = h5py.File(self.matching_feature_path, 'r')
+
+    def build_tree(self):
+        self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
+        self.pid2features = colmap_io.read_pid2images(self.image2pose)
+        for img_id in self.image2pose:
+            self.image_to_kp_tree[img_id] = []
+        for img_id in self.image2pose:
+            image_name, points2d_meaningful, cam_pose, cam_id = self.image2pose[img_id]
+            self.image_name_to_image_id[image_name] = img_id
+            fid_list = []
+            pid_list = []
+            f_coord_list = []
+            for fid, (fx, fy, pid) in enumerate(points2d_meaningful):
+                if pid >= 0:
+                    fid_list.append(fid)
+                    pid_list.append(pid)
+                    f_coord_list.append([fx, fy])
+            self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
 
     def build_d2_masks(self):
         """
@@ -316,21 +317,46 @@ class Localization:
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
         self.run_image_retrieval_and_matching()
         self.read_matching_database()
-
-        pairs, _ = self.read_2d_2d_matches(f"query/{name_list[0]}", debug=DEBUG)
+        query_im_name = f"query/{name_list[0]}"
+        pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name, debug=DEBUG)
         if len(pairs) == 0:
             return 0, None
 
         best_score = None
         best_pose = None
+        best_mask = None
         for _ in range(10):
-            r_mat, t_vec, score = localize(metadata, pairs)
+            r_mat, t_vec, score, mask = localize(metadata, pairs)
             if best_score is None or score > best_score:
                 best_score = score
                 best_pose = (r_mat, t_vec)
+                best_mask = mask
                 if best_score > 0.9:
                     break
         r_mat, t_vec = best_pose
+
+        for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:len(pairs)]):
+            pid = candidate.pid
+            xy = candidate.query_coord
+            xyz = self.point3did2xyzrgb[pid][:3]
+            pairs.append((xy, xyz))
+
+            if DEBUG and best_mask[cand_idx]:
+                self.pid2images = colmap_io.read_pid2images(self.image2pose)
+                print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
+                      candidate.desc_diff,
+                      candidate.ratio_test,
+                      candidate.d2_distance,
+                      candidate.cc_score)
+                x2, y2 = map(int, xy)
+                query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
+                if query_img is None:
+                    print(f"{self.retrieval_images_dir}/{query_im_name}")
+                    raise ValueError
+                cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+                vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
+                                                                      self.workspace_images_dir)
+                cv2.imwrite(f"debug3/img-{cand_idx}.jpg", vis_img)
 
         self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
         self.terminate()
@@ -388,6 +414,18 @@ class Localization:
             points2.append(database_fid_coord)
             pairs2.append((query_fid_coord, database_fid_coord))
         return points1, points2, pairs
+
+    def verify_matches_cross_compare(self, pairs, database_im_id_sfm):
+        pairs2 = []
+        for pair in pairs:
+            query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
+            fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+            dis, ind = tree.query(database_fid_coord, 1)  # sfm
+            pid = pid_list[ind]
+            pairs2.append((query_fid_coord, pid, db_im_name))
+        mask, scores = verify_matches_cross_compare(self.matches, pairs2, self.pid2features,
+                                            self.name2id, self.h5_file_features)
+        return mask, scores
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
         if points1.shape[0] < 10:  # too few matches
@@ -449,27 +487,18 @@ class Localization:
         return True, mask
 
     def register_matches(self, pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics):
-        pairs2 = []
         for pair in pairs:
-            query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
+            query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, _, score = pair
+            if desc_heuristics:
+                desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
+            else:
+                desc_diff = 1
             fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
             pid = pid_list[ind]
-            pairs2.append((query_fid_coord, pid, db_im_name))
-        verified = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, self.name2id, self.h5_file_features)
-        for idx, pair in enumerate(pairs):
-            if verified[idx]:
-                query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
-                if desc_heuristics:
-                    desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
-                else:
-                    desc_diff = 1
-                fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
-                dis, ind = tree.query(database_fid_coord, 1)  # sfm
-                pid = pid_list[ind]
-                fid = fid_list[ind]
-                candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test, distance_to_d2_feature)
-                point3d_candidate_pool.add(candidate)
+            fid = fid_list[ind]
+            candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test, distance_to_d2_feature, score)
+            point3d_candidate_pool.add(candidate)
 
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
@@ -496,6 +525,11 @@ class Localization:
                     points1, points2, pairs = self.gather_matches(arr, id1, query_im_id,
                                                                   database_im_id, desc_heuristics,
                                                                   filter_by_d2_detection=True)
+                    mask0, scores = self.verify_matches_cross_compare(pairs, database_im_id_sfm)
+                    points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0), [points1, points2, pairs, scores])
+                    print(f" cross comparing reduces {len(mask0)} matches to {len(pairs)} matches")
+                    if len(pairs) == 0:
+                        continue
                     points1 = np.vstack(points1)
                     points2 = np.vstack(points2)
 
@@ -505,15 +539,21 @@ class Localization:
                         nb_skipped += 1
                         continue
 
+                    scores = filter_pairs(scores, mask)
                     pairs = filter_pairs(pairs, mask)
+                    pairs2 = []
+                    for idx, pair in enumerate(pairs):
+                        pair2 = list(pair)
+                        pair2.append(scores[idx])
+                        pairs2.append(pair2)
+
                     using += 1
                     if DEBUG:
                         log_matching(pairs,
                                      f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
                                      f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
                                      f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-useful.jpg")
-
-                    self.register_matches(pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
+                    self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
 
         print(f" found {total} pairs, skipped {nb_skipped} pairs, used {using} pairs")
         if len(point3d_candidate_pool) > 0:
@@ -521,7 +561,6 @@ class Localization:
             point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
         pairs = []
-        image_tracks = {}
         for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:max_pool_size]):
             pid = candidate.pid
             xy = candidate.query_coord
@@ -533,7 +572,8 @@ class Localization:
                 print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
                       candidate.desc_diff,
                       candidate.ratio_test,
-                      candidate.d2_distance)
+                      candidate.d2_distance,
+                      candidate.cc_score)
                 x2, y2 = map(int, xy)
                 query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
                 if query_img is None:

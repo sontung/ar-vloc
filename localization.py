@@ -62,7 +62,8 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
     return rot_mat, trans
 
 
-def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001, with_inliers_percent=False):
+def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
+                                 with_inliers_percent=False, return_inlier_mask=True):
     object_points = []
     image_points = []
     object_points_homo = []
@@ -95,6 +96,9 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001, with_inliers
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
     t_vec = t_vec.reshape((-1, 1))
+    if return_inlier_mask:
+        return r_mat, t_vec, inliers/image_points.shape[0], diff < threshold
     if with_inliers_percent:
         return r_mat, t_vec, inliers/image_points.shape[0]
+
     return r_mat, t_vec
