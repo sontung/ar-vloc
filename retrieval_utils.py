@@ -10,7 +10,7 @@ from colmap_io import build_co_visibility_graph, read_name2id
 from vis_utils import concat_images_different_sizes, visualize_matching_pairs
 from scipy.spatial import KDTree
 from tqdm import tqdm
-
+from fast_math_op import fast_sum_i1
 from os.path import isfile, join
 from torch.utils.model_zoo import load_url
 from torchvision import transforms
@@ -311,7 +311,7 @@ def log_matching(pairs, name1, name2, name3):
     cv2.imwrite(name3, img)
 
 
-@profile
+# @profile
 def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
                                  query_img_kp, kp_mat):
     """
@@ -329,7 +329,7 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
         total = 0
         for _, name, cx, cy in pid2features[pid]:
             total += 1
-            database_fid_coord2 = np.array([cx, cy])
+            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
             name = f"db/{name}"
             if name == db_im_name:
                 continue
@@ -347,15 +347,8 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
             else:
                 continue
 
-            t0 = arr[:, id0]
-            t0 = query_img_kp[t0]
-            t0 = query_fid_coord - t0
-            t0 = np.square(t0)
-            t0 = np.sum(t0, axis=1)
-            idx = np.argmin(t0)
-
             diff = query_fid_coord - query_img_kp[arr[:, id0]]
-            diff = np.sum(np.square(diff), axis=1)
+            diff = np.sum(np.abs(diff), axis=1)
             idx = np.argmin(diff)
             if diff[idx] < 4:
                 database_fid_coord3 = kp_mat[name][arr[idx, id1]]
@@ -368,3 +361,104 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
         else:
             res.append(False)
     return res, scores
+
+
+@profile
+def verify_matches_cross_compare_fast(matches, pairs, pid2features, name2id,
+                                      query_img_kp, kp_mat, pid2name):
+    """
+    verify matches based on cross comparing pairs with sfm pairs
+    matches: (img id1, img id2) => [(fid1, fid2), ...]
+    pairs: [(fid, pid), ...]
+    pid2features: pid => [(img id, img name, x, y), ...]
+    h5_file_features: h5 file from hloc matcher
+    """
+    query_img_id = name2id["query/query.jpg"]
+    access_array = []
+    computation_size = 0
+    computation_size2 = 0
+    for query_fid_coord, pid, db_im_name in pairs:
+        access = []
+        for _, name, cx, cy in pid2features[pid]:
+            name = f"db/{name}"
+            if name == db_im_name:
+                continue
+            img_id = name2id[name]
+            key1 = (query_img_id, img_id)
+            if key1 in matches:
+                arr = matches[key1]
+                id0 = 0
+                id1 = 1
+            else:
+                key2 = (img_id, query_img_id)
+                if key2 in matches:
+                    arr = matches[key2]
+                    id0 = 1
+                    id1 = 0
+                else:
+                    continue
+            access.append([arr, id0, id1, name, cx, cy])
+            computation_size += arr[:, id0].shape[0]
+            computation_size2 += 1
+        access_array.append(access)
+
+    a1 = np.zeros((computation_size2, 2), np.float16)
+    a2 = np.zeros((computation_size,), np.int64)
+    a3 = np.zeros((computation_size2, 2), np.float16)
+    a4 = np.zeros((computation_size, 2), np.float16)
+
+    c_idx = 0
+    c_idx2 = 0
+    repeats = []
+    totals = []
+    for idx11, (query_fid_coord, pid, db_im_name) in enumerate(pairs):
+        total = 0
+        access = access_array[idx11]
+        for arr, id0, id1, name, cx, cy in access:
+            total += 1
+            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
+
+            query_fid_coord2 = query_fid_coord.reshape(1, 2)
+            arr2 = arr[:, id0]
+            nb = arr2.shape[0]
+            a1[c_idx2] = query_fid_coord2
+            a2[c_idx: c_idx + nb] = arr2
+
+            a3[c_idx2] = database_fid_coord2
+            a4[c_idx: c_idx + nb] = kp_mat[name][arr[:, id1]]
+
+            repeats.append(nb)
+            c_idx += nb
+            c_idx2 += 1
+
+    a1 = np.repeat(a1, repeats, 0)
+    a2 = query_img_kp[a2]
+    a3 = np.repeat(a3, repeats, 0)
+
+    diff = np.sum(np.abs(a1 - a2), axis=1)
+    diff2 = np.sum(np.abs(a3 - a4), axis=1)
+    conditions = np.all([diff < 4, diff2 < 20], axis=0)
+    conditions = conditions.astype(np.int8)
+
+    c_idx = 0
+    scores = []
+    for nb in repeats:
+        sub_conditions = conditions[c_idx: c_idx + nb]
+        score = fast_sum_i1(sub_conditions)
+        scores.append(score)
+        c_idx += nb
+
+    c_idx = 0
+    res2 = []
+    scores2 = []
+    for total in totals:
+        sub_score = scores[c_idx: c_idx + total]
+        score = np.sum(sub_score)
+        scores2.append(score)
+        if score > 1:
+            res2.append(True)
+        else:
+            res2.append(False)
+        c_idx += total
+
+    return res2, scores2

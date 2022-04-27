@@ -18,7 +18,7 @@ import colmap_io
 import localization
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate, extract_retrieval_pairs,
-                             log_matching, verify_matches_cross_compare)
+                             log_matching, verify_matches_cross_compare, verify_matches_cross_compare_fast)
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
 
 sys.path.append("Hierarchical-Localization")
@@ -119,6 +119,7 @@ class Localization:
         self.image2pose = None
         self.image2pose_new = None
         self.pid2features = None  # maps pid to list of images that observes this point
+        self.pid2names = None
         self.localization_results = []
         self.build_tree()
         self.id2kp_sfm, self.id2desc_sfm, self.id2name_sfm = colmap_db_read.extract_colmap_sift(self.match_database_dir)
@@ -256,6 +257,10 @@ class Localization:
     def build_tree(self):
         self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
         self.pid2features = colmap_io.read_pid2images(self.image2pose)
+        self.pid2names = {}
+        for pid in self.pid2features:
+            self.pid2names[pid] = [du[1] for du in self.pid2features[pid]]
+
         for img_id in self.image2pose:
             self.image_to_kp_tree[img_id] = []
         for img_id in self.image2pose:
@@ -428,8 +433,10 @@ class Localization:
                 dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
                 ratio_test = dis[1] / dis[2]
 
-            pair = ((x1, y1), (x2, y2), query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature,
-                    self.id2name[database_im_id])
+            pair = (
+                query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test,
+                distance_to_d2_feature,
+                self.id2name[database_im_id])
             pairs.append(pair)
             points1.append(query_fid_coord)
             points2.append(database_fid_coord)
@@ -444,11 +451,13 @@ class Localization:
             fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
             pid = pid_list[ind]
-            pairs2.append((query_fid_coord, pid, db_im_name))
+            pairs2.append((np.array(query_fid_coord), pid, db_im_name))
         if self.query_kp_mat is None:
             self.query_kp_mat = self.h5_file_features["query/query.jpg"]["keypoints"].__array__()
         mask, scores = verify_matches_cross_compare(self.matches, pairs2, self.pid2features,
                                                     self.name2id, self.query_kp_mat, self.id2kp)
+        verify_matches_cross_compare_fast(self.matches, pairs2, self.pid2features,
+                                          self.name2id, self.query_kp_mat, self.id2kp, self.pid2names)
         return mask, scores
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
