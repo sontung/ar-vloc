@@ -119,6 +119,7 @@ class Localization:
         self.image2pose = None
         self.image2pose_new = None
         self.pid2features = None  # maps pid to list of images that observes this point
+        self.pid2features_rebuilt = False
         self.pid2names = None
         self.localization_results = []
         self.build_tree()
@@ -276,6 +277,23 @@ class Localization:
                     f_coord_list.append([fx, fy])
             self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
 
+    def rebuild_pid2features(self):
+        assert len(self.name2id) > 0
+        query_img_id = self.name2id["query/query.jpg"]
+        if not self.pid2features_rebuilt:
+            for pid in self.pid2features:
+                new_data = []
+                for img_id2, name, cx, cy in self.pid2features[pid]:
+                    name = f"db/{name}"
+                    if name in self.name2id:
+                        img_id = self.name2id[name]
+                        key1 = (query_img_id, img_id)
+                        key2 = (img_id, query_img_id)
+                        database_fid_coord = np.array([cx, cy], dtype=np.float16)
+                        new_data.append([img_id, name, database_fid_coord, key1, key2])
+                self.pid2features[pid] = new_data
+            self.pid2features_rebuilt = True
+
     def build_d2_masks(self):
         """
         builds a mask telling which features are close to d2 features for all database images
@@ -314,6 +332,7 @@ class Localization:
                         desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
                         self.id2desc[name] = desc_mat
                         self.desc_tree[img_id] = KDTree(desc_mat)
+        self.rebuild_pid2features()
 
     def get_feature_coord(self, img_id, fid, db=False):
         name = self.id2name[img_id]
@@ -397,11 +416,10 @@ class Localization:
         self.read_matches()
         self.read_features()
 
-    def gather_matches(self, arr, id1, query_im_id, database_im_id, desc_heuristics, filter_by_d2_detection=True):
+    def gather_matches(self, arr, id1, query_im_id, database_im_id, filter_by_d2_detection=True):
         pairs = []
         points1 = []
         points2 = []
-        pairs2 = []
         for u, v in arr:
             if id1 == database_im_id:
                 database_fid = u
@@ -418,32 +436,26 @@ class Localization:
                 # check if the matched feature of database image is close to one d2 feature
                 dis_mat, mask = self.d2_masks[database_im_id]
                 close_to_a_d2_feature = mask[database_fid]
-                distance_to_d2_feature = dis_mat[database_fid]
                 if not close_to_a_d2_feature:
                     continue
+                distance_to_d2_feature = dis_mat[database_fid]
 
-            x1, y1 = map(int, query_fid_coord)
-            x2, y2 = map(int, database_fid_coord)
-            query_fid_desc = None
-            database_fid_desc = None
-            ratio_test = None
-            if desc_heuristics:
-                query_fid_desc = self.get_feature_desc(query_im_id, query_fid)  # hloc
-                database_fid_desc = self.get_feature_desc(database_im_id, database_fid, db=True)  # hloc
-                dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
-                ratio_test = dis[1] / dis[2]
+            query_fid_desc = self.get_feature_desc(query_im_id, query_fid)  # hloc
+            database_fid_desc = self.get_feature_desc(database_im_id, database_fid, db=True)  # hloc
+            dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
+            ratio_test = dis[1] / dis[2]
 
             pair = (
                 query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test,
                 distance_to_d2_feature,
-                self.id2name[database_im_id])
+                self.id2name[database_im_id]
+            )
             pairs.append(pair)
             points1.append(query_fid_coord)
             points2.append(database_fid_coord)
-            pairs2.append((query_fid_coord, database_fid_coord))
         return points1, points2, pairs
 
-    @profile
+    # @profile
     def verify_matches_cross_compare(self, pairs, database_im_id_sfm):
         pairs2 = []
         for pair in pairs:
@@ -454,11 +466,16 @@ class Localization:
             pairs2.append((np.array(query_fid_coord), pid, db_im_name))
         if self.query_kp_mat is None:
             self.query_kp_mat = self.h5_file_features["query/query.jpg"]["keypoints"].__array__()
-        mask, scores = verify_matches_cross_compare(self.matches, pairs2, self.pid2features,
-                                                    self.name2id, self.query_kp_mat, self.id2kp)
-        verify_matches_cross_compare_fast(self.matches, pairs2, self.pid2features,
-                                          self.name2id, self.query_kp_mat, self.id2kp, self.pid2names)
-        return mask, scores
+        mask2, scores2 = verify_matches_cross_compare_fast(self.matches, pairs2, self.pid2features, self.query_kp_mat,
+                                                           self.id2kp)
+        # mask, scores = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, self.query_kp_mat,
+        #                                             self.id2kp)
+        # assert len(mask2) == len(mask)
+        # c = 0
+        # for u, v in enumerate(mask):
+        #     if v == mask2[u]:
+        #         c += 1
+        return mask2, scores2
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
         if points1.shape[0] < 10:  # too few matches
@@ -534,7 +551,6 @@ class Localization:
                                        score)
             point3d_candidate_pool.add(candidate)
 
-    # @profile
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
         name2id = {name: ind for ind, name in self.id2name.items()}
         desc_heuristics = True
@@ -558,8 +574,7 @@ class Localization:
                     database_im_id_sfm = self.image_name_to_image_id[self.id2name[database_im_id].split("/")[-1]]
 
                     points1, points2, pairs = self.gather_matches(arr, id1, query_im_id,
-                                                                  database_im_id, desc_heuristics,
-                                                                  filter_by_d2_detection=True)
+                                                                  database_im_id, filter_by_d2_detection=True)
                     mask0, scores = self.verify_matches_cross_compare(pairs, database_im_id_sfm)
                     points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
                                                           [points1, points2, pairs, scores])

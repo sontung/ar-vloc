@@ -312,8 +312,7 @@ def log_matching(pairs, name1, name2, name3):
 
 
 # @profile
-def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
-                                 query_img_kp, kp_mat):
+def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_mat):
     """
     verify matches based on cross comparing pairs with sfm pairs
     matches: (img id1, img id2) => [(fid1, fid2), ...]
@@ -323,19 +322,13 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
     """
     res = []
     scores = []
-    query_img_id = name2id["query/query.jpg"]
     for query_fid_coord, pid, db_im_name in pairs:
         score = 0
         total = 0
-        for _, name, cx, cy in pid2features[pid]:
+        for img_id, name, database_fid_coord2, key1, key2 in pid2features[pid]:
             total += 1
-            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
-            name = f"db/{name}"
             if name == db_im_name:
                 continue
-            img_id = name2id[name]
-            key1 = (query_img_id, img_id)
-            key2 = (img_id, query_img_id)
             id0 = 0
             id1 = 1
             if key1 in matches:
@@ -363,9 +356,8 @@ def verify_matches_cross_compare(matches, pairs, pid2features, name2id,
     return res, scores
 
 
-@profile
-def verify_matches_cross_compare_fast(matches, pairs, pid2features, name2id,
-                                      query_img_kp, kp_mat, pid2name):
+# @profile
+def verify_matches_cross_compare_fast(matches, pairs, pid2features, query_img_kp, kp_mat):
     """
     verify matches based on cross comparing pairs with sfm pairs
     matches: (img id1, img id2) => [(fid1, fid2), ...]
@@ -373,31 +365,26 @@ def verify_matches_cross_compare_fast(matches, pairs, pid2features, name2id,
     pid2features: pid => [(img id, img name, x, y), ...]
     h5_file_features: h5 file from hloc matcher
     """
-    query_img_id = name2id["query/query.jpg"]
     access_array = []
     computation_size = 0
     computation_size2 = 0
     for query_fid_coord, pid, db_im_name in pairs:
         access = []
-        for _, name, cx, cy in pid2features[pid]:
-            name = f"db/{name}"
+        for img_id, name, database_fid_coord, key1, key2 in pid2features[pid]:
             if name == db_im_name:
                 continue
-            img_id = name2id[name]
-            key1 = (query_img_id, img_id)
             if key1 in matches:
                 arr = matches[key1]
                 id0 = 0
                 id1 = 1
             else:
-                key2 = (img_id, query_img_id)
                 if key2 in matches:
                     arr = matches[key2]
                     id0 = 1
                     id1 = 0
                 else:
                     continue
-            access.append([arr, id0, id1, name, cx, cy])
+            access.append([arr, id0, id1, name, database_fid_coord])
             computation_size += arr[:, id0].shape[0]
             computation_size2 += 1
         access_array.append(access)
@@ -414,22 +401,23 @@ def verify_matches_cross_compare_fast(matches, pairs, pid2features, name2id,
     for idx11, (query_fid_coord, pid, db_im_name) in enumerate(pairs):
         total = 0
         access = access_array[idx11]
-        for arr, id0, id1, name, cx, cy in access:
+        for arr, id0, id1, name, database_fid_coord in access:
             total += 1
-            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
-
-            query_fid_coord2 = query_fid_coord.reshape(1, 2)
             arr2 = arr[:, id0]
             nb = arr2.shape[0]
-            a1[c_idx2] = query_fid_coord2
+            a1[c_idx2] = query_fid_coord
             a2[c_idx: c_idx + nb] = arr2
 
-            a3[c_idx2] = database_fid_coord2
+            a3[c_idx2] = database_fid_coord
+            u = kp_mat[name]
+            v = arr[:, id1]
+            a = u[v]
             a4[c_idx: c_idx + nb] = kp_mat[name][arr[:, id1]]
 
             repeats.append(nb)
             c_idx += nb
             c_idx2 += 1
+        totals.append(total)
 
     a1 = np.repeat(a1, repeats, 0)
     a2 = query_img_kp[a2]
@@ -441,19 +429,19 @@ def verify_matches_cross_compare_fast(matches, pairs, pid2features, name2id,
     conditions = conditions.astype(np.int8)
 
     c_idx = 0
-    scores = []
-    for nb in repeats:
+    scores_arr = np.zeros((len(repeats),), np.int8)
+    for du2, nb in enumerate(repeats):
         sub_conditions = conditions[c_idx: c_idx + nb]
         score = fast_sum_i1(sub_conditions)
-        scores.append(score)
+        scores_arr[du2] = score
         c_idx += nb
 
     c_idx = 0
     res2 = []
     scores2 = []
     for total in totals:
-        sub_score = scores[c_idx: c_idx + total]
-        score = np.sum(sub_score)
+        sub_score = scores_arr[c_idx: c_idx + total]
+        score = fast_sum_i1(sub_score)
         scores2.append(score)
         if score > 1:
             res2.append(True)
