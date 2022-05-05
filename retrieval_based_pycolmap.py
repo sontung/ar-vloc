@@ -10,6 +10,7 @@ import h5py
 import numpy as np
 import open3d as o3d
 import torch
+
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
@@ -37,6 +38,7 @@ from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
 from torch.utils.model_zoo import load_url
 from cirtorch.networks.imageretrievalnet import init_network
+from multiprocessing import Process
 
 DEBUG = False
 GLOBAL_COUNT = 1
@@ -65,12 +67,12 @@ def api_test():
     # name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
-    name_list = name_list[:2]
+    # name_list = name_list[:2]
 
     scores = []
     images_with_scores = []
     for name in name_list:
-        print(name)
+        print(f"Processing {name}")
         query_img = cv2.imread(f"{query_folder}/{name}")
         cv2.imwrite(f"{query_folder_workspace1}/query.jpg", query_img)
         cv2.imwrite(f"{query_folder_workspace2}/query.jpg", query_img)
@@ -85,7 +87,7 @@ def api_test():
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
-    # system.visualize()
+    system.visualize()
     images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
     for du in images_with_scores:
         print(du)
@@ -214,7 +216,16 @@ class Localization:
         database_image_ids = {u: v for u, v in image_ids.items() if "db" in u}
         import_features(database_image_ids, self.workspace_original_database_dir, self.matching_feature_path)
 
+    def run_feature_extraction(self):
+        extract_features.main_wo_model_loading(self.matching_model, "cpu", self.matching_skip_names,
+                                               self.matching_conf, self.retrieval_images_dir,
+                                               feature_path=self.matching_feature_path)
+
+    # @profile
     def run_image_retrieval_and_matching(self):
+        extract_feature_process = Process(target=self.run_feature_extraction)
+        extract_feature_process.start()
+
         # retrieve
         extract_retrieval_pairs(self.cnn_retrieval_net, self.state,
                                 "vloc_workspace_retrieval/database_global_descriptors_0.pkl",
@@ -224,9 +235,9 @@ class Localization:
                                 nb_neighbors=40)
 
         # match
-        extract_features.main_wo_model_loading(self.matching_model, self.device, self.matching_skip_names,
-                                               self.matching_conf, self.retrieval_images_dir,
-                                               feature_path=self.matching_feature_path)
+        extract_feature_process.join()
+        extract_feature_process.kill()
+
         matching_conf = match_features_bare.confs["NN-ratio"]
         match_features_bare.main(self.name2ref, matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
                                  matches=self.workspace_dir / "matches.h5", overwrite=True)
@@ -358,6 +369,7 @@ class Localization:
         name = self.id2name[img_id]
         return self.h5_file_features[name]["scores"][fid]
 
+    # @profile
     def main_for_api(self, metadata):
         name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
         self.run_image_retrieval_and_matching()

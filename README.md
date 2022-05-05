@@ -1,8 +1,7 @@
 # Visual localization for augmented reality
 
 ## to do
-- there are scores for features and matching pairs
-- integrate d2 net features
+- share one matrix for query image across all pipeline
 
 ## main script = `retrieval_based.py`
 
