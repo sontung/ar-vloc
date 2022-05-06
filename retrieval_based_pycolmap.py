@@ -95,10 +95,6 @@ def api_test():
 
 class Localization:
     def __init__(self, skip_geometric_verification=False):
-        self.database_dir = Path("vloc_workspace")
-        self.match_database_dir = self.database_dir / "db.db"  # dir to database containing matches between queries and database
-        self.workspace_original_database_dir = self.database_dir / "ori_database_hloc.db"
-
         self.all_queries_folder = "Test line"
         self.workspace_dir = Path('vloc_workspace_retrieval')
         self.workspace_images_dir = f"{self.workspace_dir}/images"
@@ -110,11 +106,6 @@ class Localization:
         self.workspace_sfm_images_dir = f"{self.workspace_existing_model}/images.txt"
         self.workspace_sfm_point_cloud_dir = f"{self.workspace_existing_model}/points3D.txt"
 
-        if self.workspace_database_dir.exists():
-            print("Precomputed database found")
-        else:
-            self.create_hloc_database()
-
         self.image_to_kp_tree = {}
         self.point3d_cloud = None
         self.image_name_to_image_id = {}
@@ -125,7 +116,6 @@ class Localization:
         self.pid2names = None
         self.localization_results = []
         self.build_tree()
-        self.id2kp_sfm, self.id2desc_sfm, self.id2name_sfm = colmap_db_read.extract_colmap_sift(self.match_database_dir)
 
         # matching database
         self.matches = None
@@ -167,7 +157,6 @@ class Localization:
         self.cnn_retrieval_net.cuda()
 
         # matching variables
-        self.name2id = get_image_ids(self.workspace_database_dir)
         self.desc_type = None
         self.kp_type = None
         self.skip_geometric_verification = skip_geometric_verification
@@ -192,6 +181,14 @@ class Localization:
         self.db_names = pairs_from_retrieval.parse_names("db", None, db_names_h5)
         if len(self.db_names) == 0:
             raise ValueError('Could not find any database image.')
+
+        if self.workspace_database_dir.exists():
+            print("Precomputed database found")
+        else:
+            print("Precomputing database")
+            self.create_hloc_database()
+
+        self.name2id = get_image_ids(self.workspace_database_dir)
         self.query_names = pairs_from_retrieval.parse_names("query", None, query_names_h5)
         self.db_desc = pairs_from_retrieval.get_descriptors(self.db_names, db_descriptors, name2db)
         self.db_desc = self.db_desc.to(self.device)
@@ -199,22 +196,18 @@ class Localization:
         self.build_d2_masks()
         return
 
-    def create_folders(self):
-        process = subprocess.Popen(["cp", self.workspace_original_database_dir, self.workspace_database_dir])
-        return process
-
     def create_hloc_database(self):
         """
         Run this when hloc database needs to be reset
         """
-        create_empty_db(self.workspace_original_database_dir)
-        import_images(self.retrieval_images_dir, self.workspace_original_database_dir, "PER_FOLDER", None)
+        create_empty_db(self.workspace_database_dir)
+        import_images(self.retrieval_images_dir, self.workspace_database_dir, "PER_FOLDER", None)
         extract_features.main_wo_model_loading(self.matching_model, self.device, [],
                                                self.matching_conf, self.retrieval_images_dir,
                                                feature_path=self.matching_feature_path)
-        image_ids = get_image_ids(self.workspace_original_database_dir)
+        image_ids = get_image_ids(self.workspace_database_dir)
         database_image_ids = {u: v for u, v in image_ids.items() if "db" in u}
-        import_features(database_image_ids, self.workspace_original_database_dir, self.matching_feature_path)
+        import_features(database_image_ids, self.workspace_database_dir, self.matching_feature_path)
 
     def run_feature_extraction(self):
         extract_features.main_wo_model_loading(self.matching_model, "cpu", self.matching_skip_names,

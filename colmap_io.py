@@ -29,6 +29,15 @@ def read_points3D(in_dir="sfm_models/points3D.txt"):
     return data
 
 
+def read_image_list(in_dir):
+    sys.stdin = open(in_dir, "r")
+    lines = sys.stdin.readlines()
+    data = []
+    for line in lines:
+        data.append(line[:-1])
+    return data
+
+
 def read_points3D_coordinates(in_dir="sfm_models/points3D.txt", return_mat=False):
     """
     mapper from pid to xyz rgb

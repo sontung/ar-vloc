@@ -13,6 +13,7 @@ piazza_del_popolo/*
 debug/*
 debug2/*
 debug3/*
+7scenes_ws/*
 trash_code/*
 *.lprof
 colmap_sift/*.txt
