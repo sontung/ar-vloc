@@ -1,14 +1,7 @@
-import sys
-
-from scipy.spatial import KDTree
-from feature_matching import build_vocabulary_of_descriptors
-from sklearn.cluster import MiniBatchKMeans
-import sampling_utils
-import time
-import heapq
-import numpy as np
 import cv2
-import kmeans1d
+import numpy as np
+from scipy.spatial import KDTree
+from sklearn.cluster import MiniBatchKMeans
 
 
 class FeatureCloud:

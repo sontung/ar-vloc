@@ -443,8 +443,13 @@ def read_vocab_tree(a_file="/home/sontung/work/sfm_ws_hblab/vocab_tree_flickr100
 
 
 if __name__ == '__main__':
-    image2pose_ = read_images("/home/sontung/work/ar-vloc/vloc_workspace_retrieval/new/images.txt")
-    build_co_visibility_graph(image2pose_)
+    image2pose_ = read_images("/media/sontung/580ECE740ECE4B28/7scenes_reference_models/7scenes_reference_models/redkitchen/sfm_gt/images.txt", by_im_name=True)
+    list_ = []
+    for img in image2pose_:
+        name = img.split("/")[0]
+        if name not in list_:
+            print(name)
+            list_.append(name)
     # read_vocab_tree()
     # read_images("/home/sontung/work/sfm_ws_hblab/new_model/images.txt")
     # read_cameras()

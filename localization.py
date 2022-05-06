@@ -1,10 +1,8 @@
+import time
+
 import cv2
 import numpy as np
-import time
-import sys
 import pnp.build.pnp_python_binding
-import kmeans1d
-import sklearn.cluster
 from tqdm import tqdm
 
 
@@ -58,7 +56,7 @@ def localize_single_image(pairs, camera_matrix, distortion_coefficients):
         return None
     rot_mat, _ = cv2.Rodrigues(rot)
     print(f" {inliers.shape[0]}/{image_points.shape[0]} are inliers, "
-          f"time spent={round(time.time()-start_time, 4)} seconds")
+          f"time spent={round(time.time() - start_time, 4)} seconds")
     return rot_mat, trans
 
 
@@ -70,8 +68,8 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
 
     for xy, xyz in pairs:
         x, y = xy
-        u = (x-c1)/f
-        v = (y-c2)/f
+        u = (x - c1) / f
+        v = (y - c2) / f
         image_points.append([u, v])
         object_points.append(xyz)
         x, y, z = xyz
@@ -91,14 +89,15 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
     xy = xy[:, :2]
     diff = np.sum(np.square(xy - image_points), axis=1)
     inliers = np.sum(diff < threshold)
-    tqdm.write(f" localization is done with {inliers}/{image_points.shape[0]} inliers ({inliers/image_points.shape[0]})")
+    tqdm.write(
+        f" localization is done with {inliers}/{image_points.shape[0]} inliers ({inliers / image_points.shape[0]})")
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
     t_vec = t_vec.reshape((-1, 1))
     if return_inlier_mask:
-        return r_mat, t_vec, inliers/image_points.shape[0], diff < threshold
+        return r_mat, t_vec, inliers / image_points.shape[0], diff < threshold
     if with_inliers_percent:
-        return r_mat, t_vec, inliers/image_points.shape[0]
+        return r_mat, t_vec, inliers / image_points.shape[0]
 
     return r_mat, t_vec
