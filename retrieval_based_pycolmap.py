@@ -19,7 +19,8 @@ import colmap_io
 import localization
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate, extract_retrieval_pairs,
-                             log_matching, verify_matches_cross_compare, verify_matches_cross_compare_fast)
+                             log_matching, verify_matches_cross_compare, verify_matches_cross_compare_fast,
+                             extract_global_descriptors_on_database_images)
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
 
 sys.path.append("Hierarchical-Localization")
@@ -67,7 +68,7 @@ def api_test():
     # name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
-    # name_list = name_list[:2]
+    name_list = name_list[:2]
 
     scores = []
     images_with_scores = []
@@ -87,7 +88,7 @@ def api_test():
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
-    system.visualize()
+    # system.visualize()
     images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
     for du in images_with_scores:
         print(du)
@@ -155,6 +156,11 @@ class Localization:
         self.cnn_retrieval_net.load_state_dict(self.state['state_dict'])
         self.cnn_retrieval_net.eval()
         self.cnn_retrieval_net.cuda()
+        self.db_descriptors_dir = self.workspace_dir / "database_global_descriptors_0.pkl"
+        if not self.db_descriptors_dir.exists():
+            print("Global database descriptors not found, extracting ...")
+            extract_global_descriptors_on_database_images(self.retrieval_images_dir / "db",
+                                                          self.workspace_dir, multi_scale=False)
 
         # matching variables
         self.desc_type = None
@@ -167,8 +173,7 @@ class Localization:
         self.matching_feature_path.parent.mkdir(exist_ok=True, parents=True)
         self.matching_skip_names = set(list_h5_names(self.matching_feature_path)
                                        if self.matching_feature_path.exists() else ())
-        self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path,
-                                                            matches=self.workspace_dir / "matches.h5")
+        self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path)
 
         # pairs from retrieval variables
         db_descriptors = self.feature_path
@@ -221,9 +226,9 @@ class Localization:
 
         # retrieve
         extract_retrieval_pairs(self.cnn_retrieval_net, self.state,
-                                "vloc_workspace_retrieval/database_global_descriptors_0.pkl",
-                                "vloc_workspace_retrieval/images_retrieval/query/query.jpg",
-                                "vloc_workspace_retrieval/retrieval_pairs.txt",
+                                self.db_descriptors_dir,
+                                self.retrieval_images_dir / "query/query.jpg",
+                                self.workspace_dir / "retrieval_pairs.txt",
                                 multi_scale=False,
                                 nb_neighbors=40)
 

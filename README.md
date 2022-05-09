@@ -2,6 +2,7 @@
 
 ## to do
 - share one matrix for query image across all pipeline
+- profile matching pairs
 
 ## main script = `retrieval_based.py`
 

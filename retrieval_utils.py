@@ -206,8 +206,11 @@ def enhance_retrieval_pairs(dir_to_retrieval_pairs, image2pose, out_dir, extra_r
                 print(query_name, name, file=a_file)
 
 
-def extract_global_descriptors_on_database_images(database_folder, save_folder, multi_scale=True):
-    all_images = [f for f in os.listdir(database_folder) if isfile(join(database_folder, f))]
+def extract_global_descriptors_on_database_images(database_folder, save_folder, multi_scale=True, image_list=None):
+    if image_list is None:
+        all_images = [f for f in os.listdir(database_folder) if isfile(join(database_folder, f))]
+    else:
+        all_images = image_list
 
     # setting up the visible GPU
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
