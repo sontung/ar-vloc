@@ -31,7 +31,6 @@ WS_FOLDER = pathlib.Path("7scenes_ws")
 QUERY_LIST = f"{SFM_FOLDER}/list_test.txt"
 IMAGES_ROOT_FOLDER = pathlib.Path("/media/sontung/580ECE740ECE4B28/7_scenes_images/redkitchen")
 DB_DIR = WS_FOLDER / "database.db"
-DEBUG = False
 
 
 def create_hloc_db(workspace_database_dir):
@@ -145,4 +144,4 @@ def prepare():
 
     matching_feature_path, image_list, name2id = create_hloc_db(DB_DIR)
     run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names)
-    return query_image_names
+    return query_image_names, database_image_names

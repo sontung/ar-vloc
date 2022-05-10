@@ -3,8 +3,13 @@
 ## to do
 - share one matrix for query image across all pipeline
 - profile matching pairs
+- convert all to id only (currently mixed name and id)
 
 ## main script = `retrieval_based.py`
+
+## evaluate using 7scenes dataset from [this repo](https://github.com/tsattler/visloc_pseudo_gt_limitations)
+1. edit the config
+2. run `python evaluate_estimates.py config_7scenes_sfm_pgt.json`
 
 ## how to use colmap
 1. feature extraction with `shared for all images`

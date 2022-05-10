@@ -315,7 +315,7 @@ def log_matching(pairs, name1, name2, name3):
 
 
 # @profile
-def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_mat):
+def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_mat, query_im_id, name2id):
     """
     verify matches based on cross comparing pairs with sfm pairs
     matches: (img id1, img id2) => [(fid1, fid2), ...]
@@ -328,12 +328,15 @@ def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_
     for query_fid_coord, pid, db_im_name in pairs:
         score = 0
         total = 0
-        for img_id, name, database_fid_coord2, key1, key2 in pid2features[pid]:
+        for img_id, name, cx, cy in pid2features[pid]:
             total += 1
             if name == db_im_name:
                 continue
             id0 = 0
             id1 = 1
+            key1 = (query_im_id, name2id[name])
+            key2 = (name2id[name], query_im_id)
+
             if key1 in matches:
                 arr = matches[key1]
             elif key2 in matches:
@@ -342,6 +345,11 @@ def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_
                 id1 = 0
             else:
                 continue
+
+            if arr.shape[0] == 0:
+                continue
+
+            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
 
             diff = query_fid_coord - query_img_kp[arr[:, id0]]
             diff = np.sum(np.abs(diff), axis=1)

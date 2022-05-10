@@ -287,6 +287,9 @@ class Localization:
             self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
 
     def rebuild_pid2features(self):
+        """
+        re-build with new format for faster performance
+        """
         assert len(self.name2id) > 0
         query_img_id = self.name2id["query/query.jpg"]
         if not self.pid2features_rebuilt:

@@ -304,15 +304,16 @@ def compute_kp_descriptors_opencv(img, nb_keypoints=None, root_sift=True, debug=
     return coords, des
 
 
-def run_d2_detector_on_folder(images_folder, save_folder):
+def run_d2_detector_on_folder(images_folder, save_folder, image_list=None):
     precomputed_file = f"{save_folder}/d2_keypoints_db.pkl"
     my_file = Path(precomputed_file)
     if my_file.is_file():
         pass
     else:
-        im_names = os.listdir(images_folder)
+        if image_list is None:
+            image_list = os.listdir(images_folder)
         name2kp = {}
-        for name in tqdm(im_names, desc="Running D2 detector on database images"):
+        for name in tqdm(image_list, desc="Running D2 detector on database images"):
             im_name = os.path.join(images_folder, name)
             img = cv2.imread(im_name)
             keypoints = d2_feature_detection(img)

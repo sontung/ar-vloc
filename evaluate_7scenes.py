@@ -1,52 +1,51 @@
 import pathlib
-import retrieval_based_pycolmap
-
 import pickle
 import sys
-
-from os import listdir
-from os.path import isfile, join
 
 import cv2
 import h5py
 import numpy as np
 import open3d as o3d
 import torch
-
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
 import colmap_io
+import retrieval_based_pycolmap
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate,
-                             log_matching, verify_matches_cross_compare_fast,
-                             extract_global_descriptors_on_database_images)
+                             log_matching, extract_global_descriptors_on_database_images, verify_matches_cross_compare)
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
+from colmap_read import rotmat2qvec
 
 sys.path.append("Hierarchical-Localization")
 sys.path.append("cnnimageretrieval-pytorch")
 
 from torch.utils.model_zoo import load_url
 from cirtorch.networks.imageretrievalnet import init_network
-from multiprocessing import Process
 
 from pathlib import Path
 from feature_matching import run_d2_detector_on_folder
 
 from hloc import extractors
-from hloc import extract_features, pairs_from_retrieval, match_features_bare
+from hloc import extract_features, match_features_bare
 
 from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names, get_matches_wo_loading
-from hloc.triangulation import (import_features)
-from hloc.reconstruction import create_empty_db, import_images, get_image_ids
-from evaluation_utils import (SFM_FOLDER, SFM_IMAGES_FILE, WS_FOLDER, QUERY_LIST, IMAGES_ROOT_FOLDER, DB_DIR, prepare)
+from hloc.reconstruction import get_image_ids
+from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare)
+
+DEBUG = False
+GLOBAL_COUNT = 0
 
 
 class Localization:
-    def __init__(self, skip_geometric_verification=False):
+    # @profile
+    def __init__(self, db_names, skip_geometric_verification=False):
+        self.db_im_names = db_names
         self.workspace_dir = WS_FOLDER
         self.workspace_images_dir = f"{self.workspace_dir}/images"
+        self.pose_result_file = f"{self.workspace_dir}/res.txt"
 
         self.workspace_database_dir = DB_DIR
         self.workspace_sfm_images_dir = f"{self.workspace_dir}/images.txt"
@@ -59,9 +58,7 @@ class Localization:
         self.image2pose_new = None
         self.pid2features = None  # maps pid to list of images that observes this point
         self.pid2features_rebuilt = False
-        self.pid2names = None
         self.localization_results = []
-        self.build_tree()
 
         # matching database
         self.matches = None
@@ -70,7 +67,8 @@ class Localization:
         self.query_desc_mat = None
         self.query_kp_mat = None
         self.d2_masks = None
-
+        self.name2count = None
+        self.most_common_images = []
         self.desc_tree = None
         self.pid2images = None
         self.point3did2xyzrgb = colmap_io.read_points3D_coordinates(self.workspace_sfm_point_cloud_dir)
@@ -116,9 +114,26 @@ class Localization:
         self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path)
 
         self.name2id = get_image_ids(self.workspace_database_dir)
+        self.build_tree()
         self.build_desc_tree()
         self.build_d2_masks()
         return
+
+    def read_name2count(self):
+        """
+        maps im name to the number of times this im needs to be matched
+        """
+        sys.stdin = open(self.retrieval_loc_pairs_dir, "r")
+        lines = sys.stdin.readlines()
+        self.name2count = {}
+        for line in lines:
+            name = line[:-1].split(" ")[-1]
+            if name not in self.name2count:
+                self.name2count[name] = 1
+            else:
+                self.name2count[name] += 1
+        self.most_common_images = sorted(list(self.name2count.keys()), key=lambda du: self.name2count[du],
+                                         reverse=True)[:50]
 
     def terminate(self):
         if self.h5_file_features is not None:
@@ -131,12 +146,20 @@ class Localization:
         with open(self.retrieval_loc_pairs_dir, 'r') as f:
             pairs = [p.split() for p in f.readlines()]
         image_ids = get_image_ids(self.workspace_database_dir)
-        self.matches = {}
-        with h5py.File(str(self.workspace_dir / "matches.h5"), 'r') as hfile:
-            for p1, p2 in pairs:
-                m1, _ = get_matches_wo_loading(hfile, p1, p2)
-                key_ = image_ids[p1], image_ids[p2]
-                self.matches[key_] = m1
+
+        my_file = pathlib.Path(f"{WS_FOLDER}/matches_1.pkl")
+        if my_file.is_file():
+            with open(f"{WS_FOLDER}/matches_1.pkl", 'rb') as handle:
+                self.matches = pickle.load(handle)
+        else:
+            self.matches = {}
+            with h5py.File(str(self.workspace_dir / "matches.h5"), 'r') as hfile:
+                for p1, p2 in tqdm(pairs, desc="Reading matches"):
+                    m1, _ = get_matches_wo_loading(hfile, p1, p2)
+                    key_ = image_ids[p1], image_ids[p2]
+                    self.matches[key_] = m1
+            with open(f"{WS_FOLDER}/matches_1.pkl", 'wb') as handle:
+                pickle.dump(self.matches, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     def read_features(self):
         """
@@ -144,44 +167,56 @@ class Localization:
         """
         self.h5_file_features = h5py.File(self.matching_feature_path, 'r')
 
+    # @profile
     def build_tree(self):
-        self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
-        self.pid2features = colmap_io.read_pid2images(self.image2pose)
-        self.pid2names = {}
-        for pid in self.pid2features:
-            self.pid2names[pid] = [du[1] for du in self.pid2features[pid]]
+        self.read_name2count()
 
-        for img_id in self.image2pose:
-            self.image_to_kp_tree[img_id] = []
-        for img_id in self.image2pose:
-            image_name, points2d_meaningful, cam_pose, cam_id = self.image2pose[img_id]
-            self.image_name_to_image_id[image_name] = img_id
-            fid_list = []
-            pid_list = []
-            f_coord_list = []
-            for fid, (fx, fy, pid) in enumerate(points2d_meaningful):
-                if pid >= 0:
-                    fid_list.append(fid)
-                    pid_list.append(pid)
-                    f_coord_list.append([fx, fy])
-            self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(np.array(f_coord_list)), f_coord_list)
+        my_file = pathlib.Path(f"{WS_FOLDER}/image2pose_by_id.pkl")
+        if my_file.is_file():
+            with open(f"{WS_FOLDER}/image2pose_by_id.pkl", 'rb') as handle:
+                self.image2pose = pickle.load(handle)
+        else:
+            self.image2pose = colmap_io.read_images(self.workspace_sfm_images_dir)
+            with open(f"{WS_FOLDER}/image2pose_by_id.pkl", 'wb') as handle:
+                pickle.dump(self.image2pose, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def rebuild_pid2features(self):
-        assert len(self.name2id) > 0
-        query_img_id = self.name2id["query/query.jpg"]
-        if not self.pid2features_rebuilt:
-            for pid in self.pid2features:
-                new_data = []
-                for img_id2, name, cx, cy in self.pid2features[pid]:
-                    name = f"db/{name}"
-                    if name in self.name2id:
-                        img_id = self.name2id[name]
-                        key1 = (query_img_id, img_id)
-                        key2 = (img_id, query_img_id)
-                        database_fid_coord = np.array([cx, cy], dtype=np.float16)
-                        new_data.append([img_id, name, database_fid_coord, key1, key2])
-                self.pid2features[pid] = new_data
-            self.pid2features_rebuilt = True
+        my_file = pathlib.Path(f"{WS_FOLDER}/pid2features.pkl")
+        if my_file.is_file():
+            with open(f"{WS_FOLDER}/pid2features.pkl", 'rb') as handle:
+                self.pid2features = pickle.load(handle)
+        else:
+            self.pid2features = colmap_io.read_pid2images(self.image2pose)
+            with open(f"{WS_FOLDER}/pid2features.pkl", 'wb') as handle:
+                pickle.dump(self.pid2features, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        my_file = pathlib.Path(f"{WS_FOLDER}/image_to_kp_tree.pkl")
+        if my_file.is_file():
+            with open(f"{WS_FOLDER}/image_to_kp_tree.pkl", 'rb') as handle:
+                self.image_to_kp_tree = pickle.load(handle)
+        else:
+            for img_id in self.image2pose:
+                self.image_to_kp_tree[img_id] = []
+            for img_id in self.image2pose:
+                image_name, points2d_meaningful, cam_pose, cam_id = self.image2pose[img_id]
+                # self.image_name_to_image_id[image_name] = img_id
+                fid_list = []
+                pid_list = []
+                for fid, (fx, fy, pid) in enumerate(points2d_meaningful):
+                    if pid >= 0:
+                        fid_list.append(fid)
+                        pid_list.append(pid)
+                f_coord_list = np.zeros((len(fid_list), 2), dtype=np.float32)
+                idx = 0
+                for fx, fy, pid in points2d_meaningful:
+                    if pid >= 0:
+                        f_coord_list[idx, :] = [fx, fy]
+                        idx += 1
+                if image_name in self.most_common_images:
+                    self.image_to_kp_tree[img_id] = (fid_list, pid_list, KDTree(f_coord_list), f_coord_list)
+                else:
+                    self.image_to_kp_tree[img_id] = (fid_list, pid_list, None, f_coord_list)
+            with open(f"{WS_FOLDER}/image_to_kp_tree.pkl", 'wb') as handle:
+                pickle.dump(self.image_to_kp_tree, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     def build_d2_masks(self):
         """
@@ -190,19 +225,22 @@ class Localization:
         self.read_features()
         self.d2_masks = {}
         self.id2kp = {}
-        d2_file = run_d2_detector_on_folder(str(self.workspace_dir / "images_retrieval/db"), str(self.workspace_dir))
+        d2_file = run_d2_detector_on_folder(str(IMAGES_ROOT_FOLDER), str(self.workspace_dir),
+                                            image_list=self.db_im_names)
         with open(d2_file, 'rb') as handle:
             name2kp = pickle.load(handle)
-            for name in self.name2id:
-                if "query" not in name:
-                    img_id = self.name2id[name]
-                    kp_mat = self.h5_file_features[name]["keypoints"].__array__()
-                    self.id2kp[name] = kp_mat
-                    kp_mat_d2 = name2kp[name.split("/")[-1]]
-                    tree = KDTree(kp_mat_d2)
-                    dis_mat, idx_mat = tree.query(kp_mat, 1)
-                    mask = dis_mat < 5
-                    self.d2_masks[img_id] = (dis_mat, mask)
+            for name in tqdm(self.name2id, desc="Building id2kp"):
+                kp_mat = self.h5_file_features[name]["keypoints"].__array__()
+                self.id2kp[name] = kp_mat
+
+            for name in tqdm(self.db_im_names, desc="Building d2 masks"):
+                img_id = self.name2id[name]
+                kp_mat = self.h5_file_features[name]["keypoints"].__array__()
+                kp_mat_d2 = name2kp[name]
+                tree = KDTree(kp_mat_d2)
+                dis_mat, idx_mat = tree.query(kp_mat, 1)
+                mask = dis_mat < 5
+                self.d2_masks[img_id] = (dis_mat, mask)
         self.terminate()
 
     def build_desc_tree(self):
@@ -212,46 +250,47 @@ class Localization:
         self.id2name = {}
         self.id2desc = {}
         with h5py.File(self.matching_feature_path, 'r') as hfile:
-            if self.desc_tree is None:
-                self.desc_tree = {}
-                for name in self.name2id:
-                    img_id = self.name2id[name]
-                    self.id2name[img_id] = name
-                    if "query" not in name:
-                        desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
-                        self.id2desc[name] = desc_mat
-                        self.desc_tree[img_id] = KDTree(desc_mat)
-        self.rebuild_pid2features()
+            self.desc_tree = {}
+            for name in tqdm(self.name2id, desc="Building desc tree"):
+                img_id = self.name2id[name]
+                self.id2name[img_id] = name
+                desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
+                self.id2desc[name] = desc_mat
+                if name in self.most_common_images:
+                    self.desc_tree[img_id] = KDTree(desc_mat)
 
-    def get_feature_coord(self, img_id, fid, db=False):
+    def get_feature_coord(self, img_id, fid):
         name = self.id2name[img_id]
-        if db:
-            return self.id2kp[name][fid]
-        else:
-            assert name == "query/query.jpg"
-            if self.query_kp_mat is None:
-                self.query_kp_mat = self.h5_file_features[name]["keypoints"].__array__()
-        return self.query_kp_mat[fid]
+        return self.id2kp[name][fid]
 
-    def get_feature_desc(self, img_id, fid, db=False):
+    def get_feature_desc(self, img_id, fid):
         name = self.id2name[img_id]
-        if db:
-            return self.id2desc[name][fid, :]
-        else:
-            assert name == "query/query.jpg"
-            if self.query_desc_mat is None:
-                self.query_desc_mat = self.h5_file_features[name]["descriptors"].__array__()
-        return self.query_desc_mat[:, fid]
+        return self.id2desc[name][fid, :]
 
     def get_feature_score(self, img_id, fid):
         name = self.id2name[img_id]
         return self.h5_file_features[name]["scores"][fid]
 
+    def read_computed_poses(self):
+        name2count = {}
+        my_file = pathlib.Path(self.pose_result_file)
+        if not my_file.is_file():
+            return name2count
+        sys.stdin = open(self.pose_result_file, "r")
+        lines = sys.stdin.readlines()
+        for line in lines:
+            name = line[:-1].split(" ")[0]
+            name2count[name] = 1
+        return name2count
+
     # @profile
     def main(self, metadata, name_list):
         self.read_matching_database()
-
-        for query_im_name in name_list:
+        computed_names = self.read_computed_poses()
+        for query_im_name in tqdm(name_list[:5], desc="Localizing"):
+            if query_im_name in computed_names:
+                tqdm.write(f"{query_im_name} computed => skipping")
+                continue
             pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name, debug=DEBUG)
             if len(pairs) == 0:
                 return 0, None
@@ -269,29 +308,35 @@ class Localization:
                         break
             r_mat, t_vec = best_pose
 
-            for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:len(pairs)]):
-                pid = candidate.pid
-                xy = candidate.query_coord
-                xyz = self.point3did2xyzrgb[pid][:3]
-                pairs.append((xy, xyz))
+            if DEBUG:
+                for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:len(pairs)]):
+                    pid = candidate.pid
+                    xy = candidate.query_coord
+                    xyz = self.point3did2xyzrgb[pid][:3]
+                    pairs.append((xy, xyz))
 
-                if DEBUG and best_mask[cand_idx]:
-                    self.pid2images = colmap_io.read_pid2images(self.image2pose)
-                    print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
-                          candidate.desc_diff,
-                          candidate.ratio_test,
-                          candidate.d2_distance,
-                          candidate.cc_score)
-                    x2, y2 = map(int, xy)
-                    query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
-                    if query_img is None:
-                        print(f"{self.retrieval_images_dir}/{query_im_name}")
-                        raise ValueError
-                    cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
-                    vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
-                                                                          self.workspace_images_dir)
-                    cv2.imwrite(f"debug3/img-{cand_idx}.jpg", vis_img)
+                    if best_mask[cand_idx]:
+                        self.pid2images = colmap_io.read_pid2images(self.image2pose)
+                        print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
+                              candidate.desc_diff,
+                              candidate.ratio_test,
+                              candidate.d2_distance,
+                              candidate.cc_score)
+                        x2, y2 = map(int, xy)
+                        query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
+                        if query_img is None:
+                            print(f"{self.retrieval_images_dir}/{query_im_name}")
+                            raise ValueError
+                        cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+                        vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
+                                                                              self.workspace_images_dir)
+                        cv2.imwrite(f"debug3/img-{cand_idx}.jpg", vis_img)
 
+            qw, qx, qy, qz = rotmat2qvec(r_mat)
+
+            tx, ty, tz = t_vec[:, 0]
+            with open(self.pose_result_file, "a") as a_file:
+                print(f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}", file=a_file)
             self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
         self.terminate()
 
@@ -316,7 +361,7 @@ class Localization:
                 database_fid = v
                 query_fid = u
 
-            database_fid_coord = self.get_feature_coord(database_im_id, database_fid, db=True)
+            database_fid_coord = self.get_feature_coord(database_im_id, database_fid)
             query_fid_coord = self.get_feature_coord(query_im_id, query_fid)  # hloc
             distance_to_d2_feature = None
 
@@ -329,8 +374,14 @@ class Localization:
                 distance_to_d2_feature = dis_mat[database_fid]
 
             query_fid_desc = self.get_feature_desc(query_im_id, query_fid)  # hloc
-            database_fid_desc = self.get_feature_desc(database_im_id, database_fid, db=True)  # hloc
-            dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
+            database_fid_desc = self.get_feature_desc(database_im_id, database_fid)  # hloc
+            if database_im_id in self.desc_tree:
+                dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
+            else:
+                name = self.id2name[database_im_id]
+                tree = KDTree(self.id2desc[name])
+                dis, ind_list = tree.query(query_fid_desc, 3)
+
             ratio_test = dis[1] / dis[2]
 
             pair = (
@@ -344,25 +395,20 @@ class Localization:
         return points1, points2, pairs
 
     # @profile
-    def verify_matches_cross_compare(self, pairs, database_im_id_sfm):
+    def verify_matches_cross_compare(self, pairs, database_im_id_sfm, query_im_name):
         pairs2 = []
         for pair in pairs:
             query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
-            fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+            fid_list, pid_list, tree, f_coord_mat = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+            if tree is None:
+                tree = KDTree(f_coord_mat)
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
             pid = pid_list[ind]
             pairs2.append((np.array(query_fid_coord), pid, db_im_name))
-        if self.query_kp_mat is None:
-            self.query_kp_mat = self.h5_file_features["query/query.jpg"]["keypoints"].__array__()
-        mask2, scores2 = verify_matches_cross_compare_fast(self.matches, pairs2, self.pid2features, self.query_kp_mat,
-                                                           self.id2kp)
-        # mask, scores = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, self.query_kp_mat,
-        #                                             self.id2kp)
-        # assert len(mask2) == len(mask)
-        # c = 0
-        # for u, v in enumerate(mask):
-        #     if v == mask2[u]:
-        #         c += 1
+        query_kp_mat = self.h5_file_features[query_im_name]["keypoints"].__array__()
+        query_im_id = self.name2id[query_im_name]
+        mask2, scores2 = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, query_kp_mat,
+                                                      self.id2kp, query_im_id, self.name2id)
         return mask2, scores2
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
@@ -431,8 +477,12 @@ class Localization:
                 desc_diff = np.sqrt(np.sum(np.square(query_fid_desc - database_fid_desc))) / 128
             else:
                 desc_diff = 1
-            fid_list, pid_list, tree, _ = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+
+            fid_list, pid_list, tree, f_coord_mat = self.image_to_kp_tree[database_im_id_sfm]  # sfm
+            if tree is None:
+                tree = KDTree(f_coord_mat)
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
+
             pid = pid_list[ind]
             fid = fid_list[ind]
             candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test, distance_to_d2_feature,
@@ -440,9 +490,8 @@ class Localization:
             point3d_candidate_pool.add(candidate)
 
     def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
-        name2id = {name: ind for ind, name in self.id2name.items()}
         desc_heuristics = True
-        query_im_id = name2id[query_im_name]
+        query_im_id = self.name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
         global GLOBAL_COUNT
         nb_skipped = 0
@@ -459,14 +508,13 @@ class Localization:
                         database_im_id = id1
                     else:
                         database_im_id = id2
-                    database_im_id_sfm = self.image_name_to_image_id[self.id2name[database_im_id].split("/")[-1]]
+                    database_im_id_sfm = database_im_id
 
                     points1, points2, pairs = self.gather_matches(arr, id1, query_im_id,
                                                                   database_im_id, filter_by_d2_detection=True)
-                    mask0, scores = self.verify_matches_cross_compare(pairs, database_im_id_sfm)
+                    mask0, scores = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
                     points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
                                                           [points1, points2, pairs, scores])
-                    print(f" cross comparing reduces {len(mask0)} matches to {len(pairs)} matches")
                     if len(pairs) == 0:
                         continue
                     points1 = np.vstack(points1)
@@ -494,7 +542,6 @@ class Localization:
                                      f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-useful.jpg")
                     self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
 
-        print(f" found {total} pairs, skipped {nb_skipped} pairs, used {using} pairs")
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
             point3d_candidate_pool.filter()
@@ -523,7 +570,6 @@ class Localization:
                                                                       self.workspace_images_dir)
                 cv2.imwrite(f"debug/img-{cand_idx}.jpg", vis_img)
 
-        tqdm.write(f" voting-based filters {len(pairs)} pairs from {len(point3d_candidate_pool.pool)}")
         return pairs, point3d_candidate_pool
 
     def prepare_visualization(self):
@@ -540,8 +586,7 @@ class Localization:
 
 
 if __name__ == '__main__':
-    cam_mat = {'f': 525.505/100, 'cx': 320.0, 'cy': 240.0}
-
-    localizer = Localization()
-    query_image_names = prepare()
+    cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0}
+    query_image_names, database_image_names = prepare()
+    localizer = Localization(database_image_names)
     localizer.main(cam_mat, query_image_names)
