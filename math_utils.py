@@ -28,7 +28,11 @@ def multDirMatrix(src, x):
 
 
 def geometric_verify_pydegensac(src_pts, dst_pts, th=4.0, n_iter=2000):
-    h_mat, mask = pydegensac.findHomography(src_pts, dst_pts, th, 0.99, n_iter)
+    try:
+        h_mat, mask = pydegensac.findHomography(src_pts, dst_pts, th, 0.99, n_iter)
+    except np.linalg.LinAlgError:
+        h_mat = np.ones((3, 3))
+        mask = np.array([False]*src_pts.shape[0])
     nb_inliers = int(copy.deepcopy(mask).astype(np.float32).sum())
     return h_mat, mask, nb_inliers, nb_inliers / src_pts.shape[0]
 

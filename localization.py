@@ -74,9 +74,9 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
         object_points.append(xyz)
         x, y, z = xyz
         object_points_homo.append([x, y, z, 1.0])
-    if len(object_points) < 3:
+    if len(object_points) <= 3:
         if with_inliers_percent:
-            return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1)), 0
+            return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1)), 0, [True]*len(object_points)
         return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1))
     object_points = np.array(object_points)
     image_points = np.array(image_points)

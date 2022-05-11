@@ -133,7 +133,7 @@ class Localization:
             else:
                 self.name2count[name] += 1
         self.most_common_images = sorted(list(self.name2count.keys()), key=lambda du: self.name2count[du],
-                                         reverse=True)[:50]
+                                         reverse=True)[:25]
 
     def terminate(self):
         if self.h5_file_features is not None:
@@ -287,13 +287,13 @@ class Localization:
     def main(self, metadata, name_list):
         self.read_matching_database()
         computed_names = self.read_computed_poses()
-        for query_im_name in tqdm(name_list[:5], desc="Localizing"):
-            if query_im_name in computed_names:
-                tqdm.write(f"{query_im_name} computed => skipping")
-                continue
+        name_list2 = [du for du in name_list if du not in computed_names]
+        for query_im_name in tqdm(name_list2, desc="Localizing"):
             pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name, debug=DEBUG)
-            if len(pairs) == 0:
-                return 0, None
+            tqdm.write(f"{query_im_name}")
+            if len(pairs) <= 3:
+                tqdm.write(f" localization failed")
+                continue
 
             best_score = None
             best_pose = None

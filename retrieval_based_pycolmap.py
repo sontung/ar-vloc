@@ -33,7 +33,7 @@ from hloc import extractors
 from hloc import extract_features, pairs_from_retrieval, match_features_bare
 
 from hloc.utils.base_model import dynamic_load
-from hloc.utils.io import list_h5_names, get_matches_wo_loading
+from hloc.utils.io import list_h5_names, get_matches_wo_loading, get_matches_wo_loading_no_scores
 from hloc.triangulation import (import_features)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
@@ -68,7 +68,7 @@ def api_test():
     # name_list = ["line-14.jpg"]
     # name_list = ["line-12.jpg"]
     # name_list = ["line-9.jpg"]
-    name_list = name_list[:2]
+    # name_list = name_list[:2]
 
     scores = []
     images_with_scores = []
@@ -88,7 +88,7 @@ def api_test():
     end = time.time()
     print(f"Done in {end - start} seconds, avg. {(end - start) / len(name_list)} s/image")
     print(f"Avg. inlier ratio = {np.mean(scores)}")
-    # system.visualize()
+    system.visualize()
     images_with_scores = sorted(images_with_scores, key=lambda du: du[-1])
     for du in images_with_scores:
         print(du)
@@ -174,6 +174,7 @@ class Localization:
         self.matching_skip_names = set(list_h5_names(self.matching_feature_path)
                                        if self.matching_feature_path.exists() else ())
         self.name2ref = match_features_bare.return_name2ref(self.matching_feature_path)
+        self.matching_feature_file = None
 
         # pairs from retrieval variables
         db_descriptors = self.feature_path
@@ -199,7 +200,20 @@ class Localization:
         self.db_desc = self.db_desc.to(self.device)
         self.build_desc_tree()
         self.build_d2_masks()
+        self.build_matching_feature_file()
         return
+
+    def build_matching_feature_file(self):
+        if self.matching_feature_file is None:
+            self.matching_feature_file = {}
+            fd_file = h5py.File(str(self.matching_feature_path), 'a')
+            for name0 in self.name2id:
+                grp = fd_file[name0]
+                self.matching_feature_file[name0] = {}
+                self.matching_feature_file[name0]["image_size"] = grp["image_size"]
+                for k, v in grp.items():
+                    self.matching_feature_file[name0][k] = torch.from_numpy(v.__array__()).float().to(self.device)
+            fd_file.close()
 
     def create_hloc_database(self):
         """
@@ -238,7 +252,8 @@ class Localization:
 
         matching_conf = match_features_bare.confs["NN-ratio"]
         match_features_bare.main(self.name2ref, matching_conf, self.retrieval_loc_pairs_dir, self.matching_feature_path,
-                                 matches=self.workspace_dir / "matches.h5", overwrite=True)
+                                 matches=self.workspace_dir / "matches.h5",
+                                 matching_feature_file=self.matching_feature_file, overwrite=True)
 
     def terminate(self):
         if self.h5_file_features is not None:
@@ -254,7 +269,7 @@ class Localization:
         self.matches = {}
         with h5py.File(str(self.workspace_dir / "matches.h5"), 'r') as hfile:
             for p1, p2 in pairs:
-                m1, _ = get_matches_wo_loading(hfile, p1, p2)
+                m1 = get_matches_wo_loading_no_scores(hfile, p1, p2)
                 key_ = image_ids[p1], image_ids[p2]
                 self.matches[key_] = m1
 
