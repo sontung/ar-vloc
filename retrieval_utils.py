@@ -318,6 +318,7 @@ def log_matching(pairs, name1, name2, name3):
 def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_mat, query_im_id, name2id):
     """
     verify matches based on cross comparing pairs with sfm pairs
+    - if a 2d point1 is matched to a 3d point2, this point1 should be matched to other db images that observe point2
     matches: (img id1, img id2) => [(fid1, fid2), ...]
     pairs: [(fid, pid), ...]
     pid2features: pid => [(img id, img name, x, y), ...]

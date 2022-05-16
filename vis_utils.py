@@ -217,10 +217,10 @@ def visualize_matching_pairs(image1, image2, pairs):
     for pair in pairs:
         color = (random.random() * 255, random.random() * 255, random.random() * 255)
         fid1, fid2 = pair[:2]
-        x1, y1 = fid1
+        x1, y1 = map(int, fid1)
         cv2.circle(image, (x1, y1), 20, color, 5)
 
-        x2, y2 = fid2
+        x2, y2 = map(int, fid2)
         cv2.circle(image, (x2 + image1.shape[1], y2), 20, color, 5)
         cv2.line(image, (x1, y1), (x2 + image1.shape[1], y2), color, 5)
     return image

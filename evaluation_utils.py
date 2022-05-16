@@ -145,3 +145,15 @@ def prepare():
     matching_feature_path, image_list, name2id = create_hloc_db(DB_DIR)
     run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names)
     return query_image_names, database_image_names
+
+
+def read_logs(log_file):
+    sys.stdin = open(log_file, "r")
+    records = []
+    for line in sys.stdin.readlines():
+        line = line[:-1]
+        name, err = line.split(" ")
+        err = float(err)
+        records.append((name, err))
+    records = sorted(records, key=lambda du: du[-1], reverse=True)
+    return records

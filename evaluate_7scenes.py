@@ -1,7 +1,7 @@
 import pathlib
 import pickle
 import sys
-
+import gc
 import cv2
 import h5py
 import numpy as np
@@ -33,7 +33,7 @@ from hloc import extract_features, match_features_bare
 from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names, get_matches_wo_loading
 from hloc.reconstruction import get_image_ids
-from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare)
+from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare, read_logs)
 
 DEBUG = False
 GLOBAL_COUNT = 0
@@ -41,10 +41,11 @@ GLOBAL_COUNT = 0
 
 class Localization:
     # @profile
-    def __init__(self, db_names, skip_geometric_verification=False):
+    def __init__(self, db_names, query_names, skip_geometric_verification=False):
         self.db_im_names = db_names
+        self.query_im_names = query_names
         self.workspace_dir = WS_FOLDER
-        self.workspace_images_dir = f"{self.workspace_dir}/images"
+        self.workspace_images_dir = IMAGES_ROOT_FOLDER
         self.pose_result_file = f"{self.workspace_dir}/res.txt"
 
         self.workspace_database_dir = DB_DIR
@@ -115,7 +116,9 @@ class Localization:
 
         self.name2id = get_image_ids(self.workspace_database_dir)
         self.build_tree()
+        self.reduce_memory(self.query_im_names)
         self.build_desc_tree()
+        # self.reduce_memory(self.query_im_names)
         self.build_d2_masks()
         return
 
@@ -133,7 +136,7 @@ class Localization:
             else:
                 self.name2count[name] += 1
         self.most_common_images = sorted(list(self.name2count.keys()), key=lambda du: self.name2count[du],
-                                         reverse=True)[:25]
+                                         reverse=True)[:10]
 
     def terminate(self):
         if self.h5_file_features is not None:
@@ -166,6 +169,40 @@ class Localization:
         h5 file maps img name => ['descriptors', 'image_size', 'keypoints', 'scores']
         """
         self.h5_file_features = h5py.File(self.matching_feature_path, 'r')
+
+    def reduce_memory(self, query_names):
+        """
+        only used in debug mode
+        """
+        sys.stdin = open(self.retrieval_loc_pairs_dir, "r")
+        lines = sys.stdin.readlines()
+        db_ids = []
+        self.retrieval_pairs = {}
+        for line in lines:
+            line = line[:-1]
+            q, db = line.split(" ")
+            if self.name2id[q] not in self.retrieval_pairs:
+                self.retrieval_pairs[self.name2id[q]] = [self.name2id[db]]
+            else:
+                self.retrieval_pairs[self.name2id[q]].append(self.name2id[db])
+            if q in query_names and self.name2id[db] not in db_ids:
+                db_ids.append(self.name2id[db])
+
+        # delete
+        all_ids = list(self.image2pose.keys())
+        for im_id in all_ids:
+            if im_id not in db_ids:
+                if im_id in self.image2pose:
+                    del self.image2pose[im_id]
+                    del self.image_to_kp_tree[im_id]
+
+        # if self.id2desc is not None:
+        #     all_ids = list(self.id2desc.keys())
+        #     for im_id in all_ids:
+        #         if im_id not in db_ids:
+        #             if im_id in self.id2desc:
+        #                 del self.id2desc[im_id]
+        gc.collect()
 
     # @profile
     def build_tree(self):
@@ -255,7 +292,7 @@ class Localization:
                 img_id = self.name2id[name]
                 self.id2name[img_id] = name
                 desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
-                self.id2desc[name] = desc_mat
+                self.id2desc[img_id] = desc_mat
                 if name in self.most_common_images:
                     self.desc_tree[img_id] = KDTree(desc_mat)
 
@@ -264,8 +301,7 @@ class Localization:
         return self.id2kp[name][fid]
 
     def get_feature_desc(self, img_id, fid):
-        name = self.id2name[img_id]
-        return self.id2desc[name][fid, :]
+        return self.id2desc[img_id][fid, :]
 
     def get_feature_score(self, img_id, fid):
         name = self.id2name[img_id]
@@ -280,16 +316,25 @@ class Localization:
         lines = sys.stdin.readlines()
         for line in lines:
             name = line[:-1].split(" ")[0]
-            name2count[name] = 1
+            name2count[name] = line
         return name2count
 
+    def check_failed_results(self, names):
+        computed_names = self.read_computed_poses()
+        for name in names:
+            if name not in computed_names:
+                print(name)
+
     # @profile
-    def main(self, metadata, name_list):
+    def main(self, metadata, name_list, re_write=False):
         self.read_matching_database()
         computed_names = self.read_computed_poses()
-        name_list2 = [du for du in name_list if du not in computed_names]
+        if not DEBUG and not re_write:
+            name_list2 = [du for du in name_list if du not in computed_names]
+        else:
+            name_list2 = name_list
         for query_im_name in tqdm(name_list2, desc="Localizing"):
-            pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name, debug=DEBUG)
+            pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name, metadata)
             tqdm.write(f"{query_im_name}")
             if len(pairs) <= 3:
                 tqdm.write(f" localization failed")
@@ -323,9 +368,9 @@ class Localization:
                               candidate.d2_distance,
                               candidate.cc_score)
                         x2, y2 = map(int, xy)
-                        query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
+                        query_img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                         if query_img is None:
-                            print(f"{self.retrieval_images_dir}/{query_im_name}")
+                            print(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                             raise ValueError
                         cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
                         vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
@@ -333,11 +378,19 @@ class Localization:
                         cv2.imwrite(f"debug3/img-{cand_idx}.jpg", vis_img)
 
             qw, qx, qy, qz = rotmat2qvec(r_mat)
-
             tx, ty, tz = t_vec[:, 0]
-            with open(self.pose_result_file, "a") as a_file:
-                print(f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}", file=a_file)
+            result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
+            if not DEBUG:
+                with open(self.pose_result_file, "a") as a_file:
+                    print(result, file=a_file)
+            if re_write:
+                self.name2count[query_im_name] = result
             self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
+        if re_write:
+            with open(self.pose_result_file, "w") as a_file:
+                for query_im_name in self.name2count:
+                    result = self.name2count[query_im_name]
+                    print(result, file=a_file)
         self.terminate()
 
     def visualize(self):
@@ -378,8 +431,7 @@ class Localization:
             if database_im_id in self.desc_tree:
                 dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
             else:
-                name = self.id2name[database_im_id]
-                tree = KDTree(self.id2desc[name])
+                tree = KDTree(self.id2desc[database_im_id])
                 dis, ind_list = tree.query(query_fid_desc, 3)
 
             ratio_test = dis[1] / dis[2]
@@ -411,12 +463,12 @@ class Localization:
                                                       self.id2kp, query_im_id, self.name2id)
         return mask2, scores2
 
-    def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
+    def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id, img_h, img_w):
         if points1.shape[0] < 10:  # too few matches
             if DEBUG:
                 log_matching(pairs,
-                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
                              f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-few.jpg")
             return True, [True] * points1.shape[0]
         h_mat, mask, s1, s2 = geometric_verify_pydegensac(points1, points2)
@@ -425,11 +477,11 @@ class Localization:
         if np.sum(mask) == 0:  # homography is degenerate
             if DEBUG:
                 log_matching(pairs,
-                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
                              f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-mask0.jpg")
             return False, mask
-        h, w = 4032, 2268
+        h, w = img_h, img_w
         pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
         dst = cv2.perspectiveTransform(pts, h_mat)
         dst = np.int64(dst)
@@ -441,19 +493,26 @@ class Localization:
         if h3 < 0:
             dst[:, 0, 1] -= h3
 
+        if DEBUG:
+            img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}")
+            img = cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY), cv2.COLOR_GRAY2RGB)
+            img2_tr = cv2.polylines(img,
+                                    [np.int32(dst)], True, (0, 0, 255), 3, cv2.LINE_AA)
+            cv2.imwrite(f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-homo.jpg", img2_tr)
+
         w2, h2 = np.max(dst[:, 0, 0]), np.max(dst[:, 0, 1])
         if max(w2, h2) > 10000:  # too large homography
             if DEBUG:
                 log_matching(pairs,
-                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
                              f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-large.jpg")
             return False, mask
         if w2 == 0 or h2 == 0:  # homography is degenerate
             if DEBUG:
                 log_matching(pairs,
-                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
                              f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-00.jpg")
             return False, mask
 
@@ -463,8 +522,8 @@ class Localization:
         if self_intersect:
             if DEBUG:
                 log_matching(pairs,
-                             f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                             f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
                              f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-intersect.jpg")
             return False, mask
 
@@ -489,7 +548,7 @@ class Localization:
                                        score)
             point3d_candidate_pool.add(candidate)
 
-    def read_2d_2d_matches(self, query_im_name, debug=False, max_pool_size=100):
+    def read_2d_2d_matches(self, query_im_name, meta_data, max_pool_size=100):
         desc_heuristics = True
         query_im_id = self.name2id[query_im_name]
         point3d_candidate_pool = CandidatePool()
@@ -512,16 +571,22 @@ class Localization:
 
                     points1, points2, pairs = self.gather_matches(arr, id1, query_im_id,
                                                                   database_im_id, filter_by_d2_detection=True)
+                    if DEBUG:
+                        tqdm.write(f" gathering {len(pairs)} matches")
+
                     mask0, scores = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
                     points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
                                                           [points1, points2, pairs, scores])
                     if len(pairs) == 0:
                         continue
+                    if DEBUG:
+                        tqdm.write(f" cross comparing results in {len(pairs)} matches")
                     points1 = np.vstack(points1)
                     points2 = np.vstack(points2)
 
                     # homography ransac loop checking
-                    verified, mask = self.verify_matches(points1, points2, pairs, query_im_id, database_im_id)
+                    verified, mask = self.verify_matches(points1, points2, pairs, query_im_id, database_im_id,
+                                                         meta_data["h"], meta_data["w"])
                     if not verified:
                         nb_skipped += 1
                         continue
@@ -537,8 +602,8 @@ class Localization:
                     using += 1
                     if DEBUG:
                         log_matching(pairs,
-                                     f"{self.retrieval_images_dir}/{self.id2name[database_im_id]}",
-                                     f"{self.retrieval_images_dir}/{self.id2name[query_im_id]}",
+                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
                                      f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-useful.jpg")
                     self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
 
@@ -561,9 +626,9 @@ class Localization:
                       candidate.d2_distance,
                       candidate.cc_score)
                 x2, y2 = map(int, xy)
-                query_img = cv2.imread(f"{self.retrieval_images_dir}/{query_im_name}")
+                query_img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                 if query_img is None:
-                    print(f"{self.retrieval_images_dir}/{query_im_name}")
+                    print(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                     raise ValueError
                 cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
                 vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
@@ -586,7 +651,11 @@ class Localization:
 
 
 if __name__ == '__main__':
-    cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0}
+    cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
-    localizer = Localization(database_image_names)
-    localizer.main(cam_mat, query_image_names)
+
+    # logs = read_logs("/home/sontung/work/visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
+    # query_image_names = [du[0] for du in logs]
+    localizer = Localization(database_image_names, query_image_names)
+    localizer.main(cam_mat, query_image_names, re_write=False)
+
