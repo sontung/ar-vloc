@@ -2,8 +2,10 @@
 
 ## to do
 - share one matrix for query image across all pipeline
-- profile matching pairs
 - convert all to id only (currently mixed name and id)
+- debug mode for cross compare
+- what to do when cross compare does not find any matches? second time matching.
+- d2 mask in cc
 
 ## main script = `retrieval_based.py`
 

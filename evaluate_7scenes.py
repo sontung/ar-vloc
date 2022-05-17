@@ -15,7 +15,8 @@ import retrieval_based_pycolmap
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate,
                              log_matching, extract_global_descriptors_on_database_images, verify_matches_cross_compare)
-from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features)
+from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features,
+                       concat_images_different_sizes)
 from colmap_read import rotmat2qvec
 
 sys.path.append("Hierarchical-Localization")
@@ -35,7 +36,7 @@ from hloc.utils.io import list_h5_names, get_matches_wo_loading
 from hloc.reconstruction import get_image_ids
 from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare, read_logs)
 
-DEBUG = False
+DEBUG = True
 GLOBAL_COUNT = 0
 
 
@@ -402,10 +403,12 @@ class Localization:
         self.read_matches()
         self.read_features()
 
-    def gather_matches(self, arr, id1, query_im_id, database_im_id, filter_by_d2_detection=True):
+    def gather_matches(self, key_, arr, id1, query_im_id, database_im_id, filter_by_d2_detection=True):
         pairs = []
         points1 = []
         points2 = []
+        all_pairs = []
+
         for u, v in arr:
             if id1 == database_im_id:
                 database_fid = u
@@ -417,6 +420,9 @@ class Localization:
             database_fid_coord = self.get_feature_coord(database_im_id, database_fid)
             query_fid_coord = self.get_feature_coord(query_im_id, query_fid)  # hloc
             distance_to_d2_feature = None
+
+            if DEBUG:
+                all_pairs.append((query_fid_coord, database_fid_coord))
 
             if filter_by_d2_detection:
                 # check if the matched feature of database image is close to one d2 feature
@@ -444,11 +450,21 @@ class Localization:
             pairs.append(pair)
             points1.append(query_fid_coord)
             points2.append(database_fid_coord)
+        if DEBUG:
+            log_matching(all_pairs,
+                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
+                         f"debug/{GLOBAL_COUNT}-all-pairs-{database_im_id}-{query_im_id}.jpg")
+            log_matching(pairs,
+                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
+                         f"debug/{GLOBAL_COUNT}-d2-pairs.jpg")
         return points1, points2, pairs
 
     # @profile
     def verify_matches_cross_compare(self, pairs, database_im_id_sfm, query_im_name):
         pairs2 = []
+        debug_info = []
         for pair in pairs:
             query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test, distance_to_d2_feature, db_im_name = pair
             fid_list, pid_list, tree, f_coord_mat = self.image_to_kp_tree[database_im_id_sfm]  # sfm
@@ -457,11 +473,48 @@ class Localization:
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
             pid = pid_list[ind]
             pairs2.append((np.array(query_fid_coord), pid, db_im_name))
+            debug_info.append((database_fid_coord, dis, db_im_name))
         query_kp_mat = self.h5_file_features[query_im_name]["keypoints"].__array__()
         query_im_id = self.name2id[query_im_name]
-        mask2, scores2 = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, query_kp_mat,
-                                                      self.id2kp, query_im_id, self.name2id)
-        return mask2, scores2
+        mask2, scores2, totals2, logs_cc = verify_matches_cross_compare(self.matches, pairs2, self.pid2features,
+                                                                        query_kp_mat,
+                                                                        self.id2kp, query_im_id, self.name2id,
+                                                                        debug_mode=DEBUG)
+        if DEBUG:
+            count = 0
+            for query_fid_coord, fid2, database_fid_coord2, database_fid_coord3, query_id, name, pairs, idx_, key_, accept in logs_cc:
+                database_fid_coord, dis, db_im_name = debug_info[idx_]
+                query_name = self.id2name[query_id]
+                query_im = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_name}")
+                db_im = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{name}")
+                db_im0 = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{db_im_name}")
+
+                x, y = map(int, query_fid_coord)
+                cv2.circle(query_im, (x, y), 10, (128, 0, 0), 2)
+                x, y = map(int, database_fid_coord2)
+                cv2.circle(db_im, (x, y), 10, (128, 0, 0), 2)
+                x, y = map(int, database_fid_coord)
+                cv2.circle(db_im0, (x, y), 10, (128, 0, 0), 2)
+
+                if accept == 0:
+                    x, y = map(int, fid2)
+                    cv2.circle(query_im, (x, y), 10, (0, 0, 255), 2)
+                    x, y = map(int, database_fid_coord3)
+                    cv2.circle(db_im, (x, y), 10, (0, 0, 255), 2)
+                else:
+                    x, y = map(int, fid2)
+                    cv2.circle(query_im, (x, y), 10, (0, 255, 0), 2)
+                    x, y = map(int, database_fid_coord3)
+                    cv2.circle(db_im, (x, y), 10, (0, 255, 0), 2)
+                image = concat_images_different_sizes([db_im0, query_im, db_im])
+                count += 1
+                cv2.imwrite(f"debug_cc/cc-{GLOBAL_COUNT}-{count}-{accept}-{dis}.jpg", image)
+
+                log_matching(pairs,
+                             f"{IMAGES_ROOT_FOLDER}/{name}",
+                             f"{IMAGES_ROOT_FOLDER}/{query_name}",
+                             f"debug_cc/cc-{GLOBAL_COUNT}-{count}-{query_im_id}-{self.name2id[name]}.jpg")
+        return mask2, scores2, totals2
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id, img_h, img_w):
         if points1.shape[0] < 10:  # too few matches
@@ -569,18 +622,23 @@ class Localization:
                         database_im_id = id2
                     database_im_id_sfm = database_im_id
 
-                    points1, points2, pairs = self.gather_matches(arr, id1, query_im_id,
+                    points1, points2, pairs = self.gather_matches(m, arr, id1, query_im_id,
                                                                   database_im_id, filter_by_d2_detection=True)
                     if DEBUG:
-                        tqdm.write(f" gathering {len(pairs)} matches")
+                        tqdm.write(f" {GLOBAL_COUNT} gathering {len(pairs)} matches")
 
-                    mask0, scores = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
+                    mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
                     points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
                                                           [points1, points2, pairs, scores])
                     if len(pairs) == 0:
                         continue
                     if DEBUG:
+                        print(totals)
                         tqdm.write(f" cross comparing results in {len(pairs)} matches")
+                        log_matching(pairs,
+                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
+                                     f"debug/{GLOBAL_COUNT}-cc-pairs.jpg")
                     points1 = np.vstack(points1)
                     points2 = np.vstack(points2)
 
@@ -654,8 +712,8 @@ if __name__ == '__main__':
     cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    # logs = read_logs("/home/sontung/work/visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
-    # query_image_names = [du[0] for du in logs]
+    logs = read_logs("/home/sontung/work/visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
+    query_image_names = [du[0] for du in logs]
+    query_image_names = query_image_names[:1]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)
-

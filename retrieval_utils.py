@@ -315,7 +315,8 @@ def log_matching(pairs, name1, name2, name3):
 
 
 # @profile
-def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_mat, query_im_id, name2id):
+def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_mat, query_im_id, name2id,
+                                 debug_mode=False):
     """
     verify matches based on cross comparing pairs with sfm pairs
     - if a 2d point1 is matched to a 3d point2, this point1 should be matched to other db images that observe point2
@@ -326,46 +327,65 @@ def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_
     """
     res = []
     scores = []
-    for query_fid_coord, pid, db_im_name in pairs:
+    totals = []
+    logs = []
+
+    for idx_, (query_fid_coord, pid, db_im_name) in enumerate(pairs):
         score = 0
         total = 0
+        matched = 0
         for img_id, name, cx, cy in pid2features[pid]:
-            total += 1
+            pairs = []
             if name == db_im_name:
                 continue
+
+            total += 1
             id0 = 0
             id1 = 1
             key1 = (query_im_id, name2id[name])
             key2 = (name2id[name], query_im_id)
-
+            key_ = key1
             if key1 in matches:
                 arr = matches[key1]
             elif key2 in matches:
                 arr = matches[key2]
+                key_ = key2
                 id0 = 1
                 id1 = 0
             else:
                 continue
-
             if arr.shape[0] == 0:
                 continue
 
-            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
+            matched += 1
 
+            if debug_mode:
+                for du2 in range(arr.shape[0]):
+                    fid_1 = query_img_kp[arr[du2, id0]]
+                    fid_2 = kp_mat[name][arr[du2, id1]]
+                    pairs.append((fid_1, fid_2))
             diff = query_fid_coord - query_img_kp[arr[:, id0]]
             diff = np.sum(np.abs(diff), axis=1)
             idx = np.argmin(diff)
+            database_fid_coord2 = np.array([cx, cy], dtype=np.float16)
+            database_fid_coord3 = kp_mat[name][arr[idx, id1]]
+
+            logs.append([query_fid_coord, query_img_kp[arr[idx, id0]], database_fid_coord2,
+                         database_fid_coord3, query_im_id, name, pairs, idx_, key_, 0])
             if diff[idx] < 4:
-                database_fid_coord3 = kp_mat[name][arr[idx, id1]]
                 dis2 = np.sum(np.abs(database_fid_coord2 - database_fid_coord3))
                 if dis2 < 20:
                     score += 1
+                    logs[-1][-1] = 1
         scores.append(score)
+        totals.append((score, matched, total, matched / total))
         if score > 1:
+            res.append(True)
+        elif matched > 0 and score / matched == 1:
             res.append(True)
         else:
             res.append(False)
-    return res, scores
+    return res, scores, totals, logs
 
 
 # @profile
