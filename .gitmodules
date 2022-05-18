@@ -10,3 +10,6 @@
 [submodule "d2-net"]
 	path = d2-net
 	url = git@github.com:sontung/d2-net.git
+[submodule "visloc_pseudo_gt_limitations"]
+	path = visloc_pseudo_gt_limitations
+	url = git@github.com:sontung/visloc_pseudo_gt_limitations.git
