@@ -3,9 +3,10 @@
 ## to do
 - share one matrix for query image across all pipeline
 - convert all to id only (currently mixed name and id)
-- debug mode for cross compare
 - what to do when cross compare does not find any matches? second time matching.
 - d2 mask in cc
+- when homo and cc output no matches, what to do? if homo returns no matches, continue with cc. if still no matches, forward everything to pnp.
+
 
 ## main script = `retrieval_based.py`
 
