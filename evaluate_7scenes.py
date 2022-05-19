@@ -21,6 +21,9 @@ from colmap_read import rotmat2qvec
 
 sys.path.append("Hierarchical-Localization")
 sys.path.append("cnnimageretrieval-pytorch")
+sys.path.append("visloc_pseudo_gt_limitations")
+
+import evaluation_util as vis_loc_pseudo_eval_utils
 
 from torch.utils.model_zoo import load_url
 from cirtorch.networks.imageretrievalnet import init_network
@@ -40,6 +43,10 @@ from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare, re
 class Localization:
     # @profile
     def __init__(self, db_names, query_names):
+        if COMPARE_TO_GT:
+            gt_file = "visloc_pseudo_gt_limitations/pgt/sfm/7scenes/redkitchen_test.txt"
+            self.pgt_poses = vis_loc_pseudo_eval_utils.read_pose_data(gt_file)
+
         self.db_im_names = db_names
         self.query_im_names = query_names
         self.workspace_dir = WS_FOLDER
@@ -324,9 +331,10 @@ class Localization:
 
     # @profile
     def main(self, metadata, name_list, re_write=False):
+        error_changed = []
         self.read_matching_database()
         computed_names = self.read_computed_poses()
-        if not DEBUG and not re_write:
+        if not DEBUG and not re_write and not COMPARE_TO_GT:
             name_list2 = [du for du in name_list if du not in computed_names]
         else:
             name_list2 = name_list
@@ -334,7 +342,7 @@ class Localization:
             tqdm.write(f"{query_im_name}")
             pairs, point3d_candidate_pool = self.read_2d_2d_matches(query_im_name, metadata)
             if len(pairs) <= 3:
-                tqdm.write(f" localization failed")
+                tqdm.write(f" localization failed (found {len(pairs)})")
                 continue
 
             best_score = None
@@ -377,7 +385,16 @@ class Localization:
             qw, qx, qy, qz = rotmat2qvec(r_mat)
             tx, ty, tz = t_vec[:, 0]
             result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
-            if not DEBUG:
+
+            if COMPARE_TO_GT:
+                pgt_pose, rgb_focal_length = self.pgt_poses[query_im_name]
+                est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
+                est_pose, est_f = est_poses[query_im_name]
+                error = vis_loc_pseudo_eval_utils.compute_error_max_rot_trans(pgt_pose, est_pose)
+                tqdm.write(f" error from {NAME2ERROR[query_im_name]} to {error} ")
+                error_changed.append(NAME2ERROR[query_im_name]-error)
+
+            if not DEBUG and not COMPARE_TO_GT and not re_write:
                 with open(self.pose_result_file, "a") as a_file:
                     print(result, file=a_file)
             if re_write:
@@ -389,6 +406,8 @@ class Localization:
                     result = computed_names[query_im_name]
                     print(result, file=a_file)
         self.terminate()
+        if len(error_changed) > 0:
+            print(error_changed, np.mean(error_changed))
 
     def visualize(self):
         self.prepare_visualization()
@@ -423,9 +442,9 @@ class Localization:
             if filter_by_d2_detection:
                 # check if the matched feature of database image is close to one d2 feature
                 dis_mat, mask = self.d2_masks[database_im_id]
-                close_to_a_d2_feature = mask[database_fid]
-                if not close_to_a_d2_feature:
-                    continue
+                # close_to_a_d2_feature = mask[database_fid]
+                # if not close_to_a_d2_feature:
+                #     continue
                 distance_to_d2_feature = dis_mat[database_fid]
 
             query_fid_desc = self.get_feature_desc(query_im_id, query_fid)  # hloc
@@ -689,10 +708,12 @@ class Localization:
                     self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
 
         if len(point3d_candidate_pool) == 0:
-            if len(all_matches_cc) > 0:
+            if len(all_matches_cc) > 5:
+                tqdm.write(f" register cc matches")
                 for p, db_id in all_matches_cc:
                     self.register_matches(p, db_id, point3d_candidate_pool, True)
             else:
+                tqdm.write(f" register un filtered matches")
                 for p, db_id in all_matches:
                     self.register_matches(p, db_id, point3d_candidate_pool, True)
 
@@ -744,12 +765,14 @@ class Localization:
 
 if __name__ == '__main__':
     DEBUG = True
+    COMPARE_TO_GT = True
     GLOBAL_COUNT = 0
     cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    logs = read_logs("/home/sontung/work/visloc_pseudo_gt_limitations/ar_vloc_debug_bad.txt")
+    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_debug_bad.txt")
     query_image_names = [du[0] for du in logs]
+    NAME2ERROR = {du1: du2 for du1, du2 in logs}
     query_image_names = query_image_names[:1]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)
