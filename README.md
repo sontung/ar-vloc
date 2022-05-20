@@ -5,6 +5,7 @@
 - convert all to id only (currently mixed name and id)
 - what to do when cross compare does not find any matches? second time matching.
 - d2 mask in cc
+- diversify retrieval pairs 
 - when homo and cc output no matches, what to do? if homo returns no matches, continue with cc. if still no matches, forward everything to pnp.
 
 

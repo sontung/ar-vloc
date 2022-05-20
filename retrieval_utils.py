@@ -1,5 +1,7 @@
 import sys
 
+import kmeans1d
+
 sys.path.append("cnnimageretrieval-pytorch")
 import cv2
 import os
@@ -138,6 +140,13 @@ class CandidatePool:
             self.pool = sorted(self.pool, key=lambda x: self.pid2votes[x.pid], reverse=True)
         else:
             self.pool = sorted(self.pool, key=lambda x: x.dis)
+
+    def divide(self):
+        votes = list(self.pid2votes.values())
+        keys_ = list(self.pid2votes.keys())
+        clusters, centroids = kmeans1d.cluster(votes, 2)
+        ratio = min(centroids)/max(centroids)
+        return ratio
 
 
 class MatchCandidate:
@@ -389,7 +398,7 @@ def verify_matches_cross_compare(matches, pairs, pid2features, query_img_kp, kp_
 
 
 # @profile
-def verify_matches_cross_compare_fast(matches, pairs, pid2features, query_img_kp, kp_mat):
+def verify_matches_cross_compare_fast(matches, pairs, pid2features, query_img_kp, kp_mat, name2id):
     """
     verify matches based on cross comparing pairs with sfm pairs
     matches: (img id1, img id2) => [(fid1, fid2), ...]
@@ -441,10 +450,7 @@ def verify_matches_cross_compare_fast(matches, pairs, pid2features, query_img_kp
             a2[c_idx: c_idx + nb] = arr2
 
             a3[c_idx2] = database_fid_coord
-            u = kp_mat[name]
-            v = arr[:, id1]
-            a = u[v]
-            a4[c_idx: c_idx + nb] = kp_mat[name][arr[:, id1]]
+            a4[c_idx: c_idx + nb] = kp_mat[name2id[name]][arr[:, id1]]
 
             repeats.append(nb)
             c_idx += nb

@@ -21,10 +21,8 @@ from colmap_read import rotmat2qvec
 
 sys.path.append("Hierarchical-Localization")
 sys.path.append("cnnimageretrieval-pytorch")
-sys.path.append("visloc_pseudo_gt_limitations")
 
-import evaluation_util as vis_loc_pseudo_eval_utils
-
+from visloc_pseudo_gt_limitations import evaluation_util as vis_loc_pseudo_eval_utils
 from torch.utils.model_zoo import load_url
 from cirtorch.networks.imageretrievalnet import init_network
 
@@ -347,40 +345,14 @@ class Localization:
 
             best_score = None
             best_pose = None
-            best_mask = None
             for _ in range(10):
                 r_mat, t_vec, score, mask = retrieval_based_pycolmap.localize(metadata, pairs)
                 if best_score is None or score > best_score:
                     best_score = score
                     best_pose = (r_mat, t_vec)
-                    best_mask = mask
                     if best_score > 0.9:
                         break
             r_mat, t_vec = best_pose
-
-            if DEBUG:
-                for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:len(pairs)]):
-                    pid = candidate.pid
-                    xy = candidate.query_coord
-                    xyz = self.point3did2xyzrgb[pid][:3]
-                    pairs.append((xy, xyz))
-
-                    if best_mask[cand_idx]:
-                        self.pid2images = colmap_io.read_pid2images(self.image2pose)
-                        # print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
-                        #       candidate.desc_diff,
-                        #       candidate.ratio_test,
-                        #       candidate.d2_distance,
-                        #       candidate.cc_score)
-                        x2, y2 = map(int, xy)
-                        query_img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
-                        if query_img is None:
-                            print(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
-                            raise ValueError
-                        cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
-                        vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
-                                                                              self.workspace_images_dir)
-                        cv2.imwrite(f"debug3/img-{cand_idx}.jpg", vis_img)
 
             qw, qx, qy, qz = rotmat2qvec(r_mat)
             tx, ty, tz = t_vec[:, 0]
@@ -622,7 +594,8 @@ class Localization:
                                        score)
             point3d_candidate_pool.add(candidate)
 
-    def read_2d_2d_matches(self, query_im_name, meta_data, max_pool_size=100):
+    def read_2d_2d_matches(self, query_im_name, meta_data, max_nb_matches=500,
+                           max_pool_size=500, cc_verification=False):
         desc_heuristics = True
         query_im_id = self.name2id[query_im_name]
         all_matches = []
@@ -630,9 +603,10 @@ class Localization:
         point3d_candidate_pool = CandidatePool()
         global GLOBAL_COUNT
         nb_skipped = 0
-        using = 0
         total = 0
         for m in self.matches:
+            if len(point3d_candidate_pool) > max_nb_matches:
+                break
             if query_im_id in m:
                 arr = self.matches[m]
                 if arr is not None:
@@ -653,16 +627,18 @@ class Localization:
                     if len(original_pairs) == 0:
                         continue
 
-                    mask0, scores, totals = self.verify_matches_cross_compare(original_pairs, database_im_id_sfm,
-                                                                              query_im_name)
-                    points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
-                                                          [original_points1, original_points2, original_pairs, scores])
-                    pairs2 = []
-                    for idx, pair in enumerate(pairs):
-                        pair2 = list(pair)
-                        pair2.append(scores[idx])
-                        pairs2.append(pair2)
-                    all_matches_cc.append((pairs2, database_im_id_sfm))
+                    if cc_verification:
+                        mask0, scores, totals = self.verify_matches_cross_compare(original_pairs, database_im_id_sfm,
+                                                                                  query_im_name)
+                        points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
+                                                              [original_points1, original_points2,
+                                                               original_pairs, scores])
+                        pairs2 = []
+                        for idx, pair in enumerate(pairs):
+                            pair2 = list(pair)
+                            pair2.append(scores[idx])
+                            pairs2.append(pair2)
+                        all_matches_cc.append((pairs2, database_im_id_sfm))
                     all_matches.append((original_pairs, database_im_id_sfm))
 
                     # homography ransac loop checking
@@ -686,26 +662,29 @@ class Localization:
                                      f"debug/{GLOBAL_COUNT}-3-homo-pairs.jpg")
 
                     # cross compare
-                    mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
-                    points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
-                                                          [points1, points2, pairs, scores])
-                    if len(pairs) == 0:
-                        continue
-                    if DEBUG:
-                        tqdm.write(f" cross comparing results in {len(pairs)} matches")
-                        log_matching(pairs,
-                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
-                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
-                                     f"debug/{GLOBAL_COUNT}-4-cc-pairs.jpg")
+                    if cc_verification:
+                        mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
+                        points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
+                                                              [points1, points2, pairs, scores])
+                        if len(pairs) == 0:
+                            continue
+                        if DEBUG:
+                            tqdm.write(f" cross comparing results in {len(pairs)} matches")
+                            log_matching(pairs,
+                                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
+                                         f"debug/{GLOBAL_COUNT}-4-cc-pairs.jpg")
 
-                    pairs2 = []
-                    for idx, pair in enumerate(pairs):
-                        pair2 = list(pair)
-                        pair2.append(scores[idx])
-                        pairs2.append(pair2)
+                        pairs2 = []
+                        for idx, pair in enumerate(pairs):
+                            pair2 = list(pair)
+                            pair2.append(scores[idx])
+                            pairs2.append(pair2)
+                        self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
+                    else:
+                        self.register_matches(pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
 
-                    using += 1
-                    self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
+        tqdm.write(f" have {len(point3d_candidate_pool)} matches")
 
         if len(point3d_candidate_pool) == 0:
             if len(all_matches_cc) > 5:
@@ -722,6 +701,8 @@ class Localization:
             point3d_candidate_pool.count_votes()
             point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
+            ratio = point3d_candidate_pool.divide()
+            tqdm.write(f" ratio={ratio}")
 
             for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:max_pool_size]):
                 pid = candidate.pid
@@ -767,12 +748,14 @@ if __name__ == '__main__':
     DEBUG = True
     COMPARE_TO_GT = True
     GLOBAL_COUNT = 0
+    NAME2ERROR = {}
     cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_debug_bad.txt")
+    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
     query_image_names = [du[0] for du in logs]
     NAME2ERROR = {du1: du2 for du1, du2 in logs}
-    query_image_names = query_image_names[:1]
+    # query_image_names = query_image_names[:1]
+    query_image_names = ["seq-03/frame-000061.color.png"]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)

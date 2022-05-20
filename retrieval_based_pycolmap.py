@@ -335,7 +335,7 @@ class Localization:
                 if "query" not in name:
                     img_id = self.name2id[name]
                     kp_mat = self.h5_file_features[name]["keypoints"].__array__()
-                    self.id2kp[name] = kp_mat
+                    self.id2kp[img_id] = kp_mat
                     kp_mat_d2 = name2kp[name.split("/")[-1]]
                     tree = KDTree(kp_mat_d2)
                     dis_mat, idx_mat = tree.query(kp_mat, 1)
@@ -357,25 +357,25 @@ class Localization:
                     self.id2name[img_id] = name
                     if "query" not in name:
                         desc_mat = np.transpose(hfile[name]["descriptors"].__array__())
-                        self.id2desc[name] = desc_mat
+                        self.id2desc[img_id] = desc_mat
                         self.desc_tree[img_id] = KDTree(desc_mat)
         self.rebuild_pid2features()
 
     def get_feature_coord(self, img_id, fid, db=False):
-        name = self.id2name[img_id]
         if db:
-            return self.id2kp[name][fid]
+            return self.id2kp[img_id][fid]
         else:
+            name = self.id2name[img_id]
             assert name == "query/query.jpg"
             if self.query_kp_mat is None:
                 self.query_kp_mat = self.h5_file_features[name]["keypoints"].__array__()
         return self.query_kp_mat[fid]
 
     def get_feature_desc(self, img_id, fid, db=False):
-        name = self.id2name[img_id]
         if db:
-            return self.id2desc[name][fid, :]
+            return self.id2desc[img_id][fid, :]
         else:
+            name = self.id2name[img_id]
             assert name == "query/query.jpg"
             if self.query_desc_mat is None:
                 self.query_desc_mat = self.h5_file_features[name]["descriptors"].__array__()
@@ -495,14 +495,7 @@ class Localization:
         if self.query_kp_mat is None:
             self.query_kp_mat = self.h5_file_features["query/query.jpg"]["keypoints"].__array__()
         mask2, scores2 = verify_matches_cross_compare_fast(self.matches, pairs2, self.pid2features, self.query_kp_mat,
-                                                           self.id2kp)
-        # mask, scores = verify_matches_cross_compare(self.matches, pairs2, self.pid2features, self.query_kp_mat,
-        #                                             self.id2kp)
-        # assert len(mask2) == len(mask)
-        # c = 0
-        # for u, v in enumerate(mask):
-        #     if v == mask2[u]:
-        #         c += 1
+                                                           self.id2kp, self.name2id)
         return mask2, scores2
 
     def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id):
