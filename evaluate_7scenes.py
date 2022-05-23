@@ -49,7 +49,7 @@ class Localization:
         self.query_im_names = query_names
         self.workspace_dir = WS_FOLDER
         self.workspace_images_dir = IMAGES_ROOT_FOLDER
-        self.pose_result_file = f"{self.workspace_dir}/res_est.txt"
+        self.pose_result_file = f"{self.workspace_dir}/res_div.txt"
 
         self.workspace_database_dir = DB_DIR
         self.workspace_sfm_images_dir = f"{self.workspace_dir}/images.txt"
@@ -745,17 +745,17 @@ class Localization:
 
 
 if __name__ == '__main__':
-    DEBUG = True
-    COMPARE_TO_GT = True
+    DEBUG = False
+    COMPARE_TO_GT = False
     GLOBAL_COUNT = 0
     NAME2ERROR = {}
     cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
-    query_image_names = [du[0] for du in logs]
-    NAME2ERROR = {du1: du2 for du1, du2 in logs}
+    # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
+    # query_image_names = [du[0] for du in logs]
+    # NAME2ERROR = {du1: du2 for du1, du2 in logs}
     # query_image_names = query_image_names[:1]
-    query_image_names = ["seq-03/frame-000061.color.png"]
+    # query_image_names = ["seq-03/frame-000061.color.png"]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)

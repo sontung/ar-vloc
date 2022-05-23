@@ -13,6 +13,7 @@ piazza_del_popolo/*
 debug/*
 debug2/*
 debug3/*
+7scenes_ws_div/*
 7scenes_ws/*
 trash_code/*
 *.lprof
@@ -32,6 +33,7 @@ ScreenCapture*
 api.py
 vloc_workspace_retrieval/*
 debug_cc/*
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -24,10 +24,9 @@ from hloc.utils.base_model import dynamic_load
 from hloc.triangulation import (import_features)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
-
 SFM_FOLDER = "/media/sontung/580ECE740ECE4B28/7scenes_reference_models/7scenes_reference_models/redkitchen/sfm_gt"
 SFM_IMAGES_FILE = f"{SFM_FOLDER}/images.txt"
-WS_FOLDER = pathlib.Path("7scenes_ws")
+WS_FOLDER = pathlib.Path("7scenes_ws_div")
 QUERY_LIST = f"{SFM_FOLDER}/list_test.txt"
 IMAGES_ROOT_FOLDER = pathlib.Path("/media/sontung/580ECE740ECE4B28/7_scenes_images/redkitchen")
 DB_DIR = WS_FOLDER / "database.db"
@@ -89,7 +88,42 @@ def extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_imag
                 print(query_image_names[u], database_image_names[db_idx], file=a_file)
 
 
-def run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names):
+def extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
+                                        database_image_names, save_file, nb_neighbors=40):
+    with open(db_descriptors_dir, 'rb') as handle:
+        database_descriptors = pickle.load(handle)
+    img_names = database_descriptors["name"]
+    img_descriptors = database_descriptors["desc"]
+    name2desc = {}
+    for u, name in enumerate(img_names):
+        name2desc[name] = img_descriptors[u]
+    query_mat = np.zeros((len(query_image_names), img_descriptors[0].shape[0]), dtype=np.float32)
+    db_mat = np.zeros((len(database_image_names), img_descriptors[0].shape[0]), dtype=np.float32)
+    copy_desc_mat(query_mat, name2desc, query_image_names)
+    copy_desc_mat(db_mat, name2desc, database_image_names)
+
+    dim = db_mat.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(db_mat)
+    distances, indices = index.search(query_mat, nb_neighbors)
+    ratio = distances[:, :-1] / distances[:, 1:]
+
+    with open(str(save_file), "w") as a_file:
+        for i in range(distances.shape[0]):
+            accept = [0]
+            last_accept = True
+            for j in range(1, nb_neighbors):
+                if ratio[i, j - 1] >= 0.99 and last_accept:
+                    last_accept = False
+                else:
+                    accept.append(j)
+                    last_accept = True
+            for db_idx in indices[i, accept]:
+                print(query_image_names[i], database_image_names[db_idx], file=a_file)
+
+
+def run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names,
+                                     diversified_retrieval=False):
     retrieval_loc_pairs_dir = WS_FOLDER / 'pairs.txt'  # top 20 retrieved by NetVLAD
     retrieval_conf = extract_features.confs['netvlad']
     feature_path = Path(WS_FOLDER, retrieval_conf['output'] + '.h5')
@@ -112,15 +146,19 @@ def run_image_retrieval_and_matching(matching_feature_path, image_list, query_im
                                                       multi_scale=False, image_list=image_list)
 
     # retrieve
-    extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_image_names, retrieval_loc_pairs_dir)
+    if not diversified_retrieval:
+        extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_image_names, retrieval_loc_pairs_dir)
+    else:
+        extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
+                                            database_image_names, retrieval_loc_pairs_dir)
 
     # match
     matching_results_dir = WS_FOLDER / "matches.h5"
     if not matching_results_dir.exists():
         matching_conf = match_features_bare.confs["NN-ratio"]
         name2ref = match_features_bare.return_name2ref(matching_feature_path)
-        match_features_bare.main(name2ref, matching_conf, retrieval_loc_pairs_dir, matching_feature_path,
-                                 matches=matching_results_dir, overwrite=True)
+        match_features_bare.main_evaluation(name2ref, matching_conf, retrieval_loc_pairs_dir, matching_feature_path,
+                                            matches=matching_results_dir, overwrite=True)
 
 
 def prepare():
@@ -143,7 +181,8 @@ def prepare():
             del image2pose_[img]
 
     matching_feature_path, image_list, name2id = create_hloc_db(DB_DIR)
-    run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names)
+    run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names,
+                                     diversified_retrieval=True)
     return query_image_names, database_image_names
 
 
