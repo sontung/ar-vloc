@@ -89,7 +89,7 @@ def extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_imag
 
 
 def extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
-                                        database_image_names, save_file, nb_neighbors=40):
+                                        database_image_names, save_file, nb_neighbors=40, with_collection_info=True):
     with open(db_descriptors_dir, 'rb') as handle:
         database_descriptors = pickle.load(handle)
     img_names = database_descriptors["name"]
@@ -102,24 +102,56 @@ def extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
     copy_desc_mat(query_mat, name2desc, query_image_names)
     copy_desc_mat(db_mat, name2desc, database_image_names)
 
-    dim = db_mat.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(db_mat)
-    distances, indices = index.search(query_mat, nb_neighbors)
-    ratio = distances[:, :-1] / distances[:, 1:]
+    if with_collection_info:
+        collection2descmat = {}
+        for name in database_image_names:
+            collection_name = name.split("/")[0]
+            if collection_name not in collection2descmat:
+                collection2descmat[collection_name] = [[name2desc[name]], [name]]
+            else:
+                collection2descmat[collection_name][0].append(name2desc[name])
+                collection2descmat[collection_name][1].append(name)
 
-    with open(str(save_file), "w") as a_file:
-        for i in range(distances.shape[0]):
-            accept = [0]
-            last_accept = True
-            for j in range(1, nb_neighbors):
-                if ratio[i, j - 1] >= 0.99 and last_accept:
-                    last_accept = False
-                else:
-                    accept.append(j)
+        with open(str(save_file), "w") as a_file:
+            for collection_name in collection2descmat:
+                desc_mat, all_names = collection2descmat[collection_name]
+                desc_mat = np.vstack(desc_mat).astype(np.float32)
+
+                dim = db_mat.shape[1]
+                index = faiss.IndexFlatL2(dim)
+                index.add(desc_mat)
+                distances, indices = index.search(query_mat, 10)
+                ratio = distances[:, :-1] / distances[:, 1:]
+                for i in range(distances.shape[0]):
+                    accept = [0]
                     last_accept = True
-            for db_idx in indices[i, accept]:
-                print(query_image_names[i], database_image_names[db_idx], file=a_file)
+                    for j in range(1, distances.shape[1]):
+                        if ratio[i, j - 1] >= 0.99 and last_accept:
+                            last_accept = False
+                        else:
+                            accept.append(j)
+                            last_accept = True
+                    for db_idx in indices[i, accept]:
+                        print(query_image_names[i], all_names[db_idx], file=a_file)
+    else:
+        dim = db_mat.shape[1]
+        index = faiss.IndexFlatL2(dim)
+        index.add(db_mat)
+        distances, indices = index.search(query_mat, nb_neighbors)
+        ratio = distances[:, :-1] / distances[:, 1:]
+
+        with open(str(save_file), "w") as a_file:
+            for i in range(distances.shape[0]):
+                accept = [0]
+                last_accept = True
+                for j in range(1, distances.shape[1]):
+                    if ratio[i, j - 1] >= 0.99 and last_accept:
+                        last_accept = False
+                    else:
+                        accept.append(j)
+                        last_accept = True
+                for db_idx in indices[i, accept]:
+                    print(query_image_names[i], database_image_names[db_idx], file=a_file)
 
 
 def run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names,
@@ -196,3 +228,5 @@ def read_logs(log_file):
         records.append((name, err))
     records = sorted(records, key=lambda du: du[-1], reverse=True)
     return records
+
+

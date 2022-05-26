@@ -7,6 +7,7 @@ import h5py
 import numpy as np
 import open3d as o3d
 import torch
+import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
@@ -363,8 +364,11 @@ class Localization:
                 est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
                 est_pose, est_f = est_poses[query_im_name]
                 error = vis_loc_pseudo_eval_utils.compute_error_max_rot_trans(pgt_pose, est_pose)
-                tqdm.write(f" error from {NAME2ERROR[query_im_name]} to {error} ")
-                error_changed.append(NAME2ERROR[query_im_name]-error)
+                if query_im_name in NAME2ERROR:
+                    tqdm.write(f" error from {NAME2ERROR[query_im_name]} to {error} ")
+                    error_changed.append(NAME2ERROR[query_im_name] - error)
+                else:
+                    tqdm.write(f" error from 0 to {error} ")
 
             if not DEBUG and not COMPARE_TO_GT and not re_write:
                 with open(self.pose_result_file, "a") as a_file:
@@ -414,9 +418,6 @@ class Localization:
             if filter_by_d2_detection:
                 # check if the matched feature of database image is close to one d2 feature
                 dis_mat, mask = self.d2_masks[database_im_id]
-                # close_to_a_d2_feature = mask[database_fid]
-                # if not close_to_a_d2_feature:
-                #     continue
                 distance_to_d2_feature = dis_mat[database_fid]
 
             query_fid_desc = self.get_feature_desc(query_im_id, query_fid)  # hloc
@@ -505,7 +506,7 @@ class Localization:
                              f"debug_cc/cc-{GLOBAL_COUNT}-{count}-{query_im_id}-{self.name2id[name]}.jpg")
         return mask2, scores2, totals2
 
-    def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id, img_h, img_w):
+    def verify_matches(self, points1, points2, pairs, query_im_id, database_im_id, img_h, img_w, loose_control=True):
         if points1.shape[0] <= 3:  # too few matches
             if DEBUG:
                 log_matching(pairs,
@@ -536,11 +537,22 @@ class Localization:
             dst[:, 0, 1] -= h3
 
         if DEBUG:
+            plt.plot(
+                [dst[0, 0, 0], dst[1, 0, 0]], [dst[0, 0, 1], dst[1, 0, 1]],
+                [dst[1, 0, 0], dst[2, 0, 0]], [dst[1, 0, 1], dst[2, 0, 1]],
+                [dst[2, 0, 0], dst[3, 0, 0]], [dst[2, 0, 1], dst[3, 0, 1]],
+                [dst[3, 0, 0], dst[0, 0, 0]], [dst[3, 0, 1], dst[0, 0, 1]],
+            )
+            plt.savefig(f"debug2/{GLOBAL_COUNT}-shape.jpg")
+            plt.close()
             img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}")
             img = cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY), cv2.COLOR_GRAY2RGB)
             img2_tr = cv2.polylines(img,
                                     [np.int32(dst)], True, (0, 0, 255), 3, cv2.LINE_AA)
             cv2.imwrite(f"debug2/{GLOBAL_COUNT}-{points1.shape[0]}-{s2}-homo.jpg", img2_tr)
+
+        if loose_control:
+            return True, mask
 
         w2, h2 = np.max(dst[:, 0, 0]), np.max(dst[:, 0, 1])
         if max(w2, h2) > 10000:  # too large homography
@@ -594,8 +606,8 @@ class Localization:
                                        score)
             point3d_candidate_pool.add(candidate)
 
-    def read_2d_2d_matches(self, query_im_name, meta_data, max_nb_matches=500,
-                           max_pool_size=500, cc_verification=False):
+    def read_2d_2d_matches(self, query_im_name, meta_data, max_nb_matches=1000,
+                           max_pool_size=500, cc_verification=False, sampled_by_collection=True):
         desc_heuristics = True
         query_im_id = self.name2id[query_im_name]
         all_matches = []
@@ -604,7 +616,38 @@ class Localization:
         global GLOBAL_COUNT
         nb_skipped = 0
         total = 0
-        for m in self.matches:
+        sampled_matches = []
+        if sampled_by_collection:
+            collection2images = {}
+            total_matches = 0
+            for m in self.matches:
+                if query_im_id in m:
+                    arr = self.matches[m]
+                    if arr is not None:
+                        id1, id2 = m
+                        if id1 != query_im_id:
+                            database_im_id = id1
+                        else:
+                            database_im_id = id2
+                        collection_name = self.id2name[database_im_id].split("/")[0]
+                        total_matches += 1
+                        if collection_name not in collection2images:
+                            collection2images[collection_name] = [m]
+                        else:
+                            collection2images[collection_name].append(m)
+            while len(sampled_matches) < total_matches:
+                all_keys = list(collection2images.keys())
+                collection_name = np.random.choice(all_keys)
+                a_match = collection2images[collection_name].pop()
+                sampled_matches.append(a_match)
+                if len(collection2images[collection_name]) == 0:
+                    del collection2images[collection_name]
+
+        if sampled_matches:
+            looping_array = sampled_matches
+        else:
+            looping_array = self.matches
+        for m in looping_array:
             if len(point3d_candidate_pool) > max_nb_matches:
                 break
             if query_im_id in m:
@@ -618,7 +661,8 @@ class Localization:
                     else:
                         database_im_id = id2
                     database_im_id_sfm = database_im_id
-
+                    if DEBUG:
+                        tqdm.write(f" matching with {self.id2name[database_im_id_sfm]}")
                     original_points1, original_points2, original_pairs = self.gather_matches(m, arr, id1, query_im_id,
                                                                                              database_im_id,
                                                                                              filter_by_d2_detection=True)
@@ -663,7 +707,8 @@ class Localization:
 
                     # cross compare
                     if cc_verification:
-                        mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm, query_im_name)
+                        mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm,
+                                                                                  query_im_name)
                         points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
                                                               [points1, points2, pairs, scores])
                         if len(pairs) == 0:
@@ -745,17 +790,16 @@ class Localization:
 
 
 if __name__ == '__main__':
-    DEBUG = False
-    COMPARE_TO_GT = False
+    DEBUG = True
+    COMPARE_TO_GT = True
     GLOBAL_COUNT = 0
     NAME2ERROR = {}
     cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
-    # query_image_names = [du[0] for du in logs]
-    # NAME2ERROR = {du1: du2 for du1, du2 in logs}
-    # query_image_names = query_image_names[:1]
-    # query_image_names = ["seq-03/frame-000061.color.png"]
+    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
+    query_image_names = [du[0] for du in logs]
+    NAME2ERROR = {du1: du2 for du1, du2 in logs}
+    query_image_names = query_image_names[:1]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)

@@ -114,17 +114,12 @@ class CandidatePool:
 
         # filters fid
         fid2scores = {}
-        coord_array = [candidate.query_coord for candidate in self.pool]
-        tree = KDTree(coord_array)
-        for candidate in self.pool:
-            dis, idx = tree.query(candidate.query_coord, 1)
-            if dis == 0:
-                key_ = f"{candidate.query_coord[0]}-{candidate.query_coord[1]}"
-                if key_ not in fid2scores:
-                    fid2scores[key_] = [candidate]
-                else:
-                    fid2scores[key_].append(candidate)
-
+        for idx__, candidate in enumerate(self.pool):
+            key_ = f"{round(candidate.query_coord[0], 2)}-{round(candidate.query_coord[1], 2)}"
+            if key_ not in fid2scores:
+                fid2scores[key_] = [candidate]
+            else:
+                fid2scores[key_].append(candidate)
         new_pool = []
         for fid in fid2scores:
             candidates = fid2scores[fid]
@@ -145,7 +140,7 @@ class CandidatePool:
         votes = list(self.pid2votes.values())
         keys_ = list(self.pid2votes.keys())
         clusters, centroids = kmeans1d.cluster(votes, 2)
-        ratio = min(centroids)/max(centroids)
+        ratio = min(centroids) / max(centroids)
         return ratio
 
 
@@ -229,13 +224,18 @@ def extract_global_descriptors_on_database_images(database_folder, save_folder, 
 
     # sample image
     state = load_url(TRAINED['retrievalSfM120k-resnet101-gem'], model_dir=os.path.join(get_data_root(), 'networks'))
-    net = init_network({'architecture': state['meta']['architecture'], 'pooling': state['meta']['pooling'],
+    net = init_network({'architecture': state['meta']['architecture'],
+                        'pooling': state['meta']['pooling'],
                         'whitening': state['meta'].get('whitening')})
     net.load_state_dict(state['state_dict'])
     net.eval()
     net.cuda()
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean=state['meta']['mean'], std=state['meta']['std'])])
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=state['meta']['mean'], std=state['meta']['std'])
+        ]
+    )
     names = []
     descriptors = []
     for img_file in tqdm(all_images):
