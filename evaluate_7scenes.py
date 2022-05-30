@@ -346,14 +346,38 @@ class Localization:
 
             best_score = None
             best_pose = None
+            best_diff = None
             for _ in range(10):
-                r_mat, t_vec, score, mask = retrieval_based_pycolmap.localize(metadata, pairs)
+                r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
                 if best_score is None or score > best_score:
                     best_score = score
                     best_pose = (r_mat, t_vec)
+                    best_diff = diff
                     if best_score > 0.9:
                         break
             r_mat, t_vec = best_pose
+
+            if DEBUG:
+                with open(f"{self.workspace_dir}/logs.txt", "w") as a_file:
+                    pgt_pose, rgb_focal_length = self.pgt_poses[query_im_name]
+                    print(pgt_pose, file=a_file)
+                    for xy, xyz in pairs:
+                        print(f"{xy[0]} {xy[1]} {xyz[0]} {xyz[1]} {xyz[2]}", file=a_file)
+                # candidates = point3d_candidate_pool.pool[:len(pairs)]
+                # candidate_indices = sorted(list(range(len(pairs))), key=lambda du: best_diff[du])
+                # for idx__, cand_idx in enumerate(candidate_indices):
+                #     candidate = candidates[cand_idx]
+                #     pid = candidate.pid
+                #     xy = candidate.query_coord
+                #     x2, y2 = map(int, xy)
+                #     query_img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
+                #     if query_img is None:
+                #         print(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
+                #         raise ValueError
+                #     cv2.circle(query_img, (x2, y2), 10, (128, 128, 0), -1)
+                #     vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
+                #                                                           self.workspace_images_dir)
+                #     cv2.imwrite(f"debug3/img-{idx__}-{round(best_diff[cand_idx], 5)}.jpg", vis_img)
 
             qw, qx, qy, qz = rotmat2qvec(r_mat)
             tx, ty, tz = t_vec[:, 0]
@@ -606,7 +630,7 @@ class Localization:
                                        score)
             point3d_candidate_pool.add(candidate)
 
-    def read_2d_2d_matches(self, query_im_name, meta_data, max_nb_matches=1000,
+    def read_2d_2d_matches(self, query_im_name, meta_data, max_nb_matches=500,
                            max_pool_size=500, cc_verification=False, sampled_by_collection=True):
         desc_heuristics = True
         query_im_id = self.name2id[query_im_name]
@@ -742,9 +766,11 @@ class Localization:
                     self.register_matches(p, db_id, point3d_candidate_pool, True)
 
         pairs = []
+        self.pid2images = colmap_io.read_pid2images(self.image2pose)
+        debug_info = [self.pid2images, IMAGES_ROOT_FOLDER, self.workspace_images_dir, query_im_name]
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
-            point3d_candidate_pool.filter()
+            point3d_candidate_pool.filter(debug_info, self.point3did2xyzrgb)
             point3d_candidate_pool.sort(by_votes=True)
             ratio = point3d_candidate_pool.divide()
             tqdm.write(f" ratio={ratio}")
@@ -756,7 +782,6 @@ class Localization:
                 pairs.append((xy, xyz))
 
                 if DEBUG:
-                    self.pid2images = colmap_io.read_pid2images(self.image2pose)
                     # print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
                     #       candidate.desc_diff,
                     #       candidate.ratio_test,
@@ -767,7 +792,7 @@ class Localization:
                     if query_img is None:
                         print(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                         raise ValueError
-                    cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+                    cv2.circle(query_img, (x2, y2), 20, (128, 128, 0), 10)
                     vis_img = visualize_matching_helper_with_pid2features(query_img, self.pid2images[pid],
                                                                           self.workspace_images_dir)
                     cv2.imwrite(f"debug/img-{cand_idx}.jpg", vis_img)

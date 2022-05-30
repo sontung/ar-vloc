@@ -50,10 +50,10 @@ def localize(metadata, pairs):
     cx = metadata["cx"]
     cy = metadata["cy"]
 
-    r_mat, t_vec, score, mask = localization.localize_single_image_lt_pnp(pairs, f, cx, cy,
-                                                                          with_inliers_percent=True,
-                                                                          return_inlier_mask=True)
-    return r_mat, t_vec, score, mask
+    r_mat, t_vec, score, mask, diff = localization.localize_single_image_lt_pnp(pairs, f, cx, cy,
+                                                                                with_inliers_percent=True,
+                                                                                return_inlier_mask=True)
+    return r_mat, t_vec, score, mask, diff
 
 
 def api_test():

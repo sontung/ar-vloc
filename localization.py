@@ -90,13 +90,13 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
     diff = np.sum(np.square(xy - image_points), axis=1)
     inliers = np.sum(diff < threshold)
     tqdm.write(
-        f" localization is done with {inliers}/{image_points.shape[0]} inliers ({inliers / image_points.shape[0]})")
+        f" localization is done with diff={np.sum(diff)} {inliers}/{image_points.shape[0]} inliers ({inliers / image_points.shape[0]})")
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
     t_vec = t_vec.reshape((-1, 1))
     if return_inlier_mask:
-        return r_mat, t_vec, inliers / image_points.shape[0], diff < threshold
+        return r_mat, t_vec, inliers / image_points.shape[0], diff < threshold, diff
     if with_inliers_percent:
         return r_mat, t_vec, inliers / image_points.shape[0]
 

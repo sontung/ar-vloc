@@ -155,7 +155,7 @@ def visualize_matching_helper_with_pid2features(query_image, features, sfm_image
         if image is None:
             print(f"{sfm_image_folder}/{database_image}")
             raise ValueError
-        cv2.circle(image, (x2, y2), 20, (128, 128, 0), 10)
+        cv2.circle(image, (x2, y2), 10, (128, 128, 0), -1)
         if rotate:
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         visualized_list.append(image)

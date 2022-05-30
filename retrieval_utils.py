@@ -9,7 +9,8 @@ import numpy as np
 import pickle
 import faiss
 from colmap_io import build_co_visibility_graph, read_name2id
-from vis_utils import concat_images_different_sizes, visualize_matching_pairs
+from vis_utils import concat_images_different_sizes, visualize_matching_pairs, \
+    visualize_matching_helper_with_pid2features
 from scipy.spatial import KDTree
 from tqdm import tqdm
 from fast_math_op import fast_sum_i1
@@ -26,7 +27,7 @@ TRAINED = {
     'rSfM120k-tl-resnet101-gem-w': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
     'retrievalSfM120k-resnet101-gem': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
 }
-DEBUG = False
+DEBUG = True
 
 
 class CandidatePool:
@@ -74,16 +75,13 @@ class CandidatePool:
             norm_d2_distance = 1 - candidate.d2_distance / max_d2_distance
             norm_cc_score = candidate.cc_score / max_cc_score
 
-            if not DEBUG:
-                vote = norm_desc_diff + norm_dis + norm_ratio_test + norm_d2_distance + norm_cc_score
-            else:
-                vote = norm_desc_diff + norm_d2_distance
+            vote = norm_desc_diff + norm_dis + norm_ratio_test + norm_d2_distance
             candidate.dis = norm_dis
             candidate.ratio_test = norm_ratio_test
             candidate.desc_diff = norm_desc_diff
             candidate.ratio_test_old = ratio_test
             candidate.d2_distance = norm_d2_distance
-            # candidate.cc_score = norm_cc_score
+            candidate.final_score = vote
 
             self.pid2votes[pid].append(vote)
 
@@ -94,7 +92,7 @@ class CandidatePool:
             else:
                 self.pid2votes[pid] = np.mean(votes)
 
-    def filter(self):
+    def filter(self, debug_info=None, pid2coord=None):
         # filters pid
         pid2scores = {}
         for candidate in self.pool:
@@ -105,27 +103,60 @@ class CandidatePool:
                 pid2scores[pid].append(candidate)
 
         new_pool = []
+        idx2_ = 0
+        if debug_info is not None:
+            pid2images, root_folder, workspace_images_dir, query_im_name = debug_info
         for pid in pid2scores:
+            idx2_ += 1
             candidates = pid2scores[pid]
-            # best_candidate = min(candidates, key=lambda x: x.dis+x.desc_diff)
-            best_candidate = max(candidates, key=lambda x: x.dis + x.desc_diff)
+            # if DEBUG:
+            #     candidates = sorted(candidates, key=lambda x: x.final_score, reverse=True)
+            #     coordinates = [c.query_coord for c in candidates]
+            #     var__ = np.var(coordinates, axis=0)
+            #     if np.sum(np.abs(var__)) > 0 and (np.abs(var__)[0] > 1 or np.abs(var__)[1] > 1):
+            #         print(coordinates)
+            #         print(var__)
+            #         for idx_, can_ in enumerate(candidates):
+            #             x2, y2 = map(int, can_.query_coord)
+            #             query_img = cv2.imread(f"{root_folder}/{query_im_name}")
+            #             if query_img is None:
+            #                 print(f"{root_folder}/{query_im_name}")
+            #                 raise ValueError
+            #             cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+            #             vis_img = visualize_matching_helper_with_pid2features(query_img, pid2images[pid],
+            #                                                                   workspace_images_dir)
+            #             cv2.imwrite(f"debug3/img-{idx2_}-{idx_}-{var__[0]}-{var__[1]}.jpg", vis_img)
+            best_candidate = max(candidates, key=lambda x: x.final_score)
             new_pool.append(best_candidate)
+        tqdm.write(f" from {len(self.pool)} to {len(new_pool)}")
         self.pool = new_pool
 
         # filters fid
         fid2scores = {}
-        for idx__, candidate in enumerate(self.pool):
+        for candidate in self.pool:
             key_ = f"{round(candidate.query_coord[0], 2)}-{round(candidate.query_coord[1], 2)}"
             if key_ not in fid2scores:
                 fid2scores[key_] = [candidate]
             else:
                 fid2scores[key_].append(candidate)
+        tqdm.write(f" from {len(self.pool)} to {len(fid2scores)}")
         new_pool = []
+        idx2_ = 0
         for fid in fid2scores:
             candidates = fid2scores[fid]
             if len(candidates) > 1:
-                best_candidate = max(candidates, key=lambda x: x.dis + x.desc_diff)
+                best_candidate = max(candidates, key=lambda x: x.final_score)
                 new_pool.append(best_candidate)
+                # if DEBUG:
+                #     idx2_ += 1
+                #     candidates = sorted(candidates, key=lambda x: x.final_score, reverse=True)
+                #     for idx_, can_ in enumerate(candidates):
+                #         x2, y2 = map(int, can_.query_coord)
+                #         query_img = cv2.imread(f"{root_folder}/{query_im_name}")
+                #         cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
+                #         vis_img = visualize_matching_helper_with_pid2features(query_img, pid2images[can_.pid],
+                #                                                               workspace_images_dir)
+                #         cv2.imwrite(f"debug3/img-fid-{idx2_}-{idx_}.jpg", vis_img)
             else:
                 new_pool.extend(candidates)
         self.pool = new_pool
@@ -155,6 +186,7 @@ class MatchCandidate:
         self.ratio_test_old = None
         self.d2_distance = d2_distance
         self.cc_score = cc_score
+        self.final_score = 0
 
     def __str__(self):
         return f"matched to {self.pid} with score={self.dis}"
