@@ -58,8 +58,6 @@ class CandidatePool:
 
         max_d2_distance = max([cand.d2_distance for cand in self.pool])
 
-        max_cc_score = max([cand.cc_score for cand in self.pool])
-
         # populate votes
         self.pid2votes = {}
         for candidate in self.pool:
@@ -73,7 +71,6 @@ class CandidatePool:
             norm_desc_diff = 1 - desc_diff / max_desc_diff
             norm_ratio_test = 1 - ratio_test / max_ratio_test
             norm_d2_distance = 1 - candidate.d2_distance / max_d2_distance
-            norm_cc_score = candidate.cc_score / max_cc_score
 
             vote = norm_desc_diff + norm_dis + norm_ratio_test + norm_d2_distance
             candidate.dis = norm_dis
@@ -187,6 +184,7 @@ class MatchCandidate:
         self.d2_distance = d2_distance
         self.cc_score = cc_score
         self.final_score = 0
+        self.old_dis = dis
 
     def __str__(self):
         return f"matched to {self.pid} with score={self.dis}"

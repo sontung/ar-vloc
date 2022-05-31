@@ -1,47 +1,99 @@
 import colmap_read
 import retrieval_based_pycolmap
+import numpy as np
+import cv2
 from visloc_pseudo_gt_limitations import evaluation_util as vis_loc_pseudo_eval_utils
 
-f = open("7scenes_ws_div/logs.txt", "r")
-lines = f.readlines()
-pairs = []
-for line in lines:
-    line = line[:-1]
-    xy0, xy1, xyz0, xyz1, xyz2 = map(float, line.split(" "))
-    pairs.append(((xy0, xy1), (xyz0, xyz1, xyz2)))
-best_score = None
-best_pose = None
-best_diff = None
-metadata = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
 
-gt_file = "visloc_pseudo_gt_limitations/pgt/sfm/7scenes/redkitchen_test.txt"
-pgt_poses = vis_loc_pseudo_eval_utils.read_pose_data(gt_file)
-query_im_name = "seq-14/frame-000258.color.png"
-pgt_pose, rgb_focal_length = pgt_poses[query_im_name]
+def main():
+    f = open("7scenes_ws_div/logs.txt", "r")
+    lines = f.readlines()
+    pairs = []
+    for line in lines:
+        line = line[:-1]
+        xy0, xy1, xyz0, xyz1, xyz2, dis = map(float, line.split(" "))
+        pairs.append(((xy0, xy1), (xyz0, xyz1, xyz2), dis))
+    best_score = None
+    best_pose = None
+    best_diff = None
+    metadata = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
 
-for _ in range(10):
-    r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
+    gt_file = "visloc_pseudo_gt_limitations/pgt/sfm/7scenes/redkitchen_test.txt"
+    pgt_poses = vis_loc_pseudo_eval_utils.read_pose_data(gt_file)
+    query_im_name = "seq-14/frame-000258.color.png"
+    pgt_pose, rgb_focal_length = pgt_poses[query_im_name]
+    data = []
 
-    qw, qx, qy, qz = colmap_read.rotmat2qvec(r_mat)
-    tx, ty, tz = t_vec[:, 0]
-    result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
+    for _ in range(10):
+        r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
 
-    est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
-    est_pose, est_f = est_poses[query_im_name]
-    error = vis_loc_pseudo_eval_utils.compute_error_max_rot_trans(pgt_pose, est_pose)
-    print(error)
+        qw, qx, qy, qz = colmap_read.rotmat2qvec(r_mat)
+        tx, ty, tz = t_vec[:, 0]
+        result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
 
-    if best_score is None or score > best_score:
-        best_score = score
-        best_pose = (r_mat, t_vec)
-        best_diff = diff
+        est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
+        est_pose, est_f = est_poses[query_im_name]
+        error = vis_loc_pseudo_eval_utils.compute_error_max_rot_trans(pgt_pose, est_pose)
+        data.append([error, mask])
+        print(error, np.sum(mask))
 
-r_mat, t_vec = best_pose
-qw, qx, qy, qz = colmap_read.rotmat2qvec(r_mat)
-tx, ty, tz = t_vec[:, 0]
-result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
+    bad_mask = max(data, key=lambda du: du[0])[1]
+    good_mask = min(data, key=lambda du: du[0])[1]
+    print(max([du[0] for du in data]), min([du[0] for du in data]))
+    in_good_but_not_in_bad = []
+    in_bad_but_not_in_good = []
 
-est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
-est_pose, est_f = est_poses[query_im_name]
-error = vis_loc_pseudo_eval_utils.compute_error_max_rot_trans(pgt_pose, est_pose)
-print("final", error)
+    for i, m in enumerate(good_mask):
+        if m:
+            in_good_but_not_in_bad.append(i)
+        elif bad_mask[i]:
+            in_bad_but_not_in_good.append(i)
+    print(in_good_but_not_in_bad)
+    print(np.nonzero(good_mask))
+    print(np.nonzero(bad_mask))
+
+    arr = []
+    img = cv2.imread("/media/sontung/580ECE740ECE4B28/7_scenes_images/redkitchen/seq-14/frame-000258.color.png")
+    total = 0
+    for idx in np.nonzero(good_mask)[0]:
+        xy = pairs[idx][0]
+        arr.append(xy)
+        x2, y2 = map(int, xy)
+        cv2.circle(img, (x2, y2), 5, (255, 0, 0), -1)
+        total += pairs[idx][-1]
+
+    # cv2.imshow("", img)
+    # cv2.waitKey()
+    # cv2.destroyAllWindows()
+    cv2.imwrite("7scenes_ws_div/good.png", img)
+    print(np.var(arr, axis=0), total)
+
+    arr = []
+    total = 0
+    img = cv2.imread("/media/sontung/580ECE740ECE4B28/7_scenes_images/redkitchen/seq-14/frame-000258.color.png")
+    for idx in np.nonzero(bad_mask)[0]:
+        xy = pairs[idx][0]
+        arr.append(xy)
+        x2, y2 = map(int, xy)
+        cv2.circle(img, (x2, y2), 5, (0, 255, 0), -1)
+        total += pairs[idx][-1]
+
+    # cv2.imshow("", img)
+    # cv2.waitKey()
+    # cv2.destroyAllWindows()
+    cv2.imwrite("7scenes_ws_div/bad.png", img)
+
+    print(np.var(arr, axis=0), total)
+
+    # r_mat, t_vec = best_pose
+    # qw, qx, qy, qz = colmap_read.rotmat2qvec(r_mat)
+    # tx, ty, tz = t_vec[:, 0]
+    # result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
+    #
+    # est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
+    # est_pose, est_f = est_poses[query_im_name]
+    # error = vis_loc_pseudo_eval_utils.compute_error_max_rot_trans(pgt_pose, est_pose)
+    # print("final", error)
+
+if __name__ == '__main__':
+    main()

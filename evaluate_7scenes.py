@@ -359,10 +359,9 @@ class Localization:
 
             if DEBUG:
                 with open(f"{self.workspace_dir}/logs.txt", "w") as a_file:
-                    pgt_pose, rgb_focal_length = self.pgt_poses[query_im_name]
-                    print(pgt_pose, file=a_file)
-                    for xy, xyz in pairs:
-                        print(f"{xy[0]} {xy[1]} {xyz[0]} {xyz[1]} {xyz[2]}", file=a_file)
+                    for idx, (xy, xyz) in enumerate(pairs):
+                        print(f"{xy[0]} {xy[1]} {xyz[0]} {xyz[1]} {xyz[2]} {point3d_candidate_pool.pool[idx].old_dis}",
+                              file=a_file)
                 # candidates = point3d_candidate_pool.pool[:len(pairs)]
                 # candidate_indices = sorted(list(range(len(pairs))), key=lambda du: best_diff[du])
                 # for idx__, cand_idx in enumerate(candidate_indices):
@@ -623,7 +622,8 @@ class Localization:
             if tree is None:
                 tree = KDTree(f_coord_mat)
             dis, ind = tree.query(database_fid_coord, 1)  # sfm
-
+            if dis > 5:
+                continue
             pid = pid_list[ind]
             fid = fid_list[ind]
             candidate = MatchCandidate(query_fid_coord, fid, pid, dis, desc_diff, ratio_test, distance_to_d2_feature,

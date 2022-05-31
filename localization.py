@@ -66,7 +66,7 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
     image_points = []
     object_points_homo = []
 
-    for xy, xyz in pairs:
+    for xy, xyz, _ in pairs:
         x, y = xy
         u = (x - c1) / f
         v = (y - c2) / f
@@ -80,7 +80,7 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
         return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1))
     object_points = np.array(object_points)
     image_points = np.array(image_points)
-    res = pnp.build.pnp_python_binding.pnp(object_points, image_points)
+    res = pnp.build.pnp_python_binding.pnp(object_points, image_points, threshold)
 
     object_points_homo = np.array(object_points_homo)
     xy = res[None, :, :] @ object_points_homo[:, :, None]
@@ -88,15 +88,16 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
     xy = xy[:, :3] / xy[:, 2].reshape((-1, 1))
     xy = xy[:, :2]
     diff = np.sum(np.square(xy - image_points), axis=1)
-    inliers = np.sum(diff < threshold)
+    inliers = np.sum(diff < threshold**2)
     tqdm.write(
-        f" localization is done with diff={np.sum(diff)} {inliers}/{image_points.shape[0]} inliers ({inliers / image_points.shape[0]})")
+        f" localization is done with diff={round(float(np.sum(diff)), 3)} {inliers}/{image_points.shape[0]}"
+        f" inliers ({round(inliers / image_points.shape[0], 3)})")
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
     t_vec = t_vec.reshape((-1, 1))
     if return_inlier_mask:
-        return r_mat, t_vec, inliers / image_points.shape[0], diff < threshold, diff
+        return r_mat, t_vec, inliers / image_points.shape[0], diff < threshold**2, diff
     if with_inliers_percent:
         return r_mat, t_vec, inliers / image_points.shape[0]
 
