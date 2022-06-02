@@ -8,7 +8,7 @@
 - diversify retrieval pairs (don't output close frames)
 - try `how` descriptors
 - when homo and cc output no matches, what to do? if homo returns no matches, continue with cc. if still no matches, forward everything to pnp.
-
+- refine from avg. of poses of retrieval
 
 ## main script = `retrieval_based.py`
 

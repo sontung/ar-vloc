@@ -27,7 +27,7 @@ TRAINED = {
     'rSfM120k-tl-resnet101-gem-w': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
     'retrievalSfM120k-resnet101-gem': 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/retrievalSfM120k-resnet101-gem-b80fb85.pth'
 }
-DEBUG = True
+DEBUG = False
 
 
 class CandidatePool:
@@ -89,7 +89,8 @@ class CandidatePool:
             else:
                 self.pid2votes[pid] = np.mean(votes)
 
-    def filter(self, debug_info=None, pid2coord=None):
+    # @profile
+    def filter(self):
         # filters pid
         pid2scores = {}
         for candidate in self.pool:
@@ -101,28 +102,9 @@ class CandidatePool:
 
         new_pool = []
         idx2_ = 0
-        if debug_info is not None:
-            pid2images, root_folder, workspace_images_dir, query_im_name = debug_info
         for pid in pid2scores:
             idx2_ += 1
             candidates = pid2scores[pid]
-            # if DEBUG:
-            #     candidates = sorted(candidates, key=lambda x: x.final_score, reverse=True)
-            #     coordinates = [c.query_coord for c in candidates]
-            #     var__ = np.var(coordinates, axis=0)
-            #     if np.sum(np.abs(var__)) > 0 and (np.abs(var__)[0] > 1 or np.abs(var__)[1] > 1):
-            #         print(coordinates)
-            #         print(var__)
-            #         for idx_, can_ in enumerate(candidates):
-            #             x2, y2 = map(int, can_.query_coord)
-            #             query_img = cv2.imread(f"{root_folder}/{query_im_name}")
-            #             if query_img is None:
-            #                 print(f"{root_folder}/{query_im_name}")
-            #                 raise ValueError
-            #             cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
-            #             vis_img = visualize_matching_helper_with_pid2features(query_img, pid2images[pid],
-            #                                                                   workspace_images_dir)
-            #             cv2.imwrite(f"debug3/img-{idx2_}-{idx_}-{var__[0]}-{var__[1]}.jpg", vis_img)
             best_candidate = max(candidates, key=lambda x: x.final_score)
             new_pool.append(best_candidate)
         tqdm.write(f" from {len(self.pool)} to {len(new_pool)}")
@@ -131,29 +113,21 @@ class CandidatePool:
         # filters fid
         fid2scores = {}
         for candidate in self.pool:
-            key_ = f"{round(candidate.query_coord[0], 2)}-{round(candidate.query_coord[1], 2)}"
+            key_ = f"{round(candidate.query_coord[0], 2)}-{round(candidate.query_coord[1], 2)}"  # very slow
+            # print(key_, np.round(candidate.query_coord, 2))
+            # u = np.round(candidate.query_coord, 2)
+            # v = round(candidate.query_coord[0], 2), round(candidate.query_coord[1], 2)
             if key_ not in fid2scores:
                 fid2scores[key_] = [candidate]
             else:
                 fid2scores[key_].append(candidate)
         tqdm.write(f" from {len(self.pool)} to {len(fid2scores)}")
         new_pool = []
-        idx2_ = 0
         for fid in fid2scores:
             candidates = fid2scores[fid]
             if len(candidates) > 1:
                 best_candidate = max(candidates, key=lambda x: x.final_score)
                 new_pool.append(best_candidate)
-                # if DEBUG:
-                #     idx2_ += 1
-                #     candidates = sorted(candidates, key=lambda x: x.final_score, reverse=True)
-                #     for idx_, can_ in enumerate(candidates):
-                #         x2, y2 = map(int, can_.query_coord)
-                #         query_img = cv2.imread(f"{root_folder}/{query_im_name}")
-                #         cv2.circle(query_img, (x2, y2), 50, (128, 128, 0), 10)
-                #         vis_img = visualize_matching_helper_with_pid2features(query_img, pid2images[can_.pid],
-                #                                                               workspace_images_dir)
-                #         cv2.imwrite(f"debug3/img-fid-{idx2_}-{idx_}.jpg", vis_img)
             else:
                 new_pool.extend(candidates)
         self.pool = new_pool

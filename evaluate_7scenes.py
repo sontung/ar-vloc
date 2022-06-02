@@ -12,13 +12,14 @@ from scipy.spatial import KDTree
 from tqdm import tqdm
 
 import colmap_io
+import localization
 import retrieval_based_pycolmap
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate,
                              log_matching, extract_global_descriptors_on_database_images, verify_matches_cross_compare)
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features,
                        concat_images_different_sizes)
-from colmap_read import rotmat2qvec
+from colmap_read import rotmat2qvec, qvec2rotmat
 
 sys.path.append("Hierarchical-Localization")
 sys.path.append("cnnimageretrieval-pytorch")
@@ -85,6 +86,7 @@ class Localization:
         self.retrieval_loc_pairs_dir = self.workspace_dir / 'pairs.txt'  # top 20 retrieved by NetVLAD
         self.retrieval_conf = extract_features.confs['netvlad']
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.name2retrieval = self.read_retrieval()
 
         # cnn image retrieval
         training_weights = {
@@ -121,7 +123,6 @@ class Localization:
         self.build_tree()
         self.reduce_memory(self.query_im_names)
         self.build_desc_tree()
-        # self.reduce_memory(self.query_im_names)
         self.build_d2_masks()
         return
 
@@ -147,6 +148,20 @@ class Localization:
         self.h5_file_features = None
         self.query_desc_mat = None
         self.query_kp_mat = None
+
+    def read_retrieval(self):
+        a_file = open(self.retrieval_loc_pairs_dir, "r")
+        lines = a_file.readlines()
+        a_file.close()
+        name2pairs = {}
+        for line in lines:
+            line = line[:-1]
+            q, r = line.split(" ")
+            if q not in name2pairs:
+                name2pairs[q] = [r]
+            else:
+                name2pairs[q].append(r)
+        return name2pairs
 
     def read_matches(self):
         with open(self.retrieval_loc_pairs_dir, 'r') as f:
@@ -344,18 +359,34 @@ class Localization:
                 tqdm.write(f" localization failed (found {len(pairs)})")
                 continue
 
-            best_score = None
-            best_pose = None
-            best_diff = None
-            for _ in range(10):
-                r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
-                if best_score is None or score > best_score:
-                    best_score = score
-                    best_pose = (r_mat, t_vec)
-                    best_diff = diff
-                    if best_score > 0.9:
-                        break
-            r_mat, t_vec = best_pose
+            if USING_OPENCV_PNP:
+                all_retrieved_poses = []
+                for img2 in self.name2retrieval[query_im_name]:
+                    pose2 = self.image2pose[self.name2id[img2]][2]
+                    all_retrieved_poses.append(pose2)
+                all_retrieved_poses = np.vstack(all_retrieved_poses)
+                avg_pose = np.mean(all_retrieved_poses, axis=0)
+
+                f = metadata["f"]
+                cx = metadata["cx"]
+                cy = metadata["cy"]
+                avg_rot_mat = qvec2rotmat(avg_pose[:4])
+                avg_pose = [avg_rot_mat, avg_pose[4:]]
+                r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs, open_cv=True)
+                r_mat, t_vec, score, mask = localization.localize_single_image_opencv_refine(pairs, f, cx, cy,
+                                                                                             avg_pose)
+
+            else:
+                best_score = None
+                best_pose = None
+                for _ in range(10):
+                    r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
+                    if best_score is None or score > best_score:
+                        best_score = score
+                        best_pose = (r_mat, t_vec)
+                        if best_score > 0.9:
+                            break
+                r_mat, t_vec = best_pose
 
             if DEBUG:
                 with open(f"{self.workspace_dir}/logs.txt", "w") as a_file:
@@ -379,7 +410,10 @@ class Localization:
                 #     cv2.imwrite(f"debug3/img-{idx__}-{round(best_diff[cand_idx], 5)}.jpg", vis_img)
 
             qw, qx, qy, qz = rotmat2qvec(r_mat)
-            tx, ty, tz = t_vec[:, 0]
+            try:
+                tx, ty, tz = t_vec[:, 0]
+            except IndexError:
+                tx, ty, tz = t_vec
             result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
 
             if COMPARE_TO_GT:
@@ -767,10 +801,9 @@ class Localization:
 
         pairs = []
         self.pid2images = colmap_io.read_pid2images(self.image2pose)
-        debug_info = [self.pid2images, IMAGES_ROOT_FOLDER, self.workspace_images_dir, query_im_name]
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
-            point3d_candidate_pool.filter(debug_info, self.point3did2xyzrgb)
+            point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
             ratio = point3d_candidate_pool.divide()
             tqdm.write(f" ratio={ratio}")
@@ -782,11 +815,6 @@ class Localization:
                 pairs.append((xy, xyz))
 
                 if DEBUG:
-                    # print(cand_idx, point3d_candidate_pool.pid2votes[candidate.pid],
-                    #       candidate.desc_diff,
-                    #       candidate.ratio_test,
-                    #       candidate.d2_distance,
-                    #       candidate.cc_score)
                     x2, y2 = map(int, xy)
                     query_img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                     if query_img is None:
@@ -815,16 +843,18 @@ class Localization:
 
 
 if __name__ == '__main__':
-    DEBUG = True
-    COMPARE_TO_GT = True
+    DEBUG = False
+    COMPARE_TO_GT = False
     GLOBAL_COUNT = 0
+    USING_OPENCV_PNP = False
     NAME2ERROR = {}
-    cam_mat = {'f': 525.505 / 100, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
+    cam_mat = {'f': 525.505, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
-    query_image_names = [du[0] for du in logs]
-    NAME2ERROR = {du1: du2 for du1, du2 in logs}
-    query_image_names = query_image_names[:1]
+    # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
+    # query_image_names = [du[0] for du in logs]
+    # NAME2ERROR = {du1: du2 for du1, du2 in logs}
+    # query_image_names = query_image_names[:1]
+    # query_image_names = ["seq-06/frame-000128.color.png"]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)

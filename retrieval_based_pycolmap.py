@@ -45,14 +45,18 @@ DEBUG = False
 GLOBAL_COUNT = 1
 
 
-def localize(metadata, pairs):
-    f = metadata["f"] * 100
+def localize(metadata, pairs, open_cv=False):
+    f = metadata["f"]
     cx = metadata["cx"]
     cy = metadata["cy"]
 
-    r_mat, t_vec, score, mask, diff = localization.localize_single_image_lt_pnp(pairs, f, cx, cy,
-                                                                                with_inliers_percent=True,
-                                                                                return_inlier_mask=True)
+    if open_cv:
+        r_mat, t_vec, score, mask = localization.localize_single_image_opencv(pairs, f, cx, cy)
+        diff = -1
+    else:
+        r_mat, t_vec, score, mask, diff = localization.localize_single_image_lt_pnp(pairs, f, cx, cy,
+                                                                                    with_inliers_percent=True,
+                                                                                    return_inlier_mask=True)
     return r_mat, t_vec, score, mask, diff
 
 
