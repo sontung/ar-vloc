@@ -89,7 +89,6 @@ class CandidatePool:
             else:
                 self.pid2votes[pid] = np.mean(votes)
 
-    # @profile
     def filter(self):
         # filters pid
         pid2scores = {}
@@ -107,21 +106,25 @@ class CandidatePool:
             candidates = pid2scores[pid]
             best_candidate = max(candidates, key=lambda x: x.final_score)
             new_pool.append(best_candidate)
-        tqdm.write(f" from {len(self.pool)} to {len(new_pool)}")
+        if DEBUG:
+            tqdm.write(f" from {len(self.pool)} to {len(new_pool)}")
         self.pool = new_pool
 
         # filters fid
         fid2scores = {}
-        for candidate in self.pool:
-            key_ = f"{round(candidate.query_coord[0], 2)}-{round(candidate.query_coord[1], 2)}"  # very slow
-            # print(key_, np.round(candidate.query_coord, 2))
-            # u = np.round(candidate.query_coord, 2)
-            # v = round(candidate.query_coord[0], 2), round(candidate.query_coord[1], 2)
+        arr = np.zeros((len(self.pool), 2), dtype=np.float16)
+        for idx_, candidate in enumerate(self.pool):
+            arr[idx_] = candidate.query_coord
+        arr = np.round(arr, 0)
+        for idx_, candidate in enumerate(self.pool):
+            u, v = arr[idx_]
+            key_ = f"{u}-{v}"  # very slow
             if key_ not in fid2scores:
                 fid2scores[key_] = [candidate]
             else:
                 fid2scores[key_].append(candidate)
-        tqdm.write(f" from {len(self.pool)} to {len(fid2scores)}")
+        if DEBUG:
+            tqdm.write(f" from {len(self.pool)} to {len(fid2scores)}")
         new_pool = []
         for fid in fid2scores:
             candidates = fid2scores[fid]

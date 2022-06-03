@@ -68,6 +68,7 @@ class Localization:
 
         # matching database
         self.matches = None
+        self.id2matches = None
         self.id2kp, self.id2desc, self.id2name, self.id2score = None, None, None, None
         self.h5_file_features = None
         self.query_desc_mat = None
@@ -181,6 +182,30 @@ class Localization:
                     self.matches[key_] = m1
             with open(f"{WS_FOLDER}/matches_1.pkl", 'wb') as handle:
                 pickle.dump(self.matches, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        my_file = pathlib.Path(f"{WS_FOLDER}/id2matches.pkl")
+        if my_file.is_file():
+            with open(str(my_file), 'rb') as handle:
+                self.id2matches = pickle.load(handle)
+        else:
+            self.id2matches = {}
+            query_im_ids = [self.name2id[name] for name in self.query_im_names]
+            for m in self.matches:
+                if m[0] in query_im_ids:
+                    query_im_id = m[0]
+                elif m[1] in query_im_ids:
+                    query_im_id = m[1]
+                else:
+                    continue
+
+                arr = self.matches[m]
+                if arr is not None:
+                    if query_im_id not in self.id2matches:
+                        self.id2matches[query_im_id] = [m]
+                    else:
+                        self.id2matches[query_im_id].append(m)
+            with open(str(my_file), 'wb') as handle:
+                pickle.dump(self.id2matches, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     def read_features(self):
         """
@@ -343,7 +368,6 @@ class Localization:
             if name not in computed_names:
                 print(name)
 
-    # @profile
     def main(self, metadata, name_list, re_write=False):
         error_changed = []
         self.read_matching_database()
@@ -377,6 +401,11 @@ class Localization:
                                                                                              avg_pose)
 
             else:
+                f = metadata["f"]
+                cx = metadata["cx"]
+                cy = metadata["cy"]
+                localization.localize_pose_lib(pairs, f, cx, cy)
+
                 best_score = None
                 best_pose = None
                 for _ in range(10):
@@ -451,7 +480,9 @@ class Localization:
         self.read_matches()
         self.read_features()
 
-    def gather_matches(self, key_, arr, id1, query_im_id, database_im_id, filter_by_d2_detection=True):
+    # @profile
+    def gather_matches(self, arr, id1, query_im_id, database_im_id, filter_by_d2_detection=True,
+                       ratio_test_heuristic=False):
         pairs = []
         points1 = []
         points2 = []
@@ -479,13 +510,16 @@ class Localization:
 
             query_fid_desc = self.get_feature_desc(query_im_id, query_fid)  # hloc
             database_fid_desc = self.get_feature_desc(database_im_id, database_fid)  # hloc
-            if database_im_id in self.desc_tree:
-                dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
-            else:
-                tree = KDTree(self.id2desc[database_im_id])
-                dis, ind_list = tree.query(query_fid_desc, 3)
+            if ratio_test_heuristic:
+                if database_im_id in self.desc_tree:
+                    dis, ind_list = self.desc_tree[database_im_id].query(query_fid_desc, 3)
+                else:
+                    tree = KDTree(self.id2desc[database_im_id])
+                    dis, ind_list = tree.query(query_fid_desc, 3)
 
-            ratio_test = dis[1] / dis[2]
+                ratio_test = dis[1] / dis[2]
+            else:
+                ratio_test = 0.5
 
             pair = (
                 query_fid_coord, database_fid_coord, query_fid_desc, database_fid_desc, ratio_test,
@@ -506,7 +540,6 @@ class Localization:
                          f"debug/{GLOBAL_COUNT}-2-d2-pairs.jpg")
         return points1, points2, pairs
 
-    # @profile
     def verify_matches_cross_compare(self, pairs, database_im_id_sfm, query_im_name):
         pairs2 = []
         debug_info = []
@@ -640,6 +673,7 @@ class Localization:
 
         return True, mask
 
+    # @profile
     def register_matches(self, pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics):
         for pair in pairs:
             if len(pair) == 7:
@@ -664,8 +698,9 @@ class Localization:
                                        score)
             point3d_candidate_pool.add(candidate)
 
+    # @profile
     def read_2d_2d_matches(self, query_im_name, meta_data, max_nb_matches=500,
-                           max_pool_size=500, cc_verification=False, sampled_by_collection=True):
+                           max_pool_size=100, cc_verification=False, sampled_by_collection=True):
         desc_heuristics = True
         query_im_id = self.name2id[query_im_name]
         all_matches = []
@@ -678,21 +713,18 @@ class Localization:
         if sampled_by_collection:
             collection2images = {}
             total_matches = 0
-            for m in self.matches:
-                if query_im_id in m:
-                    arr = self.matches[m]
-                    if arr is not None:
-                        id1, id2 = m
-                        if id1 != query_im_id:
-                            database_im_id = id1
-                        else:
-                            database_im_id = id2
-                        collection_name = self.id2name[database_im_id].split("/")[0]
-                        total_matches += 1
-                        if collection_name not in collection2images:
-                            collection2images[collection_name] = [m]
-                        else:
-                            collection2images[collection_name].append(m)
+            for m in self.id2matches[query_im_id]:
+                id1, id2 = m
+                if id1 != query_im_id:
+                    database_im_id = id1
+                else:
+                    database_im_id = id2
+                collection_name = self.id2name[database_im_id].split("/")[0]
+                total_matches += 1
+                if collection_name not in collection2images:
+                    collection2images[collection_name] = [m]
+                else:
+                    collection2images[collection_name].append(m)
             while len(sampled_matches) < total_matches:
                 all_keys = list(collection2images.keys())
                 collection_name = np.random.choice(all_keys)
@@ -704,90 +736,89 @@ class Localization:
         if sampled_matches:
             looping_array = sampled_matches
         else:
-            looping_array = self.matches
+            looping_array = self.id2matches[query_im_id]
         for m in looping_array:
             if len(point3d_candidate_pool) > max_nb_matches:
                 break
-            if query_im_id in m:
-                arr = self.matches[m]
-                if arr is not None:
-                    GLOBAL_COUNT += 1
-                    total += 1
-                    id1, id2 = m
-                    if id1 != query_im_id:
-                        database_im_id = id1
-                    else:
-                        database_im_id = id2
-                    database_im_id_sfm = database_im_id
-                    if DEBUG:
-                        tqdm.write(f" matching with {self.id2name[database_im_id_sfm]}")
-                    original_points1, original_points2, original_pairs = self.gather_matches(m, arr, id1, query_im_id,
-                                                                                             database_im_id,
-                                                                                             filter_by_d2_detection=True)
-                    if DEBUG:
-                        tqdm.write(f" {GLOBAL_COUNT} gathering {len(original_pairs)} matches")
-                    if len(original_pairs) == 0:
-                        continue
+            arr = self.matches[m]
+            GLOBAL_COUNT += 1
+            total += 1
+            id1, id2 = m
+            if id1 != query_im_id:
+                database_im_id = id1
+            else:
+                database_im_id = id2
+            database_im_id_sfm = database_im_id
+            if DEBUG:
+                tqdm.write(f" matching with {self.id2name[database_im_id_sfm]}")
+            original_points1, original_points2, original_pairs = self.gather_matches(arr, id1, query_im_id,
+                                                                                     database_im_id,
+                                                                                     filter_by_d2_detection=True)
+            if DEBUG:
+                tqdm.write(f" {GLOBAL_COUNT} gathering {len(original_pairs)} matches")
+            if len(original_pairs) == 0:
+                continue
 
-                    if cc_verification:
-                        mask0, scores, totals = self.verify_matches_cross_compare(original_pairs, database_im_id_sfm,
-                                                                                  query_im_name)
-                        points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
-                                                              [original_points1, original_points2,
-                                                               original_pairs, scores])
-                        pairs2 = []
-                        for idx, pair in enumerate(pairs):
-                            pair2 = list(pair)
-                            pair2.append(scores[idx])
-                            pairs2.append(pair2)
-                        all_matches_cc.append((pairs2, database_im_id_sfm))
-                    all_matches.append((original_pairs, database_im_id_sfm))
+            if cc_verification:
+                mask0, scores, totals = self.verify_matches_cross_compare(original_pairs, database_im_id_sfm,
+                                                                          query_im_name)
+                points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
+                                                      [original_points1, original_points2,
+                                                       original_pairs, scores])
+                pairs2 = []
+                for idx, pair in enumerate(pairs):
+                    pair2 = list(pair)
+                    pair2.append(scores[idx])
+                    pairs2.append(pair2)
+                all_matches_cc.append((pairs2, database_im_id_sfm))
+            all_matches.append((original_pairs, database_im_id_sfm))
 
-                    # homography ransac loop checking
-                    points1_arr = np.vstack(original_points1)
-                    points2_arr = np.vstack(original_points2)
-                    verified, mask = self.verify_matches(points1_arr, points2_arr, original_pairs, query_im_id,
-                                                         database_im_id,
-                                                         meta_data["h"], meta_data["w"])
-                    if not verified:
-                        nb_skipped += 1
-                        continue
+            # homography ransac loop checking
+            points1_arr = np.vstack(original_points1)
+            points2_arr = np.vstack(original_points2)
+            verified, mask = self.verify_matches(points1_arr, points2_arr, original_pairs, query_im_id,
+                                                 database_im_id,
+                                                 meta_data["h"], meta_data["w"])
+            if not verified:
+                nb_skipped += 1
+                continue
 
-                    points1, points2, pairs = map(lambda du: filter_pairs(du, mask),
-                                                  [original_points1, original_points2, original_pairs])
+            points1, points2, pairs = map(lambda du: filter_pairs(du, mask),
+                                          [original_points1, original_points2, original_pairs])
 
-                    if DEBUG:
-                        tqdm.write(f" homography results in {len(pairs)} matches")
-                        log_matching(pairs,
-                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
-                                     f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
-                                     f"debug/{GLOBAL_COUNT}-3-homo-pairs.jpg")
+            if DEBUG:
+                tqdm.write(f" homography results in {len(pairs)} matches")
+                log_matching(pairs,
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                             f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
+                             f"debug/{GLOBAL_COUNT}-3-homo-pairs.jpg")
 
-                    # cross compare
-                    if cc_verification:
-                        mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm,
-                                                                                  query_im_name)
-                        points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
-                                                              [points1, points2, pairs, scores])
-                        if len(pairs) == 0:
-                            continue
-                        if DEBUG:
-                            tqdm.write(f" cross comparing results in {len(pairs)} matches")
-                            log_matching(pairs,
-                                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
-                                         f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
-                                         f"debug/{GLOBAL_COUNT}-4-cc-pairs.jpg")
+            # cross compare
+            if cc_verification:
+                mask0, scores, totals = self.verify_matches_cross_compare(pairs, database_im_id_sfm,
+                                                                          query_im_name)
+                points1, points2, pairs, scores = map(lambda du: filter_pairs(du, mask0),
+                                                      [points1, points2, pairs, scores])
+                if len(pairs) == 0:
+                    continue
+                if DEBUG:
+                    tqdm.write(f" cross comparing results in {len(pairs)} matches")
+                    log_matching(pairs,
+                                 f"{IMAGES_ROOT_FOLDER}/{self.id2name[database_im_id]}",
+                                 f"{IMAGES_ROOT_FOLDER}/{self.id2name[query_im_id]}",
+                                 f"debug/{GLOBAL_COUNT}-4-cc-pairs.jpg")
 
-                        pairs2 = []
-                        for idx, pair in enumerate(pairs):
-                            pair2 = list(pair)
-                            pair2.append(scores[idx])
-                            pairs2.append(pair2)
-                        self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
-                    else:
-                        self.register_matches(pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
+                pairs2 = []
+                for idx, pair in enumerate(pairs):
+                    pair2 = list(pair)
+                    pair2.append(scores[idx])
+                    pairs2.append(pair2)
+                self.register_matches(pairs2, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
+            else:
+                self.register_matches(pairs, database_im_id_sfm, point3d_candidate_pool, desc_heuristics)
 
-        tqdm.write(f" have {len(point3d_candidate_pool)} matches")
+        if DEBUG:
+            tqdm.write(f" have {len(point3d_candidate_pool)} matches")
 
         if len(point3d_candidate_pool) == 0:
             if len(all_matches_cc) > 5:
@@ -800,13 +831,10 @@ class Localization:
                     self.register_matches(p, db_id, point3d_candidate_pool, True)
 
         pairs = []
-        self.pid2images = colmap_io.read_pid2images(self.image2pose)
         if len(point3d_candidate_pool) > 0:
             point3d_candidate_pool.count_votes()
             point3d_candidate_pool.filter()
             point3d_candidate_pool.sort(by_votes=True)
-            ratio = point3d_candidate_pool.divide()
-            tqdm.write(f" ratio={ratio}")
 
             for cand_idx, candidate in enumerate(point3d_candidate_pool.pool[:max_pool_size]):
                 pid = candidate.pid
@@ -815,6 +843,8 @@ class Localization:
                 pairs.append((xy, xyz))
 
                 if DEBUG:
+                    if self.pid2images is None:
+                        self.pid2images = colmap_io.read_pid2images(self.image2pose)
                     x2, y2 = map(int, xy)
                     query_img = cv2.imread(f"{IMAGES_ROOT_FOLDER}/{query_im_name}")
                     if query_img is None:
@@ -842,19 +872,28 @@ class Localization:
         self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
 
+# if __name__ == '__main__':
+#     camera = {'model': 'SIMPLE_PINHOLE', 'height': 320 * 2, 'width': 240 * 2, 'params': [525.505, 320, 240]}
+#     object_points = []
+#     image_points = []
+#     my_file = pathlib.Path(f"test.pkl")
+#     with open(str(my_file), 'rb') as handle:
+#         pairs = pickle.load(handle)
+#     localization.localize_pose_lib(pairs, 525.505, 320, 240)
+
 if __name__ == '__main__':
-    DEBUG = False
-    COMPARE_TO_GT = False
+    DEBUG = True
+    COMPARE_TO_GT = True
     GLOBAL_COUNT = 0
     USING_OPENCV_PNP = False
     NAME2ERROR = {}
     cam_mat = {'f': 525.505, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
-    # query_image_names = [du[0] for du in logs]
-    # NAME2ERROR = {du1: du2 for du1, du2 in logs}
-    # query_image_names = query_image_names[:1]
+    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
+    query_image_names = [du[0] for du in logs]
+    NAME2ERROR = {du1: du2 for du1, du2 in logs}
+    query_image_names = query_image_names[:1]
     # query_image_names = ["seq-06/frame-000128.color.png"]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)

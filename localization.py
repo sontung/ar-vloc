@@ -1,5 +1,7 @@
+import pathlib
+import pickle
 import time
-
+import poselib
 import cv2
 import numpy as np
 import pnp.build.pnp_python_binding
@@ -117,8 +119,7 @@ def localize_single_image_opencv_refine(pairs, f, c1, c2, init_pose, ransac=True
         return rot_mat, trans
 
 
-def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
-                                 with_inliers_percent=False, return_inlier_mask=True):
+def localize_single_image_lt_pnp(pairs, f, c1, c2, with_inliers_percent=False, return_inlier_mask=True):
     object_points = []
     image_points = []
     object_points_homo = []
@@ -137,7 +138,7 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
         return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1))
     object_points = np.array(object_points)
     image_points = np.array(image_points)
-    threshold = 2 / f
+    threshold = 1 / f
     res = pnp.build.pnp_python_binding.pnp(object_points, image_points, threshold)
 
     object_points_homo = np.array(object_points_homo)
@@ -147,9 +148,9 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
     xy = xy[:, :2]
     diff = np.sum(np.square(xy - image_points), axis=1)
     inliers = np.sum(diff < threshold ** 2)
-    tqdm.write(
-        f" localization is done with diff={round(float(np.sum(diff)), 3)} {inliers}/{image_points.shape[0]}"
-        f" inliers ({round(inliers / image_points.shape[0], 3)})")
+    # tqdm.write(
+    #     f" localization is done with diff={round(float(np.sum(diff)), 3)} {inliers}/{image_points.shape[0]}"
+    #     f" inliers ({round(inliers / image_points.shape[0], 3)})")
 
     # return in opencv format
     r_mat, t_vec = res[:3, :3], res[:3, 3]
@@ -160,3 +161,40 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, threshold=0.001,
         return r_mat, t_vec, inliers / image_points.shape[0]
 
     return r_mat, t_vec
+
+
+def localize_pose_lib(pairs, f, c1, c2):
+    my_file = pathlib.Path(f"test.pkl")
+    with open(str(my_file), 'wb') as handle:
+        pickle.dump(pairs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    camera = {'model': 'SIMPLE_PINHOLE', 'height': c1*2, 'width': c2*2, 'params': [f, c1, c2]}
+    object_points = []
+    image_points = []
+    for xy, xyz in pairs:
+        xyz = np.array(xyz).reshape((3, 1))
+        xy = np.array(xy)
+        xy = xy.reshape((2, 1)).astype(np.float64)
+        image_points.append(xy)
+        object_points.append(xyz)
+
+    pose, info = poselib.estimate_absolute_pose(image_points, object_points, camera, {'max_reproj_error': 16.0}, {})
+    print(pose)
+    return pose
+
+
+if __name__ == '__main__':
+    camera = {'model': 'SIMPLE_PINHOLE', 'height': 320 * 2, 'width': 240 * 2, 'params': [525.505, 320, 240]}
+    object_points = []
+    image_points = []
+    my_file = pathlib.Path(f"test.pkl")
+    with open(str(my_file), 'rb') as handle:
+        pairs = pickle.load(handle)
+    localize_pose_lib(pairs, 525.505, 320, 240)
+    # for xy, xyz in pairs:
+    #     xyz = np.array(xyz).reshape((3, 1))
+    #     xy = xy.reshape((2, 1)).astype(np.float64)
+    #     image_points.append(xy)
+    #     object_points.append(xyz)
+    # pose, info = poselib.estimate_absolute_pose(image_points, object_points, camera, {'max_reproj_error': 16.0}, {})
+    # print(pose)
