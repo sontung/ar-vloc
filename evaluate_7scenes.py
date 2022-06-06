@@ -383,39 +383,24 @@ class Localization:
                 tqdm.write(f" localization failed (found {len(pairs)})")
                 continue
 
-            if USING_OPENCV_PNP:
-                all_retrieved_poses = []
-                for img2 in self.name2retrieval[query_im_name]:
-                    pose2 = self.image2pose[self.name2id[img2]][2]
-                    all_retrieved_poses.append(pose2)
-                all_retrieved_poses = np.vstack(all_retrieved_poses)
-                avg_pose = np.mean(all_retrieved_poses, axis=0)
+            f = metadata["f"]
+            cx = metadata["cx"]
+            cy = metadata["cy"]
+            localization.localize_pose_lib(pairs, f, cx, cy)
+            r_mat1, t_vec1, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs, open_cv=True)
 
-                f = metadata["f"]
-                cx = metadata["cx"]
-                cy = metadata["cy"]
-                avg_rot_mat = qvec2rotmat(avg_pose[:4])
-                avg_pose = [avg_rot_mat, avg_pose[4:]]
-                r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs, open_cv=True)
-                r_mat, t_vec, score, mask = localization.localize_single_image_opencv_refine(pairs, f, cx, cy,
-                                                                                             avg_pose)
+            pose, info = localization.localize_pose_lib(pairs, f, cx, cy)
 
-            else:
-                f = metadata["f"]
-                cx = metadata["cx"]
-                cy = metadata["cy"]
-                localization.localize_pose_lib(pairs, f, cx, cy)
-
-                best_score = None
-                best_pose = None
-                for _ in range(10):
-                    r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
-                    if best_score is None or score > best_score:
-                        best_score = score
-                        best_pose = (r_mat, t_vec)
-                        if best_score > 0.9:
-                            break
-                r_mat, t_vec = best_pose
+            best_score = None
+            best_pose = None
+            for _ in range(10):
+                r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pose = (r_mat, t_vec)
+                    if best_score > 0.9:
+                        break
+            r_mat3, t_vec3 = best_pose
 
             if DEBUG:
                 with open(f"{self.workspace_dir}/logs.txt", "w") as a_file:
@@ -438,14 +423,15 @@ class Localization:
                 #                                                           self.workspace_images_dir)
                 #     cv2.imwrite(f"debug3/img-{idx__}-{round(best_diff[cand_idx], 5)}.jpg", vis_img)
 
-            qw, qx, qy, qz = rotmat2qvec(r_mat)
+            qw, qx, qy, qz = pose.q
+            t_vec2 = pose.t
             try:
-                tx, ty, tz = t_vec[:, 0]
+                tx, ty, tz = t_vec2[:, 0]
             except IndexError:
-                tx, ty, tz = t_vec
+                tx, ty, tz = t_vec2
             result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
-
             if COMPARE_TO_GT:
+
                 pgt_pose, rgb_focal_length = self.pgt_poses[query_im_name]
                 est_poses = vis_loc_pseudo_eval_utils.convert_pose_data([result])
                 est_pose, est_f = est_poses[query_im_name]
@@ -457,11 +443,13 @@ class Localization:
                     tqdm.write(f" error from 0 to {error} ")
 
             if not DEBUG and not COMPARE_TO_GT and not re_write:
-                with open(self.pose_result_file, "a") as a_file:
-                    print(result, file=a_file)
+                self.write_to_pose_file(f"{self.workspace_dir}/res_opencv.txt", query_im_name, t_vec1, r_mat=r_mat1)
+                self.write_to_pose_file(f"{self.workspace_dir}/res_poselib.txt", query_im_name, pose.t, q_vec=pose.q)
+                self.write_to_pose_file(f"{self.workspace_dir}/res_ltpnp.txt", query_im_name, t_vec3, r_mat=r_mat3)
+
             if re_write:
                 self.name2count[query_im_name] = result
-            self.localization_results.append(((r_mat, t_vec), (1, 0, 0)))
+            self.localization_results.append(((r_mat3, t_vec3), (1, 0, 0)))
         if re_write:
             with open(f"{self.workspace_dir}/res_debug.txt", "w") as a_file:
                 for query_im_name in computed_names:
@@ -470,6 +458,20 @@ class Localization:
         self.terminate()
         if len(error_changed) > 0:
             print(error_changed, np.mean(error_changed))
+
+    @staticmethod
+    def write_to_pose_file(pose_file_name, query_im_name, t_vec, r_mat=None, q_vec=None):
+        try:
+            tx, ty, tz = t_vec[:, 0]
+        except IndexError:
+            tx, ty, tz = t_vec
+        if q_vec is not None:
+            qw, qx, qy, qz = q_vec
+        else:
+            qw, qx, qy, qz = rotmat2qvec(r_mat)
+        result = f"{query_im_name} {qw} {qx} {qy} {qz} {tx} {ty} {tz}"
+        with open(pose_file_name, "a") as a_file:
+            print(result, file=a_file)
 
     def visualize(self):
         self.prepare_visualization()
@@ -872,28 +874,19 @@ class Localization:
         self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 
 
-# if __name__ == '__main__':
-#     camera = {'model': 'SIMPLE_PINHOLE', 'height': 320 * 2, 'width': 240 * 2, 'params': [525.505, 320, 240]}
-#     object_points = []
-#     image_points = []
-#     my_file = pathlib.Path(f"test.pkl")
-#     with open(str(my_file), 'rb') as handle:
-#         pairs = pickle.load(handle)
-#     localization.localize_pose_lib(pairs, 525.505, 320, 240)
-
 if __name__ == '__main__':
-    DEBUG = True
-    COMPARE_TO_GT = True
+    DEBUG = False
+    COMPARE_TO_GT = False
     GLOBAL_COUNT = 0
     USING_OPENCV_PNP = False
     NAME2ERROR = {}
     cam_mat = {'f': 525.505, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
-    query_image_names = [du[0] for du in logs]
-    NAME2ERROR = {du1: du2 for du1, du2 in logs}
-    query_image_names = query_image_names[:1]
+    # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
+    # query_image_names = [du[0] for du in logs]
+    # NAME2ERROR = {du1: du2 for du1, du2 in logs}
+    # query_image_names = query_image_names[:1]
     # query_image_names = ["seq-06/frame-000128.color.png"]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)
