@@ -14,6 +14,9 @@ WARNING = False
 
 
 def read_points3D(in_dir="sfm_models/points3D.txt"):
+    """
+    pid => pid, xyz, rgb
+    """
     sys.stdin = open(in_dir, "r")
     lines = sys.stdin.readlines()
     data = {}

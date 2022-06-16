@@ -164,6 +164,9 @@ def localize_single_image_lt_pnp(pairs, f, c1, c2, with_inliers_percent=False, r
 
 
 def localize_pose_lib(pairs, f, c1, c2):
+    """
+    using pose lib to compute (usually best)
+    """
     camera = {'model': 'SIMPLE_PINHOLE', 'height': int(c1*2), 'width': int(c2*2), 'params': [f, c1, c2]}
     object_points = []
     image_points = []
@@ -175,40 +178,3 @@ def localize_pose_lib(pairs, f, c1, c2):
         object_points.append(xyz)
     pose, info = poselib.estimate_absolute_pose(image_points, object_points, camera, {'max_reproj_error': 16.0}, {})
     return pose, info
-
-
-def test_pose_lib(pairs, f, c1, c2):
-    # f, c1, c2 = 525.505, 320, 240
-    print(type(f), type(c1), type(c2))
-    f, c1, c2 = 525.505, 320, 240
-    print(type(f), type(c1), type(c2))
-
-    camera = {'model': 'SIMPLE_PINHOLE', 'height': c1 * 2, 'width': c2 * 2, 'params': [f, c1, c2]}
-    object_points = []
-    image_points = []
-    for xy, xyz in pairs:
-        xyz = np.array(xyz).reshape((3, 1))
-        xy = np.array(xy)
-        xy = xy.reshape((2, 1)).astype(np.float64)
-        image_points.append(xy)
-        object_points.append(xyz)
-
-    pose, info = poselib.estimate_absolute_pose(image_points, object_points, camera, {'max_reproj_error': 16.0}, {})
-    print("test", pose)
-
-
-# if __name__ == '__main__':
-#     camera = {'model': 'SIMPLE_PINHOLE', 'height': 320 * 2, 'width': 240 * 2, 'params': [525.505, 320, 240]}
-#     object_points = []
-#     image_points = []
-#     my_file = pathlib.Path(f"test.pkl")
-#     with open(str(my_file), 'rb') as handle:
-#         pairs = pickle.load(handle)
-#     localize_pose_lib(pairs, 525.505, 320, 240)
-    # for xy, xyz in pairs:
-    #     xyz = np.array(xyz).reshape((3, 1))
-    #     xy = xy.reshape((2, 1)).astype(np.float64)
-    #     image_points.append(xy)
-    #     object_points.append(xyz)
-    # pose, info = poselib.estimate_absolute_pose(image_points, object_points, camera, {'max_reproj_error': 16.0}, {})
-    # print(pose)
