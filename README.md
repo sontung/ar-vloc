@@ -1,16 +1,16 @@
 # Visual localization for augmented reality
 
 ## to do
-- share one matrix for query image across all pipeline
-- convert all to id only (currently mixed name and id)
-- what to do when cross compare does not find any matches? second time matching.
-- d2 mask in cc
-- diversify retrieval pairs (don't output close frames)
 - try `how` descriptors
-- when homo and cc output no matches, what to do? if homo returns no matches, continue with cc. if still no matches, forward everything to pnp.
-- refine from avg. of poses of retrieval
 
-## main script = `retrieval_based.py`
+## main script = `retrieval_based*.py`
+
+## how to evaluate
+1. modify global variables in `evaluation_utils.py`.
+2. copy `images.txt` and `points3d.txt` to workspace directory (export to txt files using colmap if only bin files are available).
+3. run `evaluation_utils.py`.
+4. download 7 scenes images from Microsoft, and unzip everything inside the downloaded file.
+5. run `evaluate_7scenes.py`.
 
 ## evaluate using 7scenes dataset from [this repo](https://github.com/tsattler/visloc_pseudo_gt_limitations)
 1. edit the config

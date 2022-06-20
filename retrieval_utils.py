@@ -9,8 +9,7 @@ import numpy as np
 import pickle
 import faiss
 from colmap_io import build_co_visibility_graph, read_name2id
-from vis_utils import concat_images_different_sizes, visualize_matching_pairs, \
-    visualize_matching_helper_with_pid2features
+from vis_utils import concat_images_different_sizes, visualize_matching_pairs
 from scipy.spatial import KDTree
 from tqdm import tqdm
 from fast_math_op import fast_sum_i1

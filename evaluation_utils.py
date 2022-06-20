@@ -24,11 +24,11 @@ from hloc.utils.base_model import dynamic_load
 from hloc.triangulation import (import_features)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
-SFM_FOLDER = "/media/sontung/580ECE740ECE4B28/7scenes_reference_models/7scenes_reference_models/redkitchen/sfm_gt"
+SFM_FOLDER = "/media/sontung/580ECE740ECE4B28/7scenes_reference_models/7scenes_reference_models/office/sfm_gt"
 SFM_IMAGES_FILE = f"{SFM_FOLDER}/images.txt"
 WS_FOLDER = pathlib.Path("7scenes_ws_div")
 QUERY_LIST = f"{SFM_FOLDER}/list_test.txt"
-IMAGES_ROOT_FOLDER = pathlib.Path("/media/sontung/580ECE740ECE4B28/7_scenes_images/redkitchen")
+IMAGES_ROOT_FOLDER = pathlib.Path("/media/sontung/580ECE740ECE4B28/7_scenes_images/office")
 DB_DIR = WS_FOLDER / "database.db"
 
 
@@ -230,3 +230,5 @@ def read_logs(log_file):
     return records
 
 
+if __name__ == '__main__':
+    prepare()
