@@ -90,6 +90,9 @@ def extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_imag
 
 def extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
                                         database_image_names, save_file, nb_neighbors=40, with_collection_info=True):
+    """
+    will try to diversify the retrieval, avoid return too similar images
+    """
     with open(db_descriptors_dir, 'rb') as handle:
         database_descriptors = pickle.load(handle)
     img_names = database_descriptors["name"]

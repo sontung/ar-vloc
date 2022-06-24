@@ -44,7 +44,7 @@ class Localization:
     # @profile
     def __init__(self, db_names, query_names):
         if COMPARE_TO_GT:
-            gt_file = "visloc_pseudo_gt_limitations/pgt/sfm/7scenes/redkitchen_test.txt"
+            gt_file = "visloc_pseudo_gt_limitations/pgt/sfm/7scenes/office_test.txt"
             self.pgt_poses = vis_loc_pseudo_eval_utils.read_pose_data(gt_file)
 
         self.db_im_names = db_names
@@ -875,18 +875,18 @@ class Localization:
 
 
 if __name__ == '__main__':
-    DEBUG = False
-    COMPARE_TO_GT = False
+    DEBUG = True
+    COMPARE_TO_GT = True
     GLOBAL_COUNT = 0
     USING_OPENCV_PNP = False
     NAME2ERROR = {}
-    cam_mat = {'f': 525.505, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
+    cam_mat = {'f': 525.143, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
-    # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_diversified_bad.txt")
-    # query_image_names = [du[0] for du in logs]
-    # NAME2ERROR = {du1: du2 for du1, du2 in logs}
-    # query_image_names = query_image_names[:1]
+    logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
+    query_image_names = [du[0] for du in logs]
+    NAME2ERROR = {du1: du2 for du1, du2 in logs}
+    query_image_names = query_image_names[:1]
     # query_image_names = ["seq-06/frame-000128.color.png"]
     localizer = Localization(database_image_names, query_image_names)
     localizer.main(cam_mat, query_image_names, re_write=False)
