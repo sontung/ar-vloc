@@ -5,6 +5,11 @@
 
 ## main script = `retrieval_based*.py`
 
+## after changing retrieval pairs
+1. have to perform matches again
+2. thus, delete `matches.h5` `matches_1.pkl` `id2matches.pkl`
+3. delete `pairs.txt`
+
 ## how to evaluate
 1. modify global variables in `evaluation_utils.py`.
 2. copy `images.txt` and `points3d.txt` to workspace directory (export to txt files using colmap if only bin files are available).

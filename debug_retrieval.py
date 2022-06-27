@@ -87,7 +87,7 @@ def extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_imag
                 db_idx = indices[u, v]
                 print(query_image_names[u], database_image_names[db_idx], file=a_file)
 
-
+@profile
 def main(nb_neighbors=40):
     """
     will try to diversify the retrieval, avoid return too similar images
@@ -138,12 +138,18 @@ def main(nb_neighbors=40):
     index = faiss.IndexFlatL2(dim)
     index.add(desc_mat)
     distances, indices = index.search(query_mat, nb_neighbors)
-    print(indices)
-    for idx22 in range(indices.shape[1]-1):
+    left_out_list = []
+    for idx22 in range(indices.shape[1] - 1):
         db_idx = indices[0][idx22]
-        db_idx2 = indices[0][idx22+1]
-
-        print(all_names[db_idx], distances[0][idx22]/distances[0][idx22+1])
+        if all_names[db_idx] not in left_out_list:
+            str_ = all_names[db_idx].split("/")[-1]
+            str_ = str_.split(".color.png")[0].split("frame-")[-1]
+            for i_ in range(-3, 4):
+                if i_ != 0:
+                    new_str = str(int(str_)+i_).zfill(len(str_))
+                    im_name = f"seq-03/frame-{new_str}.color.png"
+                    left_out_list.append(im_name)
+            print(all_names[db_idx], distances[0][idx22] / distances[0][idx22 + 1])
 
 
 if __name__ == '__main__':

@@ -2,6 +2,8 @@ import os
 import pathlib
 import sys
 
+import tqdm
+
 sys.path.append("Hierarchical-Localization")
 sys.path.append("cnnimageretrieval-pytorch")
 import pickle
@@ -157,6 +159,65 @@ def extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
                     print(query_image_names[i], database_image_names[db_idx], file=a_file)
 
 
+def extract_retrieval_pairs_diversified_for_videos(db_descriptors_dir, query_image_names,
+                                                   database_image_names, save_file,
+                                                   nb_neighbors=40):
+    """
+    will try to diversify the retrieval, avoid return too similar images (based on the index of the image in the video)
+    """
+    with open(db_descriptors_dir, 'rb') as handle:
+        database_descriptors = pickle.load(handle)
+    img_names = database_descriptors["name"]
+    img_descriptors = database_descriptors["desc"]
+    name2desc = {}
+    for u, name in enumerate(img_names):
+        name2desc[name] = img_descriptors[u]
+    query_mat = np.zeros((len(query_image_names), img_descriptors[0].shape[0]), dtype=np.float32)
+    db_mat = np.zeros((len(database_image_names), img_descriptors[0].shape[0]), dtype=np.float32)
+    copy_desc_mat(query_mat, name2desc, query_image_names)
+    copy_desc_mat(db_mat, name2desc, database_image_names)
+
+    collection2descmat = {}
+    for name in database_image_names:
+        collection_name = name.split("/")[0]
+        if collection_name not in collection2descmat:
+            collection2descmat[collection_name] = [[name2desc[name]], [name]]
+        else:
+            collection2descmat[collection_name][0].append(name2desc[name])
+            collection2descmat[collection_name][1].append(name)
+
+    with open(str(save_file), "w") as a_file:
+        name2id = {}
+        for name in database_image_names:
+            str_ = name.split("/")[-1]
+            str_ = str_.split(".color.png")[0].split("frame-")[-1]
+            id_ = int(str_)
+            left_out_list = []
+            for i_ in [-3, -2, -1, 1, 2, 3]:
+                new_id = id_ + i_
+                left_out_list.append(new_id)
+            name2id[name] = (id_, left_out_list)
+
+        for collection_name in tqdm.tqdm(collection2descmat, "Extracting retrieval"):
+            desc_mat, all_names = collection2descmat[collection_name]
+            desc_mat = np.vstack(desc_mat).astype(np.float32)
+
+            dim = db_mat.shape[1]
+            index = faiss.IndexFlatL2(dim)
+            index.add(desc_mat)
+            distances, indices = index.search(query_mat, nb_neighbors)
+
+            for idx11 in range(distances.shape[0]):
+                left_out_list = []
+                for idx22 in range(indices.shape[1]):
+                    db_idx = indices[idx11][idx22]
+                    db_name = all_names[db_idx]
+                    id_, a_list = name2id[db_name]
+                    if id_ not in left_out_list:
+                        left_out_list.extend(a_list)
+                        print(query_image_names[idx11], all_names[db_idx], file=a_file)
+
+
 def run_image_retrieval_and_matching(matching_feature_path, image_list, query_image_names, database_image_names,
                                      diversified_retrieval=False):
     retrieval_loc_pairs_dir = WS_FOLDER / 'pairs.txt'  # top 20 retrieved by NetVLAD
@@ -184,8 +245,11 @@ def run_image_retrieval_and_matching(matching_feature_path, image_list, query_im
     if not diversified_retrieval:
         extract_retrieval_pairs(db_descriptors_dir, query_image_names, database_image_names, retrieval_loc_pairs_dir)
     else:
-        extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
-                                            database_image_names, retrieval_loc_pairs_dir)
+        # extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
+        #                                     database_image_names, retrieval_loc_pairs_dir)
+        print("Extracting retrieval pairs.")
+        extract_retrieval_pairs_diversified_for_videos(db_descriptors_dir, query_image_names,
+                                                       database_image_names, retrieval_loc_pairs_dir)
 
     # match
     matching_results_dir = WS_FOLDER / "matches.h5"
