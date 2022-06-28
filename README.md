@@ -16,6 +16,7 @@
 3. run `evaluation_utils.py`.
 4. download 7 scenes images from Microsoft, and unzip everything inside the downloaded file.
 5. run `evaluate_7scenes.py`.
+6. change camera params if necessary.
 
 ## evaluate using 7scenes dataset from [this repo](https://github.com/tsattler/visloc_pseudo_gt_limitations)
 1. edit the config

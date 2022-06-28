@@ -1,25 +1,26 @@
+import gc
 import pathlib
 import pickle
 import sys
-import gc
+
 import cv2
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 import torch
-import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
 import colmap_io
 import localization
 import retrieval_based_pycolmap
+from colmap_read import rotmat2qvec
 from math_utils import (geometric_verify_pydegensac, filter_pairs, quadrilateral_self_intersect_test)
 from retrieval_utils import (CandidatePool, MatchCandidate,
                              log_matching, extract_global_descriptors_on_database_images, verify_matches_cross_compare)
 from vis_utils import (visualize_cam_pose_with_point_cloud, visualize_matching_helper_with_pid2features,
                        concat_images_different_sizes)
-from colmap_read import rotmat2qvec, qvec2rotmat
 
 sys.path.append("Hierarchical-Localization")
 sys.path.append("cnnimageretrieval-pytorch")
@@ -37,7 +38,7 @@ from hloc import extract_features, match_features_bare
 from hloc.utils.base_model import dynamic_load
 from hloc.utils.io import list_h5_names, get_matches_wo_loading
 from hloc.reconstruction import get_image_ids
-from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare, read_logs)
+from evaluation_utils import (WS_FOLDER, IMAGES_ROOT_FOLDER, DB_DIR, prepare)
 
 
 class Localization:
@@ -881,7 +882,7 @@ if __name__ == '__main__':
     GLOBAL_COUNT = 0
     USING_OPENCV_PNP = False
     NAME2ERROR = {}
-    cam_mat = {'f': 525.143, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
+    cam_mat = {'f': 525.505, 'cx': 320.0, 'cy': 240.0, "h": 640, "w": 480}
     query_image_names, database_image_names = prepare()
 
     # logs = read_logs("visloc_pseudo_gt_limitations/ar_vloc_bad.txt")
