@@ -65,9 +65,9 @@ def localize_single_image_opencv(pairs, f, c1, c2):
         return np.identity(3), np.array([0, 0, 0]).reshape((-1, 1)), 0, mask
     rot_mat, _ = cv2.Rodrigues(rot)
     mask[inliers[:, 0]] = 1
-    tqdm.write(
-        f" localization is done with {inliers.shape[0]}/{image_points.shape[0]}"
-        f" inliers ({round(inliers.shape[0] / image_points.shape[0], 3)})")
+    # tqdm.write(
+    #     f" localization is done with {inliers.shape[0]}/{image_points.shape[0]}"
+    #     f" inliers ({round(inliers.shape[0] / image_points.shape[0], 3)})")
     return rot_mat, trans, inliers.shape[0] / image_points.shape[0], mask
 
 

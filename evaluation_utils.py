@@ -26,11 +26,11 @@ from hloc.utils.base_model import dynamic_load
 from hloc.triangulation import (import_features)
 from hloc.reconstruction import create_empty_db, import_images, get_image_ids
 
-SFM_FOLDER = "/media/sontung/580ECE740ECE4B28/7scenes_reference_models/7scenes_reference_models/stairs/sfm_gt"
+SFM_FOLDER = "/media/sontung/580ECE740ECE4B28/7scenes_reference_models/7scenes_reference_models/fire/sfm_gt"
 WS_FOLDER = pathlib.Path("7scenes_ws_div")
 SFM_IMAGES_FILE = WS_FOLDER / "images.txt"
 QUERY_LIST = f"{SFM_FOLDER}/list_test.txt"
-IMAGES_ROOT_FOLDER = pathlib.Path("/media/sontung/580ECE740ECE4B28/7_scenes_images/stairs")
+IMAGES_ROOT_FOLDER = pathlib.Path("/media/sontung/580ECE740ECE4B28/7_scenes_images/fire")
 DB_DIR = WS_FOLDER / "database.db"
 
 
@@ -247,7 +247,6 @@ def run_image_retrieval_and_matching(matching_feature_path, image_list, query_im
     else:
         # extract_retrieval_pairs_diversified(db_descriptors_dir, query_image_names,
         #                                     database_image_names, retrieval_loc_pairs_dir)
-        print("Extracting retrieval pairs.")
         extract_retrieval_pairs_diversified_for_videos(db_descriptors_dir, query_image_names,
                                                        database_image_names, retrieval_loc_pairs_dir)
 
