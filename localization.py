@@ -4,7 +4,6 @@ import time
 import poselib
 import cv2
 import numpy as np
-import pnp.build.pnp_python_binding
 from tqdm import tqdm
 
 
@@ -120,6 +119,8 @@ def localize_single_image_opencv_refine(pairs, f, c1, c2, init_pose, ransac=True
 
 
 def localize_single_image_lt_pnp(pairs, f, c1, c2, with_inliers_percent=False, return_inlier_mask=True):
+    import pnp.build.pnp_python_binding
+
     object_points = []
     image_points = []
     object_points_homo = []

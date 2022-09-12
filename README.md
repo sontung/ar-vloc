@@ -3,7 +3,7 @@
 ## to do
 - try `how` descriptors
 
-## main script = `retrieval_based*.py`
+## main script = `retrieval_based_pycolmap.py` (check out `evaluate_7scenes.py` for eval)
 
 ## after changing retrieval pairs
 1. have to perform matches again
@@ -14,7 +14,7 @@
 1. modify global variables in `evaluation_utils.py`.
 2. copy `images.txt` and `points3d.txt` to workspace directory (export to txt files using colmap if only bin files are available).
 3. run `evaluation_utils.py`.
-4. download 7 scenes images from Microsoft, and unzip everything inside the downloaded file.
+4. download 7 scenes images from Microsoft, and unzip everything inside the downloaded file, download 3D models from [this repo](https://github.com/tsattler/visloc_pseudo_gt_limitations).
 5. run `evaluate_7scenes.py`.
 6. change camera params if necessary.
 

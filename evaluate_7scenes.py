@@ -388,21 +388,8 @@ class Localization:
             f = metadata["f"]
             cx = metadata["cx"]
             cy = metadata["cy"]
-            localization.localize_pose_lib(pairs, f, cx, cy)
-            r_mat1, t_vec1, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs, open_cv=True)
 
             pose, info = localization.localize_pose_lib(pairs, f, cx, cy)
-
-            best_score = None
-            best_pose = None
-            for _ in range(10):
-                r_mat, t_vec, score, mask, diff = retrieval_based_pycolmap.localize(metadata, pairs)
-                if best_score is None or score > best_score:
-                    best_score = score
-                    best_pose = (r_mat, t_vec)
-                    if best_score > 0.9:
-                        break
-            r_mat3, t_vec3 = best_pose
 
             if DEBUG:
                 with open(f"{self.workspace_dir}/logs.txt", "w") as a_file:
@@ -445,13 +432,10 @@ class Localization:
                     tqdm.write(f" error from 0 to {error} ")
 
             if not DEBUG and not COMPARE_TO_GT and not re_write:
-                self.write_to_pose_file(f"{self.workspace_dir}/res_opencv.txt", query_im_name, t_vec1, r_mat=r_mat1)
                 self.write_to_pose_file(f"{self.workspace_dir}/res_poselib.txt", query_im_name, pose.t, q_vec=pose.q)
-                self.write_to_pose_file(f"{self.workspace_dir}/res_ltpnp.txt", query_im_name, t_vec3, r_mat=r_mat3)
 
             if re_write:
                 self.name2count[query_im_name] = result
-            self.localization_results.append(((r_mat3, t_vec3), (1, 0, 0)))
         if re_write:
             with open(f"{self.workspace_dir}/res_debug.txt", "w") as a_file:
                 for query_im_name in computed_names:

@@ -8,7 +8,6 @@ import kornia
 import torch
 import sqlite3
 import struct
-from PIL import Image
 
 WARNING = False
 

@@ -235,59 +235,6 @@ class Localization:
         visualize_cam_pose_with_point_cloud(self.point_cloud, self.localization_results)
         self.localization_results.clear()
 
-    def main(self, debug=False):
-        start = time.time()
-        self.create_folders()
-        name_list = [f for f in listdir(self.workspace_queries_dir) if isfile(join(self.workspace_queries_dir, f))]
-        localization_results = []
-        failed = 0
-        colmap_failed = 0
-        failed_images = []
-
-        self.run_commands()
-
-        # reading colmap database
-        self.image2pose_new = colmap_io.read_images(f"{self.workspace_loc_dir}/images.txt")
-        self.read_matching_database()
-
-        for idx in tqdm(range(len(name_list)), desc="Processing"):
-            pairs = self.read_2d_3d_matches(name_list[idx])
-            if not pairs:
-                colmap_failed += 1
-                tqdm.write(f" {name_list[idx]} failed to loc, try voting-based...")
-                if debug:
-                    self.verbose_when_failed(name_list[idx])
-                pairs, _ = self.read_2d_2d_matches(name_list[idx])
-                if len(pairs) == 0:
-                    failed += 1
-                    failed_images.append(name_list[idx])
-                    continue
-
-            best_score = None
-            best_pose = None
-            for _ in range(10):
-                r_mat, t_vec, score = localize(self.default_metadata, pairs)
-                if best_score is None or score > best_score:
-                    best_score = score
-                    best_pose = (r_mat, t_vec)
-                    if best_score == 1.0:
-                        break
-            r_mat, t_vec = best_pose
-
-            if best_score < 0.2:
-                failed += 1
-                failed_images.append(name_list[idx])
-                continue
-            localization_results.append(((r_mat, t_vec), (0, 1, 0)))
-        self.delete_folders()
-
-        end = time.time()
-        print(f"Colmap failed {colmap_failed}, voting-based recovered {colmap_failed-failed}, total = {failed}"
-              f" images: {failed_images}")
-        print(f"Done in {end-start} seconds, avg. {(end-start)/len(name_list)} s/image")
-        self.prepare_visualization()
-        visualize_cam_pose_with_point_cloud(self.point_cloud, localization_results)
-
     def verbose_when_failed(self, query_im_name):
         matches_verified, _ = colmap_db_read.extract_colmap_two_view_geometries(self.workspace_database_dir)
         matches = colmap_db_read.extract_colmap_matches(self.workspace_database_dir)
